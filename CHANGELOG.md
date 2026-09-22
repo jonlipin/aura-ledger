@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.44.1
+
+- The icon shape is looked for on every one of the Cooldown Manager's displays, not just the first one with an icon in it. The addon read the essential cooldowns, whose items carry no border on this client, and so found nothing to copy and changed nothing. Each display is tried now, the fullest answer is kept, and /auraledger debug icon lists what each one offered.
+
 ## 1.44.0
 
 - Trackers wear the Cooldown Manager's own icon shape. Rather than name an atlas and hope, the addon measures what the manager does to its own icon: the masks it clips it with and the border art it draws round it are live regions, so where they sit against that icon is read off the screen and put on a tracker at any size. The missing and warning colours go onto that same border, so a tracker is the manager's shape in every state instead of gaining a square red frame. Where the manager cannot be read, the thin dark edge from 1.43.0 is still drawn.

@@ -669,13 +669,38 @@ local function BuildSkin()
 		end
 	end
 	do
-		local shapeFrom = iconDonor or s.donorRoot
-		if shapeFrom then
-			s.shape = ShapeFromDonor(shapeFrom)
+		-- Every display, best answer wins: a border is what is wanted most, then a mask. On this
+		-- client the tracked-buff items carry a DebuffBorder and the essential ones do not.
+		local tried = {}
+		for _, v in ipairs({ { "tracked buffs", BuffIconCooldownViewer }, { "essential", EssentialCooldownViewer },
+			{ "utility", UtilityCooldownViewer }, { "tracked bars", BuffBarCooldownViewer } }) do
+			local donor = v[2] and ViewerDonor(v[2])
+			local shape = donor and ShapeFromDonor(donor)
+			if shape then
+				tried[#tried + 1] = v[1] .. " (" .. #shape.masks .. " mask" .. (#shape.masks == 1 and "" or "s")
+					.. ", " .. (shape.border and "border" or "no border") .. ")"
+				if shape.border and (not s.shape or not s.shape.border) then
+					s.shape = shape
+					s.shapeFrom = v[1]
+				elseif not s.shape then
+					s.shape = shape
+					s.shapeFrom = v[1]
+				end
+			else
+				tried[#tried + 1] = v[1] .. " (nothing)"
+			end
+		end
+		if not s.shape and s.donorRoot then
+			s.shape = ShapeFromDonor(s.donorRoot)
+			if s.shape then s.shapeFrom = "the bar this skin came from" end
+		end
+		ns.report["icon shape tried"] = table.concat(tried, ", ")
+		do
 			ns.report["icon shape"] = s.shape
 				and ((#s.shape.masks .. " mask" .. (#s.shape.masks == 1 and "" or "s"))
 					.. ", border " .. (s.shape.border and (s.shape.border.art.atlas or tostring(s.shape.border.art.file)) or "none"))
 				or "not readable on this client"
+			if s.shape then ns.report["icon shape"] = ns.report["icon shape"] .. ", from " .. tostring(s.shapeFrom) end
 		end
 	end
 	-- Resolve the fill to a file + coords so it can be cropped as it drains.
@@ -736,6 +761,7 @@ function Display:IconReport(emit)
 	emit("icon art from: " .. tostring(s.iconSource or s.source))
 	emit("icon edge: " .. BorderMode())
 	emit("icon shape from the manager: " .. tostring(ns.report["icon shape"] or "not looked for yet"))
+	emit("  displays tried: " .. tostring(ns.report["icon shape tried"] or "none"))
 	local sh = skin and skin.shape
 	for i, m in ipairs((sh and sh.masks) or {}) do
 		emit(("  mask %d: %s, reaches l %.3f r %.3f t %.3f b %.3f"):format(i, tostring(m.art.atlas or m.art.file), m.rect.l, m.rect.r, m.rect.t, m.rect.b))
