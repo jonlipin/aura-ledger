@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.11.0"
+ns.VERSION = "1.11.1"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0 }
 ns.auras = {}
@@ -734,15 +734,34 @@ local function ReconcileWithFrames()
 			changed = true
 		end
 	end
-	-- Icons shown with nothing behind them: the ledger knows what they are.
+	-- Icons shown with nothing behind them: your trackers, the ledger and the pre-built book know what
+	-- they are (in that order, so what you track is recognised the first time it lands).
 	local have = {}
 	for _, e in pairs(auras) do if e.icon then have[e.icon] = true end end
 	for file, kind in pairs(shown) do
 		if not have[file] then
 			local best
-			for _, h in pairs(ns.db.history) do
-				if h.icon == file and h.name and (h.kind == kind or h.kind == "any") then
-					if not best or (h.last or 0) > (best.last or 0) then best = h end
+			for _, g in ipairs(ns.profile.groups) do
+				for _, t in ipairs(g.trackers) do
+					if t.icon == file and t.name and (t.unit or "player") == "player" and (t.kind == kind or t.kind == "any" or not t.kind) then
+						best = { name = t.name, id = t.id, duration = 0 }
+						local h = ns.db.history[kind .. ":" .. strlower(t.name)]
+						if h and h.duration then best.duration = h.duration end
+					end
+				end
+			end
+			if not best then
+				for _, h in pairs(ns.db.history) do
+					if h.icon == file and h.name and (h.kind == kind or h.kind == "any") then
+						if not best or (h.last or 0) > (best.last or 0) then best = h end
+					end
+				end
+			end
+			if not best and ns.BookPages then
+				for _, list in pairs(ns.BookPages()) do
+					for _, item in ipairs(list) do
+						if item.icon == file and (item.kind == kind or item.kind == "any") then best = { name = item.name, id = item.id, duration = 0 } end
+					end
 				end
 			end
 			if best then
