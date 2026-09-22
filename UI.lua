@@ -1117,7 +1117,8 @@ local function SyncOptions()
 	if t then
 		trackerTitle.icon:SetTexture(t.icon or ns.QUESTION)
 		trackerTitle.name:SetText(t.name or ("Spell " .. tostring(t.id)))
-		trackerTitle.sub:SetText((t.id and ("Spell ID " .. t.id) or "No spell ID known yet") .. "  |cff909090in " .. ns.GroupName(g) .. "|r")
+		local _, dimC = InkCodes()
+		trackerTitle.sub:SetText((t.id and ("Spell ID " .. t.id) or "No spell ID known yet") .. "  " .. dimC .. "in " .. ns.GroupName(g) .. "|r")
 		trackerBuilder:Sync()
 		optionsChild:SetHeight(trackerPanel.height)
 	elseif g then
@@ -1213,9 +1214,20 @@ local function BuildTrackerPanel(width)
 	local function T() return SelectedTracker() end
 
 	trackerTitle.icon = trackerPanel:CreateTexture(nil, "ARTWORK")
-	trackerTitle.icon:SetSize(34, 34)
-	trackerTitle.icon:SetPoint("TOPLEFT", 8, -8)
+	trackerTitle.icon:SetSize(36, 36)
+	trackerTitle.icon:SetPoint("TOPLEFT", 12, -10)
 	trackerTitle.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	-- The spellbook's icon frame and mask, as in the book.
+	do
+		local art = SpellBookArt()
+		if art and art.iconFrame then
+			local fr = trackerPanel:CreateTexture(nil, "OVERLAY")
+			fr:SetAtlas(art.iconFrame)
+			fr:SetSize(46, 43)
+			fr:SetPoint("CENTER", trackerTitle.icon, "CENTER", -2.7, -1.8)
+			MaskIcon(trackerPanel, trackerTitle.icon)
+		end
+	end
 	trackerTitle.name = Ink(trackerPanel:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"), "head")
 	trackerTitle.name:SetPoint("TOPLEFT", trackerTitle.icon, "TOPRIGHT", 8, -1)
 	trackerTitle.name:SetPoint("RIGHT", -6, 0)

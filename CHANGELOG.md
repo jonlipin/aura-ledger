@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.2
+
+- The tracker icon at the top of the Options panel wears the spellbook icon frame and mask, and its group tag is in ink.
+
 ## 1.7.1
 
 - Right page: darker ink for better contrast, headings moved clear of the page rim, hover uses the spellbook backplate and the selected row a soft brown band instead of the blue auction-house highlight, and the tracker icons in the list wear the spellbook icon frame with the rounded mask.
