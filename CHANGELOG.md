@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.7
+
+- Tab icons are square and fill the tab's height, as in the spellbook, instead of being cropped short.
+
 ## 1.9.6
 
 - Tabs a little higher, on the page edge; the search box art shows again (the page rim had been drawn over it).

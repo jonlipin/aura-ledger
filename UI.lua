@@ -912,14 +912,13 @@ local function CreateBookTab(holder, pane, token, index)
 	local art = SpellBookArt()
 	local back = tab:CreateTexture(nil, "BACKGROUND")
 	back:SetPoint("TOPLEFT", 4, -3)
-	back:SetPoint("BOTTOMRIGHT", -4, 4)
+	back:SetPoint("BOTTOMRIGHT", -4, 0)
 	back:SetColorTexture(0.02, 0.02, 0.02, 1)
 	local icon = tab:CreateTexture(nil, "ARTWORK")
-	icon:SetPoint("TOPLEFT", 5, -4)
-	icon:SetPoint("BOTTOMRIGHT", -5, 5)
-	-- The window is wider than tall: crop the square icon to keep its proportions.
-	local cropY = 0.5 - 0.43 * ((TAB_H - 9) / (TAB_W - 10))
-	icon:SetTexCoord(0.07, 0.93, cropY, 1 - cropY)
+	-- Square, running to the bottom of the tab, as the spellbook's; the frame art draws over its edges.
+	icon:SetPoint("TOP", 0, -4)
+	icon:SetSize(TAB_W - 10, TAB_W - 10)
+	icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
 	MaskIcon(tab, icon, back)
 	if token == "HISTORY" then
 		icon:SetTexture(ICON)
@@ -932,9 +931,7 @@ local function CreateBookTab(holder, pane, token, index)
 	elseif CLASS_ICON_TCOORDS and CLASS_ICON_TCOORDS[token] then
 		icon:SetTexture("Interface\\Glues\\CharacterCreate\\UI-CharacterCreate-Classes")
 		local c = CLASS_ICON_TCOORDS[token]
-		local h = (c[4] - c[3]) * ((TAB_H - 9) / (TAB_W - 10))
-		local mid = (c[3] + c[4]) / 2
-		icon:SetTexCoord(c[1], c[2], mid - h / 2, mid + h / 2)
+		icon:SetTexCoord(c[1], c[2], c[3], c[4])
 	else
 		icon:SetTexture("Interface\\Icons\\ClassIcon_" .. token:sub(1, 1) .. token:sub(2):lower())
 	end
