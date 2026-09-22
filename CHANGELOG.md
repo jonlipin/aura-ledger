@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.28.0
+
+- Group size is a number of players now, not three tick boxes. One slider, "Only with this many players": 1 is any group size, 2 upwards needs that many people, 5 reads as a party and 10 upwards as a raid. Existing conditions are carried over: "party" becomes 2 or more, "raid" becomes 6 or more, and anything that included "solo" becomes any size, since it already allowed every case.
+- A group the game draws is gated by a macro condition, which cannot count players, so it uses the nearest thing it can say: any group for a size of 2 to 5, a raid above that. The addon's own check is exact.
+
 ## 1.27.1
 
 - The little pocket watch on carried timers is gone, along with its option. The ~ in front of a time now marks every carried time, not just a guessed one, so there is one mark for it instead of two and a tick box.

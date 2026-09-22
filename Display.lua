@@ -1007,13 +1007,14 @@ local function CondMacro(cond)
 	if m == "yes" then common[#common + 1] = "mounted" elseif m == "no" then common[#common + 1] = "nomounted" end
 	local a = cond and cond.alive
 	if not target and a == "yes" then common[#common + 1] = "nodead" elseif not target and a == "no" then common[#common + 1] = "dead" end
+	-- A macro condition cannot count players, so a size becomes the nearest thing it can say:
+	-- some group at all, or a raid. The addon's own check is exact; this one only gates the
+	-- frames the game draws.
 	local groups = {}
-	if cond and cond.group and next(cond.group) then
-		if cond.group.solo then groups[#groups + 1] = "nogroup" end
-		if cond.group.party then groups[#groups + 1] = "group:party,nogroup:raid" end
-		if cond.group.raid then groups[#groups + 1] = "group:raid" end
-	end
-	if #groups == 0 then groups[1] = false end
+	local minGroup = cond and cond.minGroup or 1
+	if minGroup > 5 then groups[1] = "group:raid"
+	elseif minGroup > 1 then groups[1] = "group"
+	else groups[1] = false end
 	local brackets = {}
 	for _, gp in ipairs(groups) do
 		local parts = {}

@@ -555,8 +555,10 @@ function Builder:Conditions(getCond, onChange, draw)
 			end
 	end
 	self.y = self.y - 2
-	self:Note("Group size (none ticked = any):")
-	self:CheckGrid(ns.GROUPS, 3, SetGetters("group"))
+	self:Slider("Only with this many players", { min = 1, max = 40, step = 1,
+		get = function() return Cond().minGroup or 1 end,
+		set = function(v) Cond().minGroup = (v > 1) and v or nil onChange() end,
+		format = ns.GroupSizeLabel })
 	self:Note("Where (none ticked = anywhere):")
 	self:CheckGrid(ns.PLACES, 2, SetGetters("place"))
 	self:Note("Class (none ticked = any class):")

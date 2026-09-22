@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.27.1"
+ns.VERSION = "1.28.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -155,6 +155,16 @@ function ns.InitDB()
 		g.cond = type(g.cond) == "table" and g.cond or {}
 		g.liveOnlyMine = nil -- retired: the combat question covers this properly
 		g.watch = nil -- retired: the ~ in front of a carried time already says it
+		-- Group size used to be three boxes; it is a number of players now.
+		local function MigrateGroupSize(c)
+			if type(c) ~= "table" or type(c.group) ~= "table" then return end
+			local set = c.group
+			c.group = nil
+			if set.solo then return end -- "solo too" means any size
+			if set.party then c.minGroup = 2 elseif set.raid then c.minGroup = 6 end
+		end
+		MigrateGroupSize(g.cond)
+		for _, t in ipairs(g.trackers) do MigrateGroupSize(t.cond) end
 		-- Retired conditions: resting, mounted and having a target were rarely what anyone meant.
 		for _, key in ipairs({ "resting", "mounted", "target" }) do
 			if g.cond then g.cond[key] = nil end
@@ -421,7 +431,14 @@ end
 -- Show conditions
 -- ------------------------------------------------------------------
 ns.CLASSES = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
-ns.GROUPS = { { "solo", "Solo" }, { "party", "Party" }, { "raid", "Raid" } }
+-- How a player count reads: the sizes that mean something in this game, and what to call them.
+function ns.GroupSizeLabel(n)
+	n = tonumber(n) or 1
+	if n <= 1 then return "Any group size" end
+	if n == 2 then return "2 players or more" end
+	if n <= 5 then return n .. " players or more (a party)" end
+	return n .. " players or more (a raid)"
+end
 ns.PLACES = { { "world", "Open world" }, { "dungeon", "Dungeon" }, { "raid", "Raid instance" }, { "bg", "Battleground" }, { "arena", "Arena" } }
 -- Combat is asked as its own pair of questions in the options panel, because who draws a group in
 -- combat belongs with whether it is shown at all. The rest are plain three-way toggles.
@@ -439,8 +456,8 @@ local function Bool(f, ...)
 end
 
 local function EnvSignature(e)
-	return table.concat({ tostring(e.combat), tostring(e.group), tostring(e.place), tostring(e.resting),
-		tostring(e.mounted), tostring(e.target), tostring(e.alive) }, "|")
+	return table.concat({ tostring(e.combat), tostring(e.group), tostring(e.groupSize), tostring(e.place),
+		tostring(e.resting), tostring(e.mounted), tostring(e.target), tostring(e.alive) }, "|")
 end
 
 function ns.UpdateEnv()
@@ -448,6 +465,13 @@ function ns.UpdateEnv()
 	local before = EnvSignature(e)
 	e.combat = ns.combatFlag and true or false
 	e.group = Bool(IsInRaid) and "raid" or (Bool(IsInGroup) and "party" or "solo")
+	local size = 1
+	if GetNumGroupMembers then
+		local ok, n = pcall(GetNumGroupMembers)
+		n = ok and Clean(n) or nil
+		if type(n) == "number" and n > 1 then size = n end
+	end
+	e.groupSize = size
 	local place = "world"
 	if IsInInstance then
 		local ok, inside, kind = pcall(IsInInstance)
@@ -478,7 +502,7 @@ function ns.CondPass(c)
 		if want == "yes" and not e[tog[1]] then return false end
 		if want == "no" and e[tog[1]] then return false end
 	end
-	if c.group and next(c.group) and not c.group[e.group] then return false end
+	if c.minGroup and c.minGroup > 1 and (e.groupSize or 1) < c.minGroup then return false end
 	if c.place and next(c.place) and not c.place[e.place] then return false end
 	if c.class and next(c.class) and not (e.class and c.class[e.class]) then return false end
 	return true
@@ -493,7 +517,8 @@ function ns.CondSummary(c)
 		local want = c[tog[1]]
 		if want == "yes" then parts[#parts + 1] = strlower(tog[3]) elseif want == "no" then parts[#parts + 1] = strlower(tog[4]) end
 	end
-	for _, spec in ipairs({ { "group", ns.GROUPS }, { "place", ns.PLACES } }) do
+	if c.minGroup and c.minGroup > 1 then parts[#parts + 1] = c.minGroup .. "+ players" end
+	for _, spec in ipairs({ { "place", ns.PLACES } }) do
 		local set = c[spec[1]]
 		if set and next(set) then
 			local names = {}
@@ -2450,6 +2475,20 @@ SlashCmdList.AURALEDGER = function(msg)
 		local icons, bars, missing = ns.CDM.Wanted()
 		Print(("Cooldown Manager: %d spell%s for icons, %d for bars%s"):format(#icons, #icons == 1 and "" or "s", #bars,
 			#missing > 0 and (", " .. #missing .. " with no entry in the manager (" .. table.concat(missing, ", ") .. ")") or ""))
+		for _, g in ipairs(ns.profile.groups) do
+			if g.gameDrawn and not (g.live and g.live ~= "") then
+				for _, t in ipairs(g.trackers) do
+					local cd = ns.CDM.CooldownFor(t)
+					local belongs
+					if cd and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
+						local okI, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cd)
+						local sid = okI and type(info) == "table" and Clean(info.spellID) or nil
+						belongs = sid and ((ns.SpellName and ns.SpellName(sid) or "?") .. " (" .. sid .. ")") or "?"
+					end
+					Print(("  %s [id %s] -> cooldown %s = %s"):format(t.name or "?", tostring(t.id), tostring(cd), tostring(belongs)))
+				end
+			end
+		end
 		if #icons == 0 and #bars == 0 then
 			Print("  Nothing to write. Set a group's 'In combat' to 'the game keeps it right' first.")
 		else
