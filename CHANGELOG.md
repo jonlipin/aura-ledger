@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.11.3
+
+- Fixed: icons read from the default buff frame are now compared by file id even when the frame answers with a texture path, so carried buffs are no longer dropped in combat just because the two were written differently.
+- New: /auraledger frames prints what the buff and debuff frames are showing right now next to what the addon is carrying, in or out of combat, and /auraledger debug lists the last icons read and why each carried aura was dropped.
+
 ## 1.11.2
 
 - Fixed: a tracker with "Only when it was cast by me" kept showing the aura as missing after it was reapplied in combat. An aura recognised from the buff frame's icon has no caster information, and that was being read as "cast by someone else"; it now counts as yours until the real data is readable again.

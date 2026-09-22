@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.11.2"
+ns.VERSION = "1.11.3"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0 }
 ns.auras = {}
@@ -685,8 +685,30 @@ end
 -- (so "missing" trackers fire mid-fight), and an icon that appears with no aura behind it is
 -- looked up in the ledger and shown as an estimated aura. The debug report says whether this works.
 -- ------------------------------------------------------------------
-local frameIconStats = { reads = 0, readable = false, removed = 0, added = 0 }
+local frameIconStats = { reads = 0, readable = false, removed = 0, added = 0, sample = {}, drops = {} }
 ns.frameIconStats = frameIconStats
+
+-- Aura data gives icons as file ids; a frame's texture may answer with the id or with a path.
+-- Both are reduced to one key so they compare.
+local function IconKey(v)
+	v = Clean(v)
+	if type(v) == "number" then return v end
+	if type(v) == "string" then
+		if GetFileIDFromPath then
+			local ok, id = pcall(GetFileIDFromPath, v)
+			if ok and type(id) == "number" and id > 0 then return id end
+		end
+		local n = tonumber(v)
+		if n then return n end
+		return strlower((v:gsub("\\", "/")))
+	end
+	return nil
+end
+ns.IconKey = IconKey
+
+local function FrameIconRegion(b)
+	return b.Icon or b.icon or (b.GetName and b:GetName() and _G[b:GetName() .. "Icon"])
+end
 
 local function CollectFrameIcons(frame, prefix, kind, into)
 	local any = false
@@ -695,9 +717,10 @@ local function CollectFrameIcons(frame, prefix, kind, into)
 		for _, b in pairs(buttons) do
 			if type(b) == "table" and b.IsShown and b:IsShown() then
 				any = true
-				local tex = b.Icon or b.icon
-				local ok, file = pcall(function() return tex and tex:GetTexture() end)
-				file = ok and Clean(file) or nil
+				local tex = FrameIconRegion(b)
+				local ok, raw = pcall(function() return tex and tex:GetTexture() end)
+				local file = ok and IconKey(raw) or nil
+				if #frameIconStats.sample < 12 then frameIconStats.sample[#frameIconStats.sample + 1] = ("%s %s->%s"):format(kind, ok and (type(Clean(raw)) .. ":" .. tostring(Clean(raw))) or "error", tostring(file)) end
 				if file then into[file] = kind frameIconStats.readable = true end
 			end
 		end
@@ -708,8 +731,9 @@ local function CollectFrameIcons(frame, prefix, kind, into)
 			if b:IsShown() then
 				any = true
 				local tex = _G[prefix .. i .. "Icon"] or b.Icon
-				local ok, file = pcall(function() return tex and tex:GetTexture() end)
-				file = ok and Clean(file) or nil
+				local ok, raw = pcall(function() return tex and tex:GetTexture() end)
+				local file = ok and IconKey(raw) or nil
+				if #frameIconStats.sample < 12 then frameIconStats.sample[#frameIconStats.sample + 1] = ("%s %s->%s"):format(kind, ok and (type(Clean(raw)) .. ":" .. tostring(Clean(raw))) or "error", tostring(file)) end
 				if file then into[file] = kind frameIconStats.readable = true end
 			end
 		end
@@ -730,22 +754,28 @@ local function ReconcileWithFrames()
 	local auras = ns.auras
 	-- Carried auras whose icon is gone from the frames are gone.
 	for key, e in pairs(auras) do
-		if (e.stale or e.estimated) and e.icon and not shown[e.icon] then
+		local ik = e.icon and IconKey(e.icon)
+		if (e.stale or e.estimated) and ik and not shown[ik] then
 			auras[key] = nil
 			frameIconStats.removed = frameIconStats.removed + 1
+			if #frameIconStats.drops < 8 then
+				local list = {}
+				for f in pairs(shown) do list[#list + 1] = tostring(f) end
+				frameIconStats.drops[#frameIconStats.drops + 1] = ("%s (icon %s) not among frame icons {%s}"):format(e.name or key, tostring(ik), table.concat(list, ","))
+			end
 			changed = true
 		end
 	end
 	-- Icons shown with nothing behind them: your trackers, the ledger and the pre-built book know what
 	-- they are (in that order, so what you track is recognised the first time it lands).
 	local have = {}
-	for _, e in pairs(auras) do if e.icon then have[e.icon] = true end end
+	for _, e in pairs(auras) do if e.icon then have[IconKey(e.icon)] = true end end
 	for file, kind in pairs(shown) do
 		if not have[file] then
 			local best
 			for _, g in ipairs(ns.profile.groups) do
 				for _, t in ipairs(g.trackers) do
-					if t.icon == file and t.name and (t.unit or "player") == "player" and (t.kind == kind or t.kind == "any" or not t.kind) then
+					if t.icon and IconKey(t.icon) == file and t.name and (t.unit or "player") == "player" and (t.kind == kind or t.kind == "any" or not t.kind) then
 						best = { name = t.name, id = t.id, duration = 0 }
 						local h = ns.db.history[kind .. ":" .. strlower(t.name)]
 						if h and h.duration then best.duration = h.duration end
@@ -754,7 +784,7 @@ local function ReconcileWithFrames()
 			end
 			if not best then
 				for _, h in pairs(ns.db.history) do
-					if h.icon == file and h.name and (h.kind == kind or h.kind == "any") then
+					if h.icon and IconKey(h.icon) == file and h.name and (h.kind == kind or h.kind == "any") then
 						if not best or (h.last or 0) > (best.last or 0) then best = h end
 					end
 				end
@@ -762,7 +792,7 @@ local function ReconcileWithFrames()
 			if not best and ns.BookPages then
 				for _, list in pairs(ns.BookPages()) do
 					for _, item in ipairs(list) do
-						if item.icon == file and (item.kind == kind or item.kind == "any") then best = { name = item.name, id = item.id, duration = 0 } end
+						if item.icon and IconKey(item.icon) == file and (item.kind == kind or item.kind == "any") then best = { name = item.name, id = item.id, duration = 0 } end
 					end
 				end
 			end
@@ -782,6 +812,7 @@ local function ReconcileWithFrames()
 	return changed
 end
 ns.ReconcileWithFrames = ReconcileWithFrames
+ns.CollectFrameIcons = CollectFrameIcons
 
 -- Combat log: only consulted while auras are unreadable, to catch applications and removals on
 -- you or on your target.
@@ -1254,6 +1285,8 @@ local function Debug()
 	local fi = ns.frameIconStats
 	Print(("  buff frame icons while restricted: readable %s, reads %d, carried auras dropped %d, auras recognised from icons %d"):format(
 		YesNo(fi.readable), fi.reads, fi.removed, fi.added))
+	if #fi.sample > 0 then Print("    frame icons seen: " .. table.concat(fi.sample, "; ")) end
+	for _, d in ipairs(fi.drops) do Print("    dropped: " .. d) end
 	local live, carried = 0, 0
 	for _, e in pairs(ns.auras) do live = live + 1 if e.stale or e.estimated then carried = carried + 1 end end
 	local onTarget = 0
@@ -1325,6 +1358,21 @@ SlashCmdList.AURALEDGER = function(msg)
 	elseif cmd == "plainbook" then
 		ns.db.plainBook = not ns.db.plainBook
 		Print("Book background: " .. (ns.db.plainBook and "plain" or "parchment when the client has it") .. ". Type /reload to apply.")
+	elseif cmd == "frames" then
+		local shown = {}
+		local before = #ns.frameIconStats.sample
+		ns.frameIconStats.sample = {}
+		ns.CollectFrameIcons(BuffFrame, "BuffButton", "buff", shown)
+		ns.CollectFrameIcons(DebuffFrame, "DebuffButton", "debuff", shown)
+		Print("frame icons right now (secret: " .. YesNo(AurasSecret()) .. "):")
+		for _, line in ipairs(ns.frameIconStats.sample) do Print("  " .. line) end
+		if #ns.frameIconStats.sample == 0 then Print("  none (BuffFrame " .. YesNo(BuffFrame) .. ", auraFrames " .. YesNo(BuffFrame and BuffFrame.auraFrames) .. ", BuffButton1 " .. YesNo(_G.BuffButton1) .. ")") end
+		Print("auras carried right now:")
+		for _, e in pairs(ns.auras) do
+			local ik = e.icon and ns.IconKey(e.icon)
+			Print(("  %s icon %s -> %s"):format(e.name or "?", tostring(e.icon), shown[ik] and "on the frame" or "NOT on the frame"))
+		end
+		if before > 0 then ns.frameIconStats.sample = {} end
 	elseif cmd == "debug" then
 		Debug()
 	else
