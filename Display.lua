@@ -691,6 +691,12 @@ local function LiveKey(g)
 	return (g.live or "") .. ":" .. g.size .. ":" .. g.spacing .. ":" .. (g.perRow or 8) .. ":" .. tostring(g.iconFrame ~= false) .. ":" .. ids
 end
 
+local function LiveParts(g)
+	local unit, filter = tostring(g.live):match("^(%a+):(.+)$")
+	if unit then return unit, filter end
+	return "player", g.live
+end
+
 local function InitLiveButton(g)
 	return function(button)
 		if not button then return end
@@ -757,10 +763,12 @@ local function EnsureLive(f, g)
 	if f.live and f.liveKey == key then return f.live end
 	if InCombatLockdown and InCombatLockdown() then return f.live end
 	if f.live then
+		if UnregisterAttributeDriver and f.live.alDriven then pcall(UnregisterAttributeDriver, f.live, "state-visibility") end
 		f.live:Hide()
 		f.live:ClearAllPoints()
 		f.live = nil
 	end
+	local unit, filter = LiveParts(g)
 	local ok, c = pcall(CreateFrame, "AuraContainer", nil, f, "CustomAuraContainerTemplate")
 	if not (ok and c) then
 		ns.report["game-drawn groups"] = "AuraContainer not available: " .. tostring(c)
@@ -793,9 +801,9 @@ local function EnsureLive(f, g)
 	end
 	local okG, err
 	if c.AddAuraGroup then
-		okG, err = pcall(c.AddAuraGroup, c, "al_" .. tostring(g.uid), g.live, settings)
+		okG, err = pcall(c.AddAuraGroup, c, "al_" .. tostring(g.uid), filter, settings)
 	elseif c.AddAuraFilter then
-		okG, err = pcall(c.AddAuraFilter, c, g.live, settings)
+		okG, err = pcall(c.AddAuraFilter, c, filter, settings)
 	else
 		okG, err = false, "no AddAuraGroup"
 	end
@@ -804,9 +812,11 @@ local function EnsureLive(f, g)
 		c:Hide()
 		return nil
 	end
-	if c.SetUnit then pcall(c.SetUnit, c, "player") end
-	-- Limiting to the group's trackers: the candidate-filter shapes are tried in turn through the
-	-- container's own setter; every answer is logged so the accepted shape can be read off.
+	if c.SetUnit then pcall(c.SetUnit, c, unit) end
+	if unit ~= "player" and RegisterAttributeDriver then
+		if pcall(RegisterAttributeDriver, c, "state-visibility", "[@" .. unit .. ",exists] show; hide") then c.alDriven = true end
+	end
+	-- Limiting to the group's trackers through the container's own setter.
 	if g.liveOnlyMine and c.SetAuraGroupCandidateFilters and f.liveIds then
 		local ids, names, gid = f.liveIds, f.liveNames, "al_" .. tostring(g.uid)
 		local map = {}
@@ -814,9 +824,9 @@ local function EnsureLive(f, g)
 		local okF, err = pcall(c.SetAuraGroupCandidateFilters, c, gid, { includeSpellIDs = map })
 		if ns.LogLine then ns.LogLine("candidate filters includeSpellIDs map: " .. (okF and "accepted" or ("error " .. tostring(err)))) end
 	end
-	c:Show()
+	if not c.alDriven then c:Show() end
 	f.live, f.liveKey = c, key
-	ns.report["game-drawn groups"] = "AuraContainer ok (" .. g.live .. ")"
+	ns.report["game-drawn groups"] = "AuraContainer ok (" .. tostring(g.live) .. ")"
 	return c
 end
 
@@ -838,8 +848,7 @@ local function LayoutLive(f, g, unlocked)
 		end
 	end
 	local pass = unlocked or ns.CondPass(g.cond)
-	if c then c:SetShown(pass) end
-	f:SetShown(pass and (c ~= nil or unlocked))
+	if not (InCombatLockdown and InCombatLockdown()) then f:SetShown(pass and (c ~= nil or unlocked)) end
 end
 
 -- ------------------------------------------------------------------
@@ -894,9 +903,8 @@ local function DrainDirection()
 	return pick
 end
 
--- "cover": the slot draws the aura and covers the cell (show when active / always).
--- "mask": the slot is invisible and carries a transparent mask; the addon's missing art gets that
---         mask, so it is blanked while the slot is shown and returns when the slot hides.
+-- The slot draws the aura and covers the cell. (A mask on the slot to blank the cell instead was
+-- tried: on this client a mask still applies while its frame is hidden, so it cannot invert.)
 local function InitSlotFrame(g, mode, filter, store)
 	return function(button)
 		if not button then return end
@@ -905,16 +913,6 @@ local function InitSlotFrame(g, mode, filter, store)
 		local bars = g.style == "bars"
 		local W, H = bars and g.barW or g.size, bars and g.barH or g.size
 		pcall(button.SetSize, button, W, H)
-		if mode == "mask" then
-			-- A 1x1 opaque mask sitting just outside the cell; with the clamp-to-black wrap everything
-			-- outside it is treated as transparent, so a masked cell is blanked without needing a file.
-			local mask = button:CreateMaskTexture()
-			mask:SetTexture("Interface\\Buttons\\WHITE8X8", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
-			mask:SetSize(1, 1)
-			mask:SetPoint("BOTTOMRIGHT", button, "TOPLEFT", -4, 4)
-			store.mask = mask
-			return
-		end
 		local icon = button:CreateTexture(nil, "ARTWORK")
 		local c = (bars and s.iconCoords) or s.soloIconCoords or s.iconCoords or { 0.07, 0.93, 0.07, 0.93 }
 		icon:SetTexCoord(c[1], c[2], c[3], c[4])
@@ -1128,7 +1126,7 @@ local function TrackerSlots(f, g, t, ids)
 	end
 	local frames = {}
 	local idsKey = IdsKey(ids)
-	local mode = (t.show == "missing" and not (ns.db and ns.db.noMask)) and "mask" or "cover"
+	local mode = "cover"
 	for _, filter in ipairs(kinds) do
 		local key = tostring(t.uid) .. ":" .. filter .. ":" .. mode
 		local filters = { includeSpellIDs = ids }
@@ -1223,13 +1221,6 @@ local function SavePosition(f, g)
 	if x and y then g.x, g.y = x * s, y * s end
 end
 
-local function WidgetTextures(w)
-	local list = { w.icon, w.border, w.fill, w.bar.bg, w.bar.spark, w.stale }
-	for _, t in ipairs(w.decor) do list[#list + 1] = t end
-	for _, t in ipairs(w.iconArt) do list[#list + 1] = t end
-	return list
-end
-
 local function LayoutGroup(f, g, visible, unlocked)
 	local n = #visible
 	local w, h
@@ -1268,20 +1259,6 @@ local function LayoutGroup(f, g, visible, unlocked)
 			-- while the aura is present. "Show when active" leaves the cell empty underneath.
 			PaintWidget(widget, g, item.t, nil, false, false)
 			if item.t.show == "active" then widget:SetAlpha(0) end
-			-- A "mask" slot blanks the missing art while the game shows it.
-			local mask
-			for _, sl in ipairs(item.slots) do if sl.mode == "mask" and sl.mask then mask = sl.mask end end
-			if mask and item.t.show == "missing" and g.style == "bars" then
-				widget.name:SetText("")
-				widget.duration:SetText("")
-			end
-			if widget.alMask ~= mask then
-				for _, tex in ipairs(WidgetTextures(widget)) do
-					if widget.alMask then pcall(tex.RemoveMaskTexture, tex, widget.alMask) end
-					if mask then pcall(tex.AddMaskTexture, tex, mask) end
-				end
-				widget.alMask = mask
-			end
 			for _, sl in ipairs(item.slots) do
 				sl.c.alWant[sl.key] = true
 				if not (InCombatLockdown and InCombatLockdown()) or sl.frame.alAnchor ~= k then
@@ -1294,10 +1271,6 @@ local function LayoutGroup(f, g, visible, unlocked)
 				end
 			end
 		else
-			if widget.alMask then
-				for _, tex in ipairs(WidgetTextures(widget)) do pcall(tex.RemoveMaskTexture, tex, widget.alMask) end
-				widget.alMask = nil
-			end
 			PaintWidget(widget, g, item.t, item.entry, unlocked, item.expiring)
 		end
 		local a, b = (k - 1) % perRow, floor((k - 1) / perRow)

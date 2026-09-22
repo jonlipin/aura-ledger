@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.18.6"
+ns.VERSION = "1.19.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -313,10 +313,13 @@ ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "spacing", "perRow", "s
 
 -- What a game-drawn group can show: Blizzard's aura filters for the player.
 ns.LIVE_FILTERS = {
-	{ "HARMFUL",             "Debuffs on me" },
-	{ "HARMFUL|DISPELLABLE", "Debuffs on me I could dispel" },
-	{ "HELPFUL",             "Buffs on me" },
-	{ "HELPFUL|PLAYER",      "Buffs on me that I cast" },
+	{ "HARMFUL",                "Debuffs on me" },
+	{ "HARMFUL|DISPELLABLE",    "Debuffs on me I could dispel" },
+	{ "HELPFUL",                "Buffs on me" },
+	{ "HELPFUL|PLAYER",         "Buffs on me that I cast" },
+	{ "target:HARMFUL|PLAYER",  "My debuffs on my target" },
+	{ "target:HARMFUL",         "All debuffs on my target" },
+	{ "target:HELPFUL",         "Buffs on my target" },
 }
 
 function ns.NewGroupLike(g, x, y)
@@ -2123,7 +2126,7 @@ SlashCmdList.AURALEDGER = function(msg)
 		end
 	elseif cmd == "gd" then
 		local function S(v) if issecretvalue and issecretvalue(v) then return "secret" end return tostring(v) end
-		Print("game-drawn groups (secret: " .. YesNo(AurasSecret()) .. ", attribute drivers " .. YesNo(RegisterAttributeDriver) .. ", mask " .. (ns.db.noMask and "off" or "on") .. "):")
+		Print("game-drawn groups (secret: " .. YesNo(AurasSecret()) .. ", attribute drivers " .. YesNo(RegisterAttributeDriver) .. "):")
 		local any = false
 		for _, g in ipairs(ns.profile.groups) do
 			if g.gameDrawn or (g.live and g.live ~= "") then
@@ -2139,13 +2142,13 @@ SlashCmdList.AURALEDGER = function(msg)
 						Print(("    container %s: shown %s, visible %s, driver %s, level %s"):format(unit, okS and S(shown) or "?", okV and S(vis) or "?", tostring(c.alDriven), S(select(2, pcall(c.GetFrameLevel, c)))))
 						for key, fr in pairs(c.alSlots) do
 							local okF, fs2 = pcall(fr.IsShown, fr)
-							Print(("      slot %s: on %s, wanted %s, anchored to cell %s, mask %s, shown %s"):format(key, tostring(c.alOn and c.alOn[key]), tostring(c.alWant and c.alWant[key]),
-								S(fr.alAnchor), tostring(c.alStore[key] and c.alStore[key].mask ~= nil), okF and S(fs2) or "error"))
+							Print(("      slot %s: on %s, wanted %s, anchored to cell %s, shown %s"):format(key, tostring(c.alOn and c.alOn[key]), tostring(c.alWant and c.alWant[key]),
+								S(fr.alAnchor), okF and S(fs2) or "error"))
 						end
 					end
 					for i, w in ipairs(f.widgets) do
 						if w:IsShown() then
-							Print(("    cell %d: %s, alpha %.1f, parent %s, masked %s"):format(i, w.tracker and (w.tracker.name or "?") or "-", w:GetAlpha(), w:GetParent() == f.gate and "gate" or "group", tostring(w.alMask ~= nil)))
+							Print(("    cell %d: %s, alpha %.1f, parent %s"):format(i, w.tracker and (w.tracker.name or "?") or "-", w:GetAlpha(), w:GetParent() == f.gate and "gate" or "group"))
 						end
 					end
 				end
@@ -2153,9 +2156,6 @@ SlashCmdList.AURALEDGER = function(msg)
 		end
 		if not any then Print("  none") end
 		Print("  report: " .. tostring(ns.report["game-drawn trackers"]) .. " / " .. tostring(ns.report["game-drawn groups"]) .. (ns.report["timer directions"] and (" / directions " .. ns.report["timer directions"]) or ""))
-	elseif cmd == "nomask" then
-		ns.db.noMask = not ns.db.noMask or nil
-		Print("game-drawn 'show when missing' trackers now " .. (ns.db.noMask and "cover their cell with the aura while it is active (mask off)" or "blank their missing art while the aura is active (mask on)") .. "; /reload to rebuild")
 	elseif cmd == "soundclear" then
 		Print(("removed %d aura sound registrations from the game; they come back on the next change or reload for trackers that still have a sound set"):format(ns.ClearAllAuraSounds()))
 	elseif cmd == "soundtest" then

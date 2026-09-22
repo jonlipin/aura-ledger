@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.19.0
+
+- The mask trick behind game-drawn "show when missing" trackers is gone: on this client a mask still applies while its frame is hidden, so it blanked the missing icon for good. In a game-drawn group, "It is missing" now behaves like "Always": the game's icon while the aura is up, the red missing icon the moment it is gone, in combat too. The option text says so. /auraledger nomask is removed.
+- Category groups can be on your target: Contents gains "My debuffs on my target", "All debuffs on my target" and "Buffs on my target", drawn by the game and shown while a target exists.
+- Category containers are no longer shown or hidden from addon code in combat.
+
 ## 1.18.6
 
 - Fixed: /auraledger gd raised an error when a game-owned slot answered with a hidden value; hidden values are now printed as "secret", and the chat mirror skips any hidden line.
