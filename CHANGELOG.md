@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.46.5
+
+- Every cooldown on a tracker the game draws is masked, not only the one the addon handed it. The container can run a cooldown of its own, whose textures the addon never saw, and that is the square corner still poking out of a rounded icon. Each cooldown on a slot is found and masked, and each keeps its own set of masks so two on one frame do not tread on each other.
+
 ## 1.46.4
 
 - The swipe on a tracker the game draws is masked once it exists. A cooldown makes its textures the first time it runs, and the game runs the ones in its own slots, so masking them while the slot was being built masked nothing: there was nothing there yet. The mask is asked for again each time the group is laid out, by which point the game has the cooldown going.

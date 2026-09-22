@@ -559,18 +559,41 @@ end
 
 -- A cooldown draws with textures of its own on a frame laid over the picture. They are made when
 -- the cooldown first runs, so this is asked again whenever one is set going.
+local cdKeys, cdNext = setmetatable({}, { __mode = "k" }), 0
 local function ShapeCooldown(w, cd, size, want)
 	if not cd or not cd.GetRegions then return false end
 	local ok, regions = pcall(function() return { cd:GetRegions() } end)
 	if not ok then return false end
+	-- One set of keys per cooldown: a frame can carry more than one.
+	local tag = cdKeys[cd]
+	if not tag then
+		cdNext = cdNext + 1
+		tag = "cdMasks" .. cdNext .. "_"
+		cdKeys[cd] = tag
+	end
 	local n = 0
 	for _, r in ipairs(regions) do
 		if IsA(r, "Texture") then
 			n = n + 1
-			ShapeMask(w, r, size, want, "cdMasks" .. n)
+			ShapeMask(w, r, size, want, tag .. n)
 		end
 	end
 	return n > 0
+end
+
+-- Every cooldown on a frame: the one the addon gave it and any the game runs itself.
+local function ShapeCooldownsOn(w, frame, size, want)
+	if not frame then return end
+	ShapeCooldown(w, frame.alCd, size, want)
+	if not frame.GetChildren then return end
+	local ok, kids = pcall(function() return { frame:GetChildren() } end)
+	if not ok then return end
+	for _, kid in ipairs(kids) do
+		local okT, kind = pcall(function() return kid:GetObjectType() end)
+		if okT and kind == "Cooldown" and kid ~= frame.alCd then
+			ShapeCooldown(w, kid, size, want)
+		end
+	end
 end
 
 -- Just the colour, for a border already in place.
@@ -1822,8 +1845,8 @@ local function LayoutGroup(f, g, visible, unlocked)
 				if lvl then SetCellLevel(widget, lvl - 6) end
 				-- A cooldown makes its textures the first time it runs, and the game runs these, so
 				-- the mask is asked for again here rather than only when the slot was built.
-				if sl.frame.alCd then
-					ShapeCooldown(sl.frame.alW, sl.frame.alCd, sl.frame.alCdSize or g.size or 40, g.iconFrame ~= false)
+				if sl.frame.alW then
+					ShapeCooldownsOn(sl.frame.alW, sl.frame, sl.frame.alCdSize or g.size or 40, g.iconFrame ~= false)
 				end
 			end
 		else
