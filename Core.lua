@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.18.4"
+ns.VERSION = "1.18.5"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -1428,7 +1428,7 @@ end
 ns.SOUND_CHOICES = {
 	{ "Mystic chime",   "TUTORIAL_POPUP",         7355 },
 	{ "Gem clink",      "PUT_DOWN_GEMS",          1221 },
-	{ "Soft bells",     "ALARM_CLOCK_WARNING_3",  12889, 567333 },
+	{ "Explosion",      "ALARM_CLOCK_WARNING_3",  12889, 567333 },
 	{ "Whisper toast",  "UI_BNET_TOAST",          18019 },
 	{ "Quest chime",    "IG_QUEST_LIST_COMPLETE", 878 },
 	{ "Auction gong",   "AUCTION_WINDOW_OPEN",    5274 },
@@ -2120,6 +2120,37 @@ SlashCmdList.AURALEDGER = function(msg)
 			end
 			if found == 0 then Print("nothing documented under that name (try the exact name from /api search)") end
 		end
+	elseif cmd == "gd" then
+		Print("game-drawn groups (secret: " .. YesNo(AurasSecret()) .. ", attribute drivers " .. YesNo(RegisterAttributeDriver) .. ", mask " .. (ns.db.noMask and "off" or "on") .. "):")
+		local any = false
+		for _, g in ipairs(ns.profile.groups) do
+			if g.gameDrawn or (g.live and g.live ~= "") then
+				any = true
+				local f = ns.Display.FrameFor and ns.Display.FrameFor(g)
+				Print(("  %s: %s, macro %s"):format(ns.GroupName(g), g.gameDrawn and "trackers drawn by the game" or ("contents " .. tostring(g.live)), tostring(ns.Display.CondMacro and ns.Display.CondMacro(g.cond))))
+				if f then
+					Print(("    frame shown %s, gate %s (driver %s, shown %s, visible %s)"):format(tostring(f:IsShown()), f.gate and "yes" or "no",
+						f.gate and tostring(f.gate.alMacro) or "-", f.gate and tostring(f.gate:IsShown()) or "-", f.gate and tostring(f.gate:IsVisible()) or "-"))
+					for unit, c in pairs(f.slotC or {}) do
+						local okS, shown = pcall(c.IsShown, c)
+						local okV, vis = pcall(c.IsVisible, c)
+						Print(("    container %s: shown %s, visible %s, driver %s, level %s"):format(unit, okS and tostring(shown) or "?", okV and tostring(vis) or "?", tostring(c.alDriven), tostring(c:GetFrameLevel())))
+						for key, fr in pairs(c.alSlots) do
+							local okF, fs2 = pcall(fr.IsShown, fr)
+							Print(("      slot %s: on %s, wanted %s, anchored to cell %s, mask %s, shown %s"):format(key, tostring(c.alOn and c.alOn[key]), tostring(c.alWant and c.alWant[key]),
+								tostring(fr.alAnchor), tostring(c.alStore[key] and c.alStore[key].mask ~= nil), okF and tostring(fs2) or "secret"))
+						end
+					end
+					for i, w in ipairs(f.widgets) do
+						if w:IsShown() then
+							Print(("    cell %d: %s, alpha %.1f, parent %s, masked %s"):format(i, w.tracker and (w.tracker.name or "?") or "-", w:GetAlpha(), w:GetParent() == f.gate and "gate" or "group", tostring(w.alMask ~= nil)))
+						end
+					end
+				end
+			end
+		end
+		if not any then Print("  none") end
+		Print("  report: " .. tostring(ns.report["game-drawn trackers"]) .. " / " .. tostring(ns.report["game-drawn groups"]) .. (ns.report["timer directions"] and (" / directions " .. ns.report["timer directions"]) or ""))
 	elseif cmd == "nomask" then
 		ns.db.noMask = not ns.db.noMask or nil
 		Print("game-drawn 'show when missing' trackers now " .. (ns.db.noMask and "cover their cell with the aura while it is active (mask off)" or "blank their missing art while the aura is active (mask on)") .. "; /reload to rebuild")

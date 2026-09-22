@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.18.5
+
+- The file sound labelled "Soft bells" is an explosion; it is now called Explosion. Trackers using it keep it.
+- Fixed: a game-drawn group whose "drawn by the game" was switched off and on again stayed hidden.
+- Without attribute drivers on the client, a game-drawn group's gate now follows its conditions out of combat instead of staying hidden.
+- /auraledger gd prints every game-drawn group's gate, driver macro, containers, slots and cells.
+
 ## 1.18.4
 
 - The mask behind game-drawn "show when missing" trackers no longer depends on a texture file: it is a one-pixel opaque mask placed just outside the cell with clamp-to-black wrapping, which blanks the cell the same way. If the missing icon still never appears, the client applies masks on hidden frames too; /auraledger nomask then restores the covering behaviour.

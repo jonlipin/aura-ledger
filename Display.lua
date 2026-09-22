@@ -1056,9 +1056,15 @@ local function EnsureGate(f, g)
 	end
 	local macro = CondMacro(g.cond)
 	if macro == nil then macro = "hide" end
-	if f.gate.alMacro ~= macro and RegisterAttributeDriver and not (InCombatLockdown and InCombatLockdown()) then
-		if UnregisterAttributeDriver and f.gate.alMacro then pcall(UnregisterAttributeDriver, f.gate, "state-visibility") end
-		if pcall(RegisterAttributeDriver, f.gate, "state-visibility", macro) then f.gate.alMacro = macro end
+	if f.gate.alMacro ~= macro and not (InCombatLockdown and InCombatLockdown()) then
+		if RegisterAttributeDriver then
+			if UnregisterAttributeDriver and f.gate.alMacro then pcall(UnregisterAttributeDriver, f.gate, "state-visibility") end
+			if pcall(RegisterAttributeDriver, f.gate, "state-visibility", macro) then f.gate.alMacro = macro end
+		else
+			-- No driver on this client: the gate follows the conditions from here, out of combat.
+			f.gate:SetShown(ns.CondPass(g.cond))
+			f.gate.alMacro = macro
+		end
 	end
 	return f.gate
 end
@@ -1069,6 +1075,7 @@ local function DropGate(f)
 	if UnregisterAttributeDriver and f.gate.alMacro then pcall(UnregisterAttributeDriver, f.gate, "state-visibility") end
 	f.gate.alMacro = nil
 	f.gate:Hide()
+	f.gate.alDropped = true
 end
 
 -- The container for one unit of a group; rebuilt when the look changes. Nil in combat when it
@@ -1084,6 +1091,7 @@ local function SlotContainer(f, g, unit)
 		c:Hide() c:ClearAllPoints() f.slotC[unit] = nil
 	end
 	local gate = EnsureGate(f, g)
+	if gate.alDropped and not (InCombatLockdown and InCombatLockdown()) then gate:Show() gate.alDropped = nil end
 	local ok, nc = pcall(CreateFrame, "AuraContainer", nil, gate, "CustomAuraContainerTemplate")
 	if not (ok and nc) then
 		ns.report["game-drawn trackers"] = "AuraContainer not available: " .. tostring(nc)
@@ -1238,7 +1246,12 @@ local function LayoutGroup(f, g, visible, unlocked)
 			for key in pairs(c.alSlots) do c.alWant = c.alWant or {} c.alWant[key] = false end
 		end
 	end
-	if slots then EnsureGate(f, g) elseif f.gate then DropGate(f) end
+	if slots then
+		local gate = EnsureGate(f, g)
+		if gate.alDropped and not (InCombatLockdown and InCombatLockdown()) then gate:Show() gate.alDropped = nil end
+	elseif f.gate then
+		DropGate(f)
+	end
 	local cellParent = slots and f.gate or f
 
 	for k = 1, n do
@@ -1371,6 +1384,10 @@ local function Sounds(t, entry, show, unlocked, groupPass)
 	end
 	st.active = active
 	if not unlocked then st.shown = shown end
+end
+
+function Display.FrameFor(g)
+	return active[g.uid]
 end
 
 function Display:RefreshGroup(g)
