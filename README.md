@@ -51,18 +51,16 @@ Trackers are drawn with art copied off the client's own frames when the game loa
 
 ## Combat and hidden auras
 
-This client hides aura details from addons while addon restrictions are active (mostly in combat). Aura Ledger copes as well as the client allows:
+The Forever client hides your auras from addons in combat. Not just the details: every read (by index, by instance id, by spell name, the aura frames' textures, the UNIT_AURA payload lists) fails or answers nothing while the restriction is on, and only Blizzard's own code may look. So in combat Aura Ledger cannot see an aura land on you or leave you. What it can do:
 
-- whatever it knew going in keeps counting down on its own timer
-- removals still arrive and are applied straight away
-- the aura instance ids are asked for (GetUnitAuraInstanceIDs); when readable, a carried aura whose instance vanishes is dropped and your casts bind to the instance that appears
-- the Cooldown Manager's buff viewers are watched: an item shown there means that buff is on you, a hidden one means it is gone
-- "when applied" and "when it runs out" sounds are registered with the game (C_UnitAuras.AddAuraSound), which plays them itself in combat
-- your own successful casts are watched: casting a spell the ledger knows as an aura creates or refreshes an estimated aura (a buff on you, a debuff on your target) with the remembered duration
-- the icons on the default buff and debuff frames are watched while they stay readable: a carried buff whose icon vanishes is dropped, and an icon that appears is recognised from your trackers, the ledger or the book
+- whatever it knew going in keeps counting down on its own timer, so a buff running out mid-fight still flips its tracker on time
+- your own successful casts are watched: casting a spell the ledger knows as an aura creates or refreshes an estimated aura (a buff on you, a debuff on your target) with the remembered duration, so a recast Demon Skin clears its "missing" tracker at once and a Blood Fury shows its bar
+- the "when applied" and "when it runs out" sounds are handed to the game (C_UnitAuras.AddAuraSound), which plays them itself when that aura is added to you or removed from you, in combat too; only sound choices with a file behind them qualify, marked "(combat)" in the picker
 - anything carried or estimated wears a small pocket watch and a `~` in front of its time, and everything is re-read properly the moment the restriction lifts
 
-`/auraledger debug` reports what the client actually allowed, which is the first thing to send with a bug report.
+What it cannot do in combat, on this client: notice a buff being clicked off or dispelled, or a debuff landing, other than through the sounds above. When the client hides less, the addon reads more without changes.
+
+`/auraledger debug` reports what the client actually allowed, which is the first thing to send with a bug report; `/auraledger log` keeps that output in the saved variables so it can be read from disk.
 
 ## Commands
 
@@ -77,6 +75,10 @@ This client hides aura details from addons while addon restrictions are active (
 | `/auraledger atlases` | list the art names on the client's spellbook, for bug reports |
 | `/auraledger plainbook` | switch the book between parchment and a plain dark page |
 | `/auraledger debug` | self report |
+| `/auraledger log` / `log clear` | the addon keeps everything it prints (and everything that reaches the chat frame) in its saved variables, written on reload or logout; this shows the counts or empties them |
+| `/auraledger soundtest` | plays each file-backed sound choice in turn and reports what the client said |
+| `/auraledger api <name>` | prints a structure, enum or function from Blizzard's API documentation (run any `/api` first) |
+| `/auraledger probe`, `frames`, `cdm`, `container` | diagnostics: what the by-spell lookups, the default aura frames, the Cooldown Manager data and an AuraContainer widget expose right now |
 
 ## Notes
 
