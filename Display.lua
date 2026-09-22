@@ -808,20 +808,10 @@ local function EnsureLive(f, g)
 	-- container's own setter; every answer is logged so the accepted shape can be read off.
 	if g.liveOnlyMine and c.SetAuraGroupCandidateFilters and f.liveIds then
 		local ids, names, gid = f.liveIds, f.liveNames, "al_" .. tostring(g.uid)
-		local shapes = {
-			{ "list of {spellID}",      (function() local l = {} for _, id in ipairs(ids) do l[#l + 1] = { spellID = id } end return l end)() },
-			{ "list of {spellId}",      (function() local l = {} for _, id in ipairs(ids) do l[#l + 1] = { spellId = id } end return l end)() },
-			{ "list of ids",            ids },
-			{ "{spellIDs=list}",        { spellIDs = ids } },
-			{ "list of {spellName}",    (function() local l = {} for _, n in ipairs(names) do l[#l + 1] = { spellName = n } end return l end)() },
-			{ "list of {name}",         (function() local l = {} for _, n in ipairs(names) do l[#l + 1] = { name = n } end return l end)() },
-			{ "list of {type,spellID}", (function() local l = {} for _, id in ipairs(ids) do l[#l + 1] = { type = "spellID", spellID = id } end return l end)() },
-		}
-		for _, sh in ipairs(shapes) do
-			local okF, err = pcall(c.SetAuraGroupCandidateFilters, c, gid, sh[2])
-			if ns.LogLine then ns.LogLine(("candidate filters %s: %s"):format(sh[1], okF and "accepted" or ("error " .. tostring(err)))) end
-			if okF then break end
-		end
+		local map = {}
+		for _, id in ipairs(ids) do map[id] = true end
+		local okF, err = pcall(c.SetAuraGroupCandidateFilters, c, gid, { includeSpellIDs = map })
+		if ns.LogLine then ns.LogLine("candidate filters includeSpellIDs map: " .. (okF and "accepted" or ("error " .. tostring(err)))) end
 	end
 	c:Show()
 	f.live, f.liveKey = c, key
@@ -849,6 +839,172 @@ local function LayoutLive(f, g, unlocked)
 	local pass = unlocked or ns.CondPass(g.cond)
 	if c then c:SetShown(pass) end
 	f:SetShown(pass and (c ~= nil or unlocked))
+end
+
+-- ------------------------------------------------------------------
+-- Trackers drawn by the game. An aura slot is one game-owned frame that shows a single aura
+-- matching its filter and spell map, current in combat. One slot per tracker (two for "buff or
+-- debuff") is anchored over the tracker's cell, drawn above the addon's own widget: while the
+-- aura is on the unit the game shows the slot and covers the cell, when it is not the slot hides
+-- and the cell shows the addon's "missing" art (or nothing, for "show when active").
+-- ------------------------------------------------------------------
+local function TrackerIds(t)
+	local map, any = {}, false
+	if t.id then map[t.id] = true any = true end
+	if t.name and not t.matchId then
+		for _, kind in ipairs({ "buff", "debuff" }) do
+			local h = ns.db.history[kind .. ":" .. string.lower(t.name)]
+			if h and h.ids then for id in pairs(h.ids) do map[id] = true any = true end end
+		end
+	end
+	return any and map or nil
+end
+
+local function IdsKey(map)
+	local l = {}
+	for id in pairs(map) do l[#l + 1] = id end
+	table.sort(l)
+	return table.concat(l, ",")
+end
+
+local function SlotKey(g)
+	return g.style .. ":" .. g.size .. ":" .. g.barW .. ":" .. g.barH .. ":" .. tostring(g.iconFrame ~= false) .. tostring(g.border ~= false)
+		.. tostring(g.background ~= false) .. tostring(g.timers ~= false) .. tostring(g.names ~= false)
+end
+
+local function InitSlotFrame(g)
+	return function(button)
+		if not button then return end
+		local s = skin
+		local bars = g.style == "bars"
+		local W, H = bars and g.barW or g.size, bars and g.barH or g.size
+		pcall(button.SetSize, button, W, H)
+		-- Opaque backing so the slot covers whatever the addon drew underneath.
+		local back = button:CreateTexture(nil, "BACKGROUND", nil, -8)
+		back:SetAllPoints(button)
+		back:SetColorTexture(0, 0, 0, 1)
+		local icon = button:CreateTexture(nil, "ARTWORK")
+		local c = (bars and s.iconCoords) or s.soloIconCoords or s.iconCoords or { 0.07, 0.93, 0.07, 0.93 }
+		icon:SetTexCoord(c[1], c[2], c[3], c[4])
+		if bars then
+			icon:SetPoint("TOPLEFT")
+			icon:SetSize(H, H)
+		else
+			icon:SetAllPoints(button)
+		end
+		pcall(button.SetIcon, button, icon)
+		local count = button:CreateFontString(nil, "OVERLAY")
+		count:SetFont(FONT, max(7, floor(H * (bars and 0.45 or 0.3))), "OUTLINE")
+		count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -1, 1)
+		pcall(button.SetApplicationCount, button, count)
+		local border = button:CreateTexture(nil, "OVERLAY")
+		border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
+		border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
+		border:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
+		border:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 1, -1)
+		pcall(button.AddDispelTypeTexture, button, border)
+		if bars then
+			local bar = CreateFrame("StatusBar", nil, button)
+			bar:SetPoint("TOPLEFT", icon, "TOPRIGHT", 2, 0)
+			bar:SetPoint("BOTTOMRIGHT")
+			if s.fill.stretch then bar:SetStatusBarTexture(s.fill.atlas) else bar:SetStatusBarTexture(s.fill.file) end
+			local bg = bar:CreateTexture(nil, "BACKGROUND")
+			bg:SetAllPoints()
+			bg:SetColorTexture(0, 0, 0, g.background ~= false and 0.55 or 0)
+			pcall(button.SetDurationBar, button, bar)
+			local w = { under = button, over = button, decor = {}, iconArt = {} }
+			PlaceDecor(w, s.decor, "decor", bar, H, function(dd) if dd.under then return g.background ~= false else return g.border ~= false end end)
+			if g.iconFrame ~= false then PlaceDecor(w, s.iconDecor, "iconArt", icon, H) end
+			local px = max(8, min(14, floor(H * 0.52)))
+			local name = button:CreateFontString(nil, "OVERLAY")
+			ApplyFont(name, s.nameFont, H, px)
+			name:SetPoint("LEFT", bar, "LEFT", 4, 0)
+			name:SetJustifyH("LEFT")
+			if g.names ~= false then pcall(button.SetSpellName, button, name) end
+			local dur = button:CreateFontString(nil, "OVERLAY")
+			ApplyFont(dur, s.durFont, H, px)
+			dur:SetPoint("RIGHT", bar, "RIGHT", -4, 0)
+			name:SetPoint("RIGHT", dur, "LEFT", -4, 0)
+			if g.timers ~= false then pcall(button.SetDurationText, button, dur) end
+		else
+			local time = button:CreateFontString(nil, "OVERLAY")
+			time:SetFont(FONT, max(8, floor(H * 0.4)), "OUTLINE")
+			time:SetPoint("CENTER", icon, "CENTER", 0, 0)
+			if g.timers ~= false then pcall(button.SetDurationText, button, time) end
+			local okC, cd = pcall(CreateFrame, "Cooldown", nil, button, "CooldownFrameTemplate")
+			if okC and cd then
+				cd:SetAllPoints(icon)
+				if cd.SetReverse then cd:SetReverse(true) end
+				if cd.SetDrawEdge then cd:SetDrawEdge(false) end
+				if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
+				cd.noCooldownCount = true
+				pcall(button.SetDurationCooldown, button, cd)
+			end
+			if g.iconFrame ~= false then
+				local w = { under = button, over = button, decor = {}, iconArt = {} }
+				PlaceDecor(w, s.soloIconDecor or s.iconDecor, "iconArt", icon, H)
+			end
+		end
+		pcall(button.SetMouseMotionEnabled, button, true)
+		pcall(button.SetTooltipAnchorPoint, button, "ANCHOR_RIGHT")
+		pcall(button.SetHideTooltipInCombat, button, false)
+	end
+end
+
+-- The container for one unit of a group; rebuilt when the look changes. Nil in combat when it
+-- would have to be rebuilt.
+local function SlotContainer(f, g, unit)
+	f.slotC = f.slotC or {}
+	local key = SlotKey(g)
+	local c = f.slotC[unit]
+	if c and c.alKey == key then return c end
+	if InCombatLockdown and InCombatLockdown() then return c end
+	if c then c:Hide() c:ClearAllPoints() f.slotC[unit] = nil end
+	local ok, nc = pcall(CreateFrame, "AuraContainer", nil, f, "CustomAuraContainerTemplate")
+	if not (ok and nc) then
+		ns.report["game-drawn trackers"] = "AuraContainer not available: " .. tostring(nc)
+		return nil
+	end
+	nc:SetAllPoints(f)
+	nc:SetFrameLevel(f:GetFrameLevel() + 3)
+	if nc.SetUnit then pcall(nc.SetUnit, nc, unit) end
+	nc.alKey, nc.alSlots, nc.alIds = key, {}, {}
+	nc:Show()
+	f.slotC[unit] = nc
+	ns.report["game-drawn trackers"] = "AuraContainer ok"
+	return nc
+end
+
+-- Makes sure the slots for one tracker exist and carry its spell map. Returns the slot frames.
+local function TrackerSlots(f, g, t, ids)
+	local unit = t.unit or "player"
+	local c = SlotContainer(f, g, unit)
+	if not c then return nil end
+	local kinds = (t.kind == "buff" and { "HELPFUL" }) or (t.kind == "debuff" and { "HARMFUL" }) or { "HELPFUL", "HARMFUL" }
+	local frames = {}
+	local idsKey = IdsKey(ids)
+	for _, filter in ipairs(kinds) do
+		local key = tostring(t.uid) .. ":" .. filter
+		local filters = { includeSpellIDs = ids }
+		if t.mine then filters.isFromPlayerOrPlayerPet = true end
+		local frame = c.alSlots[key]
+		if not frame then
+			if InCombatLockdown and InCombatLockdown() then return nil end
+			local ok, fr = pcall(c.AddAuraSlot, c, key, filter, { initializeFrame = InitSlotFrame(g), candidateFilters = filters })
+			if not ok then
+				ns.report["game-drawn trackers"] = "AddAuraSlot: " .. tostring(fr)
+				return nil
+			end
+			frame = fr
+			c.alSlots[key] = frame
+			c.alIds[key] = idsKey .. tostring(t.mine)
+		elseif c.alIds[key] ~= idsKey .. tostring(t.mine) then
+			pcall(c.SetAuraSlotCandidateFilters, c, key, filters)
+			c.alIds[key] = idsKey .. tostring(t.mine)
+		end
+		frames[#frames + 1] = { key = key, frame = frame, c = c }
+	end
+	return frames
 end
 
 local function CreateGroupFrame()
@@ -926,6 +1082,15 @@ local function LayoutGroup(f, g, visible, unlocked)
 	local perRow = max(1, g.perRow or 8)
 	local stepX, stepY = w + g.spacing, h + g.spacing
 	local grow = g.grow or "RIGHT"
+	local slots = g.gameDrawn and not unlocked
+
+	-- Every slot starts the pass switched off; the ones with a cell are switched on below.
+	if f.slotC then
+		for unit, c in pairs(f.slotC) do
+			c:SetShown(slots)
+			if slots then for key in pairs(c.alSlots) do c.alWant = c.alWant or {} c.alWant[key] = false end end
+		end
+	end
 
 	for k = 1, n do
 		local widget = f.widgets[k]
@@ -934,7 +1099,26 @@ local function LayoutGroup(f, g, visible, unlocked)
 			f.widgets[k] = widget
 		end
 		local item = visible[k]
-		PaintWidget(widget, g, item.t, item.entry, unlocked, item.expiring)
+		widget:SetAlpha(1)
+		if slots and item.slots then
+			-- The addon draws only the missing state under a game-drawn slot; the game covers it
+			-- while the aura is present. "Show when active" leaves the cell empty underneath.
+			PaintWidget(widget, g, item.t, nil, false, false)
+			if item.t.show == "active" then widget:SetAlpha(0) end
+			for _, sl in ipairs(item.slots) do
+				sl.c.alWant[sl.key] = true
+				if not (InCombatLockdown and InCombatLockdown()) or sl.frame.alAnchor ~= k then
+					local ok = pcall(function()
+						sl.frame:ClearAllPoints()
+						sl.frame:SetPoint("TOPLEFT", widget, "TOPLEFT", 0, 0)
+						sl.frame:SetPoint("BOTTOMRIGHT", widget, "BOTTOMRIGHT", 0, 0)
+					end)
+					if ok then sl.frame.alAnchor = k end
+				end
+			end
+		else
+			PaintWidget(widget, g, item.t, item.entry, unlocked, item.expiring)
+		end
 		local a, b = (k - 1) % perRow, floor((k - 1) / perRow)
 		widget:ClearAllPoints()
 		if grow == "RIGHT" then widget:SetPoint("TOPLEFT", f, "TOPLEFT", a * stepX, -b * stepY)
@@ -948,6 +1132,17 @@ local function LayoutGroup(f, g, visible, unlocked)
 		local widget = f.widgets[k]
 		widget:Hide()
 		widget.tracker, widget.entry, widget.timed = nil, nil, false
+	end
+
+	if f.slotC and slots then
+		for _, c in pairs(f.slotC) do
+			for key, want in pairs(c.alWant or {}) do
+				if c.alOn == nil then c.alOn = {} end
+				if c.alOn[key] ~= want then
+					if pcall(c.SetAuraSlotEnabled, c, key, want) then c.alOn[key] = want end
+				end
+			end
+		end
 	end
 
 	local p, q = min(n, perRow), ceil(n / perRow)
@@ -1021,7 +1216,17 @@ function Display:RefreshGroup(g)
 		local entry = ns.Find(t)
 		local show, expiring = Wants(t, entry, now, unlocked, groupPass)
 		Sounds(t, entry, show, unlocked, unlocked and ns.CondPass(g.cond) or groupPass)
-		if show then visible[#visible + 1] = { t = t, entry = entry, expiring = expiring } end
+		if g.gameDrawn and not unlocked then
+			local ids = TrackerIds(t)
+			local slots = ids and groupPass and ns.CondPass(t.cond) and TrackerSlots(f, g, t, ids)
+			if slots then
+				visible[#visible + 1] = { t = t, entry = entry, expiring = false, slots = slots }
+			elseif show then
+				visible[#visible + 1] = { t = t, entry = entry, expiring = expiring }
+			end
+		elseif show then
+			visible[#visible + 1] = { t = t, entry = entry, expiring = expiring }
+		end
 	end
 	if g.live and g.live ~= "" then
 		LayoutLive(f, g, unlocked)
@@ -1077,6 +1282,7 @@ function Display:Rebuild()
 			f:Hide()
 			f.group = nil
 			if f.live then f.live:Hide() f.live = nil f.liveKey = nil end
+			if f.slotC then for _, c in pairs(f.slotC) do c:Hide() end f.slotC = nil end
 			f.chrome.hl:Hide()
 			active[uid] = nil
 			pool[#pool + 1] = f

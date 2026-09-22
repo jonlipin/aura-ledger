@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.18.0
+
+- Trackers drawn by the game. Blizzard's AuraContainer has aura slots: one game-owned frame that shows a single aura matching a spell list, current in combat. A group's new "Trackers drawn by the game" option gives every tracker such a slot (filtered to every rank the ledger knows for it, and to your own casts when "only when cast by me" is on), anchored over the tracker's cell and drawn above the addon's own art. While the aura is on you the game shows the slot; when it is gone the game hides it and the cell shows the addon's "missing" art (or nothing, for "show when active"). So both active and missing trackers stay right in combat, with the game's icon, countdown, swipe, stack count and dispel border, in our bar or icon art. Every tracker keeps its cell, the warn window does not apply, and a tracker the ledger has no spell ID for is drawn by the addon as before. Slots are built out of combat.
+- "Only this group's trackers" on a game-drawn category group now uses the real filter (includeSpellIDs) and works.
+
 ## 1.17.2
 
 - Game-drawn groups now use the game's real button functions: stack counts (SetApplicationCount), the game's own swipe over the icon (SetDurationCooldown), a dispel-type coloured border (AddDispelTypeTexture), and tooltips stay on in combat.
