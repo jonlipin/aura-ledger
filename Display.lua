@@ -306,6 +306,76 @@ end
 Display.SquareCoords = SquareCoords
 Display.IconBox = IconBox
 
+-- Where a live region sits against another, as fractions of that one's own width and height.
+-- Positive reaches outwards. Read off the screen, so how either is anchored does not matter.
+local function RelRect(region, ref)
+	local ok, l1, r1, t1, b1 = pcall(function() return region:GetLeft(), region:GetRight(), region:GetTop(), region:GetBottom() end)
+	local ok2, l2, r2, t2, b2 = pcall(function() return ref:GetLeft(), ref:GetRight(), ref:GetTop(), ref:GetBottom() end)
+	if not (ok and ok2 and l1 and r1 and t1 and b1 and l2 and r2 and t2 and b2) then return end
+	local w, h = r2 - l2, t2 - b2
+	if w <= 0 or h <= 0 then return end
+	return { l = (l2 - l1) / w, r = (r1 - r2) / w, t = (t1 - t2) / h, b = (b2 - b1) / h }
+end
+
+-- The art a live texture wears, atlas or file, with its crop.
+local function ArtOf(tex)
+	local d = {}
+	local okA, atlas = pcall(tex.GetAtlas, tex)
+	if okA and atlas then
+		d.atlas = atlas
+	else
+		local okF, file = pcall(tex.GetTexture, tex)
+		if not okF or not file then return end
+		d.file = file
+		local okC, ulx, uly, llx, lly, urx = pcall(tex.GetTexCoord, tex)
+		if okC and ulx and urx and lly then d.coords = { ulx, urx, uly, lly } end
+	end
+	return d
+end
+
+-- What the Cooldown Manager does to its own icon: the masks it clips it with, and the border art it
+-- draws round it. Both measured against that icon, so they can be put on a tracker at any size.
+local function ShapeFromDonor(item)
+	if not item then return end
+	local iconTex, iconFrame = FindIcon(item)
+	if not IsA(iconTex, "Texture") then return end
+	local shape = { masks = {} }
+	local okN, n = pcall(function() return iconTex:GetNumMaskTextures() end)
+	if okN and n then
+		for i = 1, n do
+			local okM, m = pcall(function() return iconTex:GetMaskTexture(i) end)
+			if okM and m then
+				local art = ArtOf(m)
+				local rect = RelRect(m, iconTex)
+				if art and rect then shape.masks[#shape.masks + 1] = { art = art, rect = rect } end
+			end
+		end
+	end
+	-- The border may hang on the item or on the frame the icon itself sits on.
+	local holders = { item }
+	if iconFrame and iconFrame ~= item then holders[2] = iconFrame end
+	for _, key in ipairs({ "DebuffBorder", "Border", "IconBorder", "Overlay" }) do
+	  for _, holder in ipairs(holders) do
+		local region = holder[key]
+		if IsA(region, "Texture") then
+			local art, rect = ArtOf(region), RelRect(region, iconTex)
+			if art and rect then shape.border = { art = art, rect = rect, key = key } break end
+		elseif region and region.GetRegions then
+			for _, r in ipairs({ region:GetRegions() }) do
+				if IsA(r, "Texture") then
+					local art, rect = ArtOf(r), RelRect(r, iconTex)
+					if art and rect then shape.border = { art = art, rect = rect, key = key } break end
+				end
+			end
+		end
+		if shape.border then break end
+	  end
+	  if shape.border then break end
+	end
+	if #shape.masks == 0 and not shape.border then return end
+	return shape
+end
+
 local function SkinFromDonor(root, sourceName)
 	local bar = FindStatusBar(root, 0)
 	if not bar then return end
@@ -315,7 +385,7 @@ local function SkinFromDonor(root, sourceName)
 	local _, rh = bar:GetSize()
 	if not rh or rh <= 0 then return end
 	fill.color, fill.layer = nil, nil
-	local s = { source = sourceName, fill = fill, decor = {}, iconDecor = {} }
+	local s = { source = sourceName, fill = fill, decor = {}, iconDecor = {}, donorRoot = root }
 	if root ~= bar then Collect(root, bar, nil, s.decor, true) end
 	local mid = bar:GetParent()
 	if mid and mid ~= root and mid ~= UIParent then Collect(mid, bar, nil, s.decor, true) end
@@ -377,6 +447,78 @@ end
 -- The edge is four thin bars laid along the inside of the picture, not a block behind it: a block
 -- shows only where it sticks out, and anything sticking out reaches into the gap between one cell
 -- and the next, and is not covered by the game's icon on a cell the game fills.
+-- Places a region by a rectangle measured off the donor: outwards is positive, and both axes scale
+-- with the icon, which is square, so the shape keeps its proportions.
+local function ApplyRect(tex, ref, rect, size)
+	tex:ClearAllPoints()
+	tex:SetPoint("TOPLEFT", ref, "TOPLEFT", -rect.l * size, rect.t * size)
+	tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", rect.r * size, -rect.b * size)
+end
+
+-- The manager's own mask, on our icon. Returns whether it could.
+local function ShapeMask(w, icon, size, want)
+	local s = skin
+	local shape = s and s.shape
+	if not want or not shape or #shape.masks == 0 or not icon.AddMaskTexture then
+		for _, m in ipairs(w.shapeMasks or {}) do
+			if icon.RemoveMaskTexture then pcall(icon.RemoveMaskTexture, icon, m) end
+			pcall(m.Hide, m)
+		end
+		w.shapeMasks = nil
+		return false
+	end
+	if not w.shapeMasks then
+		w.shapeMasks = {}
+		for i, def in ipairs(shape.masks) do
+			local ok, m = pcall(function() return (w.over or w):CreateMaskTexture() end)
+			if ok and m then
+				if def.art.atlas then pcall(m.SetAtlas, m, def.art.atlas)
+				else pcall(m.SetTexture, m, def.art.file) end
+				if pcall(icon.AddMaskTexture, icon, m) then w.shapeMasks[#w.shapeMasks + 1] = m
+				else pcall(m.Hide, m) end
+			end
+		end
+	end
+	for i, m in ipairs(w.shapeMasks) do
+		local def = shape.masks[i]
+		if def then ApplyRect(m, icon, def.rect, size) end
+	end
+	return #w.shapeMasks > 0
+end
+
+-- The manager's border art, which carries the state colour: white while the aura is there, red
+-- while it is missing or nearly gone, the dispel colour on a debuff.
+local function ShapeBorder(w, icon, size, want, r, g, b)
+	local s = skin
+	local def = s and s.shape and s.shape.border
+	if not want or not def then
+		if w.shapeBorder then w.shapeBorder:Hide() end
+		return false
+	end
+	local tex = w.shapeBorder
+	if not tex then
+		tex = (w.over or w):CreateTexture(nil, "OVERLAY", nil, 5)
+		if def.art.atlas then tex:SetAtlas(def.art.atlas)
+		else
+			tex:SetTexture(def.art.file)
+			if def.art.coords then tex:SetTexCoord(def.art.coords[1], def.art.coords[2], def.art.coords[3], def.art.coords[4]) end
+		end
+		w.shapeBorder = tex
+	end
+	ApplyRect(tex, icon, def.rect, size)
+	tex:SetVertexColor(r or 1, g or 1, b or 1)
+	tex:Show()
+	return true
+end
+
+-- Just the colour, for a border already in place.
+local function ShapeBorderColor(w, r, g, b)
+	local tex = w.shapeBorder
+	if not tex or tex:IsShown() == false then return false end
+	tex:SetVertexColor(r or 1, g or 1, b or 1)
+	return true
+end
+
 local function EdgeBars(w)
 	if not w.edgeBars then
 		local owner = w.over or w
@@ -424,7 +566,8 @@ local function LayEdge(w, r, g, b, a, thicker)
 end
 
 local function PlaceCleanEdge(w, ref, size, want, inward)
-	local on = (want ~= false) and BorderMode() == "clean"
+	local shaped = (want ~= false) and BorderMode() == "clean" and skin and skin.shape and skin.shape.border
+	local on = (want ~= false) and BorderMode() == "clean" and not shaped
 	if not on then
 		for _, tex in ipairs(w.edgeBars or {}) do tex:Hide() end
 		return false
@@ -525,6 +668,16 @@ local function BuildSkin()
 			s.iconSource = "Cooldown Manager icon"
 		end
 	end
+	do
+		local shapeFrom = iconDonor or s.donorRoot
+		if shapeFrom then
+			s.shape = ShapeFromDonor(shapeFrom)
+			ns.report["icon shape"] = s.shape
+				and ((#s.shape.masks .. " mask" .. (#s.shape.masks == 1 and "" or "s"))
+					.. ", border " .. (s.shape.border and (s.shape.border.art.atlas or tostring(s.shape.border.art.file)) or "none"))
+				or "not readable on this client"
+		end
+	end
 	-- Resolve the fill to a file + coords so it can be cropped as it drains.
 	if s.fill.atlas then
 		s.fillAtlas = s.fill.atlas
@@ -582,6 +735,16 @@ function Display:IconReport(emit)
 	local s = BuildSkin()
 	emit("icon art from: " .. tostring(s.iconSource or s.source))
 	emit("icon edge: " .. BorderMode())
+	emit("icon shape from the manager: " .. tostring(ns.report["icon shape"] or "not looked for yet"))
+	local sh = skin and skin.shape
+	for i, m in ipairs((sh and sh.masks) or {}) do
+		emit(("  mask %d: %s, reaches l %.3f r %.3f t %.3f b %.3f"):format(i, tostring(m.art.atlas or m.art.file), m.rect.l, m.rect.r, m.rect.t, m.rect.b))
+	end
+	if sh and sh.border then
+		emit(("  border: %s from %s, reaches l %.3f r %.3f t %.3f b %.3f"):format(
+			tostring(sh.border.art.atlas or sh.border.art.file), tostring(sh.border.key),
+			sh.border.rect.l, sh.border.rect.r, sh.border.rect.t, sh.border.rect.b))
+	end
 	local fi = ClientIconFrame()
 	local fa = fi and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(fi)
 	emit(("icon frame: %s%s, drawn out %.3f and up %.3f of the icon"):format(
@@ -853,8 +1016,11 @@ local function ConfigureWidget(w, g)
 		w.bar:Show()
 		PlaceDecor(w, s.decor, "decor", w.bar, H, wantBar)
 		-- Both are asked every time: the one that is not wanted takes itself off screen.
+		ShapeMask(w, w.icon, IS, g.iconFrame ~= false)
+		local shaped = ShapeBorder(w, w.icon, IS, g.iconFrame ~= false)
 		local edged = PlaceCleanEdge(w, w.icon, IS, g.iconFrame ~= false)
 		local framed = PlaceClientFrame(w, w.icon, IS, g.iconFrame ~= false)
+		edged = edged or shaped
 		if edged or framed then
 			PlaceDecor(w, {}, "iconArt", w.icon, IS, wantIcon, true)
 		else
@@ -897,8 +1063,11 @@ local function ConfigureWidget(w, g)
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		w.bar:Hide()
 		PlaceDecor(w, {}, "decor", w.bar, S)
+		ShapeMask(w, w.icon, S, g.iconFrame ~= false)
+		local shaped = ShapeBorder(w, w.icon, S, g.iconFrame ~= false)
 		local edged = PlaceCleanEdge(w, w.icon, S, g.iconFrame ~= false, w.underSlot)
 		local framed = PlaceClientFrame(w, w.icon, S, g.iconFrame ~= false)
+		edged = edged or shaped
 		if edged or framed then
 			PlaceDecor(w, {}, "iconArt", w.icon, S, wantIcon, true)
 		else
@@ -963,7 +1132,9 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 	elseif flagMissing then
 		br, bg, bb, strong = 1, 0.1, 0.1, true
 	end
-	if TintEdge(w, br or 0, bg or 0, bb or 0, strong) then
+	if ShapeBorderColor(w, br or 1, bg or 1, bb or 1) then
+		w.border:Hide()
+	elseif TintEdge(w, br or 0, bg or 0, bb or 0, strong) then
 		-- The edge said it; the old debuff sheet is not wanted on top of it.
 		w.border:Hide()
 	elseif br then

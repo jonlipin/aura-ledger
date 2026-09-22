@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.44.0
+
+- Trackers wear the Cooldown Manager's own icon shape. Rather than name an atlas and hope, the addon measures what the manager does to its own icon: the masks it clips it with and the border art it draws round it are live regions, so where they sit against that icon is read off the screen and put on a tracker at any size. The missing and warning colours go onto that same border, so a tracker is the manager's shape in every state instead of gaining a square red frame. Where the manager cannot be read, the thin dark edge from 1.43.0 is still drawn.
+- /auraledger debug icon reports the shape: each mask copied, the border art, and how far each reaches past the icon.
+
 ## 1.43.5
 
 - Trackers have tooltips while you play, not only while the window is open. Hovering one names the aura and says whether it is on you and how long is left, or that it is not; a tracker the game is drawing says so as well, since the addon cannot tell the difference between an aura that has gone and one the game has not drawn. Hovering takes no clicks, so everything behind a tracker still works.
