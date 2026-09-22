@@ -495,17 +495,54 @@ function Builder:ConfirmButton(text, width, onConfirm)
 	return b
 end
 
--- The "show when" block. getCond returns the cond table being edited.
-function Builder:Conditions(getCond, onChange)
+-- The "only show when" block. getCond returns the cond table being edited. draw, when given, is
+-- { get, set, available } for the group's "the game draws it" setting, which belongs with the
+-- combat question rather than off on its own.
+function Builder:Conditions(getCond, onChange, draw)
 	local function Cond() return getCond() or {} end
 	self:Check("Never show (disabled)", function() return Cond().never end,
 		function(v) Cond().never = v or nil onChange() end,
 		"Switches this off without deleting it.")
+	-- In combat: shown or hidden, and if shown, who draws it. On this client the addon cannot see
+	-- auras during a fight, so "the game keeps it right" is the only way to stay correct.
+	local inChoices = { { "addon", "Shown, the addon draws it" } }
+	if draw then inChoices[#inChoices + 1] = { "game", "Shown, the game keeps it right" } end
+	inChoices[#inChoices + 1] = { "hide", "Hidden" }
+	self:Cycle("In combat", inChoices,
+		function()
+			if Cond().combat == "no" then return "hide" end
+			if draw and draw.get() then return "game" end
+			return "addon"
+		end,
+		function(v)
+			local c = Cond()
+			if v == "hide" then
+				c.combat = "no"
+				if draw then draw.set(false) end
+			else
+				if c.combat == "no" then c.combat = nil end
+				if draw then draw.set(v == "game") end
+			end
+			onChange()
+			self:Sync()
+		end,
+		"On this client the addon cannot see auras during a fight. The game can: it keeps each tracker right, at the cost of always showing an aura while it is active, so Missing behaves like Either and the warn window does not apply. It works for buffs on you and for debuffs on your target, not for a debuff on you.",
+		210)
+	self:Cycle("Out of combat", { { "show", "Shown" }, { "hide", "Hidden" } },
+		function() return Cond().combat == "yes" and "hide" or "show" end,
+		function(v)
+			local c = Cond()
+			if v == "hide" then c.combat = "yes" elseif c.combat == "yes" then c.combat = nil end
+			onChange()
+			self:Sync()
+		end, nil, 150)
 	for _, tog in ipairs(ns.TOGGLES) do
 		local key = tog[1]
-		self:Cycle(tog[2], { { "any", "Either" }, { "yes", tog[3] }, { "no", tog[4] } },
-			function() return Cond()[key] or "any" end,
-			function(v) Cond()[key] = (v ~= "any") and v or nil onChange() end, nil, 150)
+		if key ~= "combat" then
+			self:Cycle(tog[2], { { "any", "Either" }, { "yes", tog[3] }, { "no", tog[4] } },
+				function() return Cond()[key] or "any" end,
+				function(v) Cond()[key] = (v ~= "any") and v or nil onChange() end, nil, 150)
+		end
 	end
 	local function SetGetters(field)
 		return function(k) local set = Cond()[field] return set and set[k] end,
@@ -1435,13 +1472,10 @@ local function BuildGroupPanel(width)
 		elseif g.gameDrawn then
 			whoNote:SetText("The game draws these trackers, so they stay right in a fight. It shows an aura whenever it is active.")
 		else
-			whoNote:SetText("The addon draws these trackers, so they only update between fights on this client.")
+			whoNote:SetText("The addon draws these trackers, so they only update between fights. Ask the game to draw them under Only show this group when.")
 		end
 	end
-	b:Check("Keep these right in combat (the game draws them)", function() local g = G() return g and g.gameDrawn or false end,
-		function(v) local g = G() if g then g.gameDrawn = v or nil GroupChanged() b:Sync() end end,
-		"On this client the addon cannot see auras during a fight. Ticked, the game draws each tracker in this group and keeps it right, at the cost of always showing an aura while it is active: 'Missing' then behaves like 'Either', and the warn window does not apply. It works for buffs on you and for debuffs on your target; a debuff on you cannot be drawn this way, so use Contents: Every debuff on me for those.")
-	b:AppliesWhen(function() return not IsCategory() end)
+
 	b:Cycle("Show as", { { "icons", "Icons with numbers" }, { "bars", "Bars with icons" } },
 		function() local g = G() return g and g.style or "icons" end,
 		function(v) local g = G() if g then g.style = v if v == "bars" and (g.grow == "RIGHT" or g.grow == "LEFT") then ns.Display:SetGrow(g, "DOWN") end GroupChanged() b:Sync() end end,
@@ -1485,7 +1519,15 @@ local function BuildGroupPanel(width)
 		"The decorative frame around each icon, when the client has one.")
 
 	b:Header("Only show this group when")
-	b:Conditions(function() local g = G() return g and g.cond end, TrackerChanged)
+	b:Conditions(function() local g = G() return g and g.cond end, TrackerChanged, {
+		get = function() local g = G() return g and g.gameDrawn and not IsCategory() end,
+		set = function(v)
+			local g = G()
+			if not g or IsCategory() then return end
+			g.gameDrawn = v or nil
+			GroupChanged()
+		end,
+	})
 
 	b.y = b.y - 8
 	b:Note("To delete this group, click the X on its row in the Groups and trackers list twice.")
@@ -1595,8 +1637,8 @@ local function BuildTrackerPanel(width)
 			TrackerChanged()
 			b:Sync()
 		end,
-		"On this client a debuff on you cannot be followed by spell; debuff trackers watch your target. For every debuff on you, use a group with Contents: Debuffs on me.")
-	local limitNote = b:Note("Debuff trackers watch your target: a debuff on you cannot be followed by spell on this client. For every debuff on you use a group whose Shows is one of the debuff choices.")
+		"On this client a debuff on you cannot be followed by spell, so debuff trackers watch your target. The game's own debuff frame is what shows a debuff on you during a fight.")
+	local limitNote = b:Note("Debuff trackers watch your target: on this client a debuff on you cannot be followed by spell, and the game's own debuff frame is the only thing that can show those during a fight.")
 	b:AppliesWhen(function()
 		local t = T()
 		return (t and (t.kind == "debuff" or ((t.unit or "player") == "player" and t.kind ~= "buff"))) and true or false
@@ -1606,7 +1648,7 @@ local function BuildTrackerPanel(width)
 		if t and (t.unit or "player") == "player" and t.kind ~= "debuff" then
 			limitNote:SetText("Set to 'Buff or debuff' on you: only the buff side can be followed in combat. Set the type to Buff only, or watch your target for a debuff.")
 		else
-			limitNote:SetText("Debuff trackers watch your target: a debuff on you cannot be followed by spell on this client. For every debuff on you use a group whose Shows is one of the debuff choices.")
+			limitNote:SetText("Debuff trackers watch your target: on this client a debuff on you cannot be followed by spell, and the game's own debuff frame is the only thing that can show those during a fight.")
 		end
 	end
 	b:Check("Only when it was cast by me", function() local t = T() return t and t.mine end,

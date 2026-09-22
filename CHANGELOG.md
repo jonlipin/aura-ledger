@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.26.0
+
+- Contents offers only what is worth having: the trackers you put there, your debuffs on your target, or every debuff on your target. The other five repeated what the default buff, debuff and target frames already show, so they are gone.
+- The two combat questions are now one place. "Keep these right in combat" has moved into the conditions as "In combat: shown, the addon draws it / shown, the game keeps it right / hidden", with "Out of combat: shown / hidden" beside it. A group the game fills does not offer the middle choice, since the game always draws those.
+- The resting, mounted and "have a target" conditions are gone, and any that were set are cleared. Combat, alive, group size, where and class remain.
+
 ## 1.25.0
 
 - The group options ask two plain questions instead of one muddled one. "Contents" says what is in the group: the trackers you put there, or one of the kinds of aura the game fills a group with. "Keep these right in combat" says who draws your trackers, and only appears for a group of your own trackers, since a group the game fills is always drawn by the game. A line under Contents says in plain words what the current pair means.

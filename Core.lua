@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.25.0"
+ns.VERSION = "1.26.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -153,7 +153,12 @@ function ns.InitDB()
 	for _, g in ipairs(profile.groups) do
 		g.trackers = type(g.trackers) == "table" and g.trackers or {}
 		g.cond = type(g.cond) == "table" and g.cond or {}
-		g.liveOnlyMine = nil -- retired: "my trackers, kept right in combat" does this properly
+		g.liveOnlyMine = nil -- retired: the combat question covers this properly
+		-- Retired conditions: resting, mounted and having a target were rarely what anyone meant.
+		for _, key in ipairs({ "resting", "mounted", "target" }) do
+			if g.cond then g.cond[key] = nil end
+			for _, t in ipairs(g.trackers) do if t.cond then t.cond[key] = nil end end
+		end
 		for _, t in ipairs(g.trackers) do t.cond = type(t.cond) == "table" and t.cond or {} end
 	end
 	ns.db, ns.profile, ns.charKey = db, profile, key
@@ -316,14 +321,11 @@ end
 ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "watch", "live", "liveOnlyMine", "gameDrawn" }
 
 -- What a game-drawn group can show: Blizzard's aura filters for the player.
+-- What the game can fill a group with. Only the two worth having are offered: the rest repeated
+-- what the default buff, debuff and target frames already show.
 ns.LIVE_FILTERS = {
 	{ "target:HARMFUL|PLAYER",  "My debuffs on my target" },
-	{ "HARMFUL",                "Every debuff on me" },
-	{ "HELPFUL",                "Every buff on me" },
-	{ "HARMFUL|DISPELLABLE",    "Debuffs on me I can dispel" },
-	{ "HELPFUL|PLAYER",         "Buffs on me that I cast" },
 	{ "target:HARMFUL",         "Every debuff on my target" },
-	{ "target:HELPFUL",         "Buffs on my target" },
 }
 
 function ns.NewGroupLike(g, x, y)
@@ -420,11 +422,10 @@ end
 ns.CLASSES = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID" }
 ns.GROUPS = { { "solo", "Solo" }, { "party", "Party" }, { "raid", "Raid" } }
 ns.PLACES = { { "world", "Open world" }, { "dungeon", "Dungeon" }, { "raid", "Raid instance" }, { "bg", "Battleground" }, { "arena", "Arena" } }
+-- Combat is asked as its own pair of questions in the options panel, because who draws a group in
+-- combat belongs with whether it is shown at all. The rest are plain three-way toggles.
 ns.TOGGLES = {
 	{ "combat", "Combat", "In combat", "Out of combat" },
-	{ "resting", "Resting", "Resting", "Not resting" },
-	{ "mounted", "Mounted", "Mounted", "On foot" },
-	{ "target", "Target", "Have a target", "No target" },
 	{ "alive", "Alive", "Alive", "Dead or ghost" },
 }
 

@@ -30,16 +30,18 @@ The minimize button beside the close button shrinks the window to the Groups and
 
 ## Options
 
-Per **group**: what it shows (my trackers between fights, my trackers kept right in combat, or one of the kinds of aura the game fills a group with), name, icons with numbers or bars with icons, growth direction, icon size, bar width and height, spacing, how many per row before wrapping, scale, opacity, time text, names on bars, and whether to draw the bar border, the bar background and the icon frame. Options that do not apply to what the group shows are greyed out, and say why when you hover them.
+Per **group**: its contents (the trackers you put there, your debuffs on your target, or every debuff on your target), name, icons with numbers or bars with icons, growth direction, icon size, bar width and height, spacing, how many per row before wrapping, scale, opacity, time text, names on bars, and whether to draw the bar border, the bar background and the icon frame. Options that do not apply to what the group shows are greyed out, and say why when you hover them.
 
-Debuffs are listed only where they can be followed: on your target. A debuff on you cannot be tracked by spell on this client, so use a group with Contents "Debuffs on me" for those.
+Debuffs are listed only where they can be followed: on your target. A debuff on you cannot be tracked by spell on this client, and the game's own debuff frame is the only thing that shows those during a fight.
 
 Per **tracker**: on **you** or on **your target** (a target tracker hides with no target); show when the aura is **active**, when it is **missing**, or **always** (turning red while missing); a warn window in seconds (with "missing": also shows while the aura has that long or less left, in red; with "always": the border turns red that early); match by name (any rank) or exact spell ID; buff, debuff or either; only when cast by you; a custom bar label; a Blizzard sound when the aura is applied, when it runs out, and when the tracker appears.
 
 **Conditions**, on both groups and trackers (a tracker must pass its own and its group's):
 
 - Never (disabled)
-- Combat, resting, mounted, have a target, alive: each either way or "either"
+- In combat: shown with the addon drawing it, shown with the game keeping it right, or hidden
+- Out of combat: shown or hidden
+- Alive: either way or "either"
 - Group size: solo, party, raid
 - Where: open world, dungeon, raid instance, battleground, arena
 - Class
@@ -60,7 +62,7 @@ The Forever client hides your auras from addons in combat. Not just the details:
 - your own successful casts are watched: casting a spell the ledger knows as an aura creates or refreshes an estimated aura (a buff on you, a debuff on your target) with the remembered duration, so a recast Demon Skin clears its "missing" tracker at once and a Blood Fury shows its bar
 - the "when applied" and "when it runs out" sounds are handed to the game (C_UnitAuras.AddAuraSound), which plays them itself when that aura is added to you or removed from you, in combat too; only sound choices with a file behind them qualify, marked "(combat)" in the picker
 - a group can have its trackers drawn by the game: each tracker gets a Blizzard aura slot filtered to its spell, shown by the game while the aura is on you (in combat too) and hidden otherwise, uncovering the addon's "missing" art underneath ("it is missing" therefore behaves like "always" there); the game allows this for buffs on you and debuffs on your target, not debuffs on you
-- a group can be handed to the game (Contents: debuffs on me, dispellable debuffs, buffs on me, buffs I cast, my debuffs on my target, all debuffs on my target, buffs on my target): Blizzard draws every aura of that kind through its AuraContainer and keeps it current in combat, with our icon art, size and place
+- a group can be handed to the game (Contents: your debuffs on your target, or every debuff on your target): Blizzard draws every aura of that kind through its AuraContainer and keeps it current in combat, with our icon art, size and place
 - anything carried or estimated wears a small pocket watch and a `~` in front of its time, and everything is re-read properly the moment the restriction lifts
 
 What the addon itself cannot do in combat, on this client: notice a buff being clicked off or dispelled, or a debuff landing. The game-drawn options above are how that is covered. When the client hides less, the addon reads more without changes.
