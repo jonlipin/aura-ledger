@@ -1368,6 +1368,7 @@ local function InitSlotFrame(g, mode, filter, store)
 		if not button then return end
 		local ok, err = pcall(function()
 		local s = BuildSkin()
+		local w = { under = button, over = button, decor = {}, iconArt = {} }
 		local bars = g.style == "bars"
 		local W, H = bars and g.barW or g.size, bars and g.barH or g.size
 		pcall(button.SetSize, button, W, H)
@@ -1377,6 +1378,9 @@ local function InitSlotFrame(g, mode, filter, store)
 		icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		local masked = g.iconFrame ~= false and ns.SetIconMask(button, icon, true, IS)
 		local inset = (masked or BorderMode() ~= "cdm") and 0 or IconInset(s, bars, IS, g.iconFrame ~= false)
+		-- The same pulling in as the cell underneath, so the two are the same size, and the same
+		-- mask, so the game's icon is the same shape as the cell it sits on.
+		if HaveShape() and g.iconFrame ~= false then inset = max(inset, max(1, floor(IS / 20 + 0.5))) end
 		local IW = IS - inset * 2
 		-- The container takes the icon and anchors it to the button, which is not always square, so
 		-- the picture is put back on its own square afterwards.
@@ -1386,6 +1390,8 @@ local function InitSlotFrame(g, mode, filter, store)
 			if bars then icon:SetPoint("LEFT", button, "LEFT", inset, 0) else icon:SetPoint("CENTER", button, "CENTER", 0, 0) end
 		end
 		SquareUp()
+		ShapeMask(w, icon, IW, g.iconFrame ~= false)
+		button.alIcon = icon
 		pcall(button.SetIcon, button, icon)
 		SquareUp()
 		if button.HookScript then pcall(button.HookScript, button, "OnShow", SquareUp) end
@@ -1423,7 +1429,6 @@ local function InitSlotFrame(g, mode, filter, store)
 			bg:SetColorTexture(0, 0, 0, g.background ~= false and 0.55 or 0)
 			local dir = DrainDirection()
 			if not pcall(button.SetDurationBar, button, bar, dir ~= nil and { direction = dir } or nil) then pcall(button.SetDurationBar, button, bar) end
-			local w = { under = button, over = button, decor = {}, iconArt = {} }
 			PlaceDecor(w, s.decor, "decor", bar, H, function(dd) if dd.under then return g.background ~= false else return g.border ~= false end end)
 			if g.iconFrame ~= false then
 				local e1 = PlaceCleanEdge(w, icon, IS, true)
@@ -1462,7 +1467,6 @@ local function InitSlotFrame(g, mode, filter, store)
 				pcall(button.SetDurationCooldown, button, cd)
 			end
 			if g.iconFrame ~= false then
-				local w = { under = button, over = button, decor = {}, iconArt = {} }
 				local e1 = PlaceCleanEdge(w, icon, H, true)
 				local e2 = PlaceClientFrame(w, icon, H, true)
 				if not e1 and not e2 then PlaceDecor(w, IconArt(s, false), "iconArt", icon, H, nil, true) end

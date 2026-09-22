@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.45.2
+
+- The icon in a slot the game fills matches the cell underneath it. It was being left at full size with square corners while the cell was pulled in and rounded off, so it stood proud of its cell and the cell's corners showed round the outside of it. The slot's icon is pulled in by the same amount and wears the same mask, so a tracker the game draws is the same size and shape as one the addon draws.
+
 ## 1.45.1
 
 - A tracker whose aura is up no longer wears the missing colour. The ring that carries that colour was drawn a little outside the picture, so on a cell sitting under a game-drawn slot it reached past the cell, where the game's icon does not cover it, and showed as a red outline round an aura that was there. The ring is laid on the cell's own square now and the picture is pulled in off it, so the ring shows where the picture is not and never reaches past the cell.
