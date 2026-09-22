@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.15.0"
+ns.VERSION = "1.15.1"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -22,28 +22,45 @@ local strlower, floor, max, min = string.lower, math.floor, math.max, math.min
 
 -- Everything printed is also kept in the saved variables (AuraLedgerDB.log, newest last), so the
 -- output of the diagnostic commands can be read from disk after a /reload instead of from chat.
-local LOG_CAP = 800
-local pendingLog = {}
-local function LogLine(text)
-	local line = (date and date("%H:%M:%S") or "") .. " " .. text
-	local db = ns.db
+local LOG_CAP, CHAT_CAP = 3000, 1500
+local pendingLog, pendingChat = {}, {}
+local function Append(db, field, pending, cap, line)
 	if db then
-		db.log = db.log or {}
-		if #pendingLog > 0 then
-			for _, l in ipairs(pendingLog) do db.log[#db.log + 1] = l end
-			pendingLog = {}
+		db[field] = db[field] or {}
+		local list = db[field]
+		if #pending > 0 then
+			for _, l in ipairs(pending) do list[#list + 1] = l end
+			for i = #pending, 1, -1 do pending[i] = nil end
 		end
-		db.log[#db.log + 1] = line
-		if #db.log > LOG_CAP + 100 then
+		list[#list + 1] = line
+		if #list > cap + 200 then
 			local keep = {}
-			for i = #db.log - LOG_CAP + 1, #db.log do keep[#keep + 1] = db.log[i] end
-			db.log = keep
+			for i = #list - cap + 1, #list do keep[#keep + 1] = list[i] end
+			db[field] = keep
 		end
 	else
-		pendingLog[#pendingLog + 1] = line
+		pending[#pending + 1] = line
 	end
 end
+local function Stamp(text)
+	return (date and date("%H:%M:%S") or "") .. " " .. tostring(text)
+end
+local function LogLine(text)
+	Append(ns.db, "log", pendingLog, LOG_CAP, Stamp(text))
+end
 ns.LogLine = LogLine
+-- Every line that reaches the main chat frame, from anyone, colour codes stripped.
+local function ChatLine(text)
+	if type(text) ~= "string" then return end
+	Append(ns.db, "chat", pendingChat, CHAT_CAP, Stamp((text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", ""))))
+end
+if hooksecurefunc and DEFAULT_CHAT_FRAME then
+	pcall(hooksecurefunc, DEFAULT_CHAT_FRAME, "AddMessage", function(_, text) ChatLine(text) end)
+end
+-- The chat window itself keeps only about 128 lines by default; long outputs scroll away.
+if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.SetMaxLines then
+	pcall(DEFAULT_CHAT_FRAME.SetMaxLines, DEFAULT_CHAT_FRAME, 2000)
+end
 
 local function Print(msg)
 	msg = tostring(msg)
@@ -1937,10 +1954,11 @@ SlashCmdList.AURALEDGER = function(msg)
 		end
 	elseif cmd == "log" then
 		if rest == "clear" then
-			if ns.db then ns.db.log = {} end
+			if ns.db then ns.db.log = {} ns.db.chat = {} end
 			Print("log cleared")
 		else
-			Print(("log: %d lines kept in the saved variables (written on /reload or logout); /auraledger log clear empties it"):format(ns.db and ns.db.log and #ns.db.log or 0))
+			Print(("log: %d addon lines and %d chat lines kept in the saved variables (written on /reload or logout); /auraledger log clear empties both"):format(
+				ns.db and ns.db.log and #ns.db.log or 0, ns.db and ns.db.chat and #ns.db.chat or 0))
 		end
 	elseif cmd == "container" then
 		ns.ProbeContainer()

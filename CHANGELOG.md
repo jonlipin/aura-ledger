@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.15.1
+
+- Longer logs. The chat window now keeps 2000 lines instead of the default 128, every message that reaches the main chat frame (including Blizzard's /api output) is mirrored into the saved variables (1500 lines), and the addon's own log keeps 3000 lines. Both are written on /reload or logout; /auraledger log shows the counts, /auraledger log clear empties them.
+
 ## 1.15.0
 
 - While auras are secret, the addon now asks C_UnitAuras.GetUnitAuraInstanceIDs for the instance ids on you. When that list is readable, presence per instance is known in combat: a carried buff whose instance disappears is dropped at once (clicked off, dispelled, or run out), a spell you cast binds to the instance that appears, and instances nothing claims are kept as "Unknown buff" / "Unknown debuff" entries. When the list is hidden, nothing changes.
