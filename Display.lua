@@ -478,6 +478,29 @@ Display.IconCrop = IconCrop
 Display.EvenOverhang = EvenOverhang
 Display.IconInset = IconInset
 
+-- One line for a texture that is actually on screen: its art, the size it is drawn at, where its
+-- corners are pinned, and how it is cropped.
+local function TexLine(label, tex)
+	if not tex then return label .. ": none" end
+	local shown = (tex.IsShown and tex:IsShown()) and "shown" or "hidden"
+	local art = (tex.GetAtlas and tex:GetAtlas()) or (tex.GetTexture and tex:GetTexture()) or "?"
+	local w, h = 0, 0
+	if tex.GetSize then w, h = tex:GetSize() end
+	local crop = ""
+	if tex.GetTexCoord then
+		local ok, ulx, uly, llx, lly, urx, ury, lrx, lry = pcall(tex.GetTexCoord, tex)
+		if ok and ulx then crop = (", crop %.2f %.2f %.2f %.2f"):format(ulx, urx or 0, uly, lly or 0) end
+	end
+	local pts = ""
+	if tex.GetNumPoints and tex.GetPoint then
+		for i = 1, (tex:GetNumPoints() or 0) do
+			local p, _, rp, x, y = tex:GetPoint(i)
+			if p then pts = pts .. (" [%s->%s %+.1f %+.1f]"):format(p, tostring(rp), x or 0, y or 0) end
+		end
+	end
+	return ("%s: %s, %s, %.0fx%.0f%s%s"):format(label, tostring(art), shown, w or 0, h or 0, crop, pts)
+end
+
 -- What the icon art came out as: the donor, the box it was measured in, and each piece's reach past
 -- the icon. Read by /auraledger debug icon.
 function Display:IconReport(emit)
@@ -509,6 +532,18 @@ function Display:IconReport(emit)
 			emit(("group %s: icon %d, inset %d"):format(ns.GroupName(g), g.size or 40, IconInset(s, false, g.size or 40, g.iconFrame ~= false)))
 		else
 			emit(("group %s: bar icon %d, inset %d"):format(ns.GroupName(g), ns.BarIconSize(g), IconInset(s, true, ns.BarIconSize(g), g.iconFrame ~= false)))
+		end
+		-- What is on screen for the first tracker of this group, layer by layer.
+		local f = self:ActiveFrame(g.uid)
+		local w = f and f.widgets and f.widgets[1]
+		if w then
+			emit("  what is drawn on " .. ns.GroupName(g) .. ":")
+			emit("    " .. TexLine("picture", w.icon))
+			emit("    " .. TexLine("client frame", w.clientFrame))
+			for i, tex in ipairs(w.iconArt or {}) do emit("    " .. TexLine("copied art " .. i, tex)) end
+			emit("    " .. TexLine("dispel border", w.border))
+			emit("    mask: " .. (w.icon and w.icon.alMask and "on" or "off"))
+			if w.icon and w.icon.alMask then emit("    " .. TexLine("mask art", w.icon.alMask)) end
 		end
 	end
 end
@@ -1419,6 +1454,11 @@ end
 
 function Display.FrameFor(g)
 	return active[g.uid]
+end
+
+-- The frame a group is drawn on, for the readout, which is written above this.
+function Display:ActiveFrame(uid)
+	return active[uid]
 end
 
 function Display:RefreshGroup(g)

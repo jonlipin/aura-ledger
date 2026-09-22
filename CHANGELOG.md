@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.42.1
+
+- /auraledger debug icon lists what is actually drawn on a tracker: the picture, the client's frame, any copied art, the dispel border and the mask, each with the art it wears, the size it is drawn at, how it is cropped and where its corners are pinned. Which layer shapes an icon has been inferred from screenshots several times over; this reads it off the frame instead.
+
 ## 1.42.0
 
 - Icons wear the frame this client draws round its own. The art was being copied off the Cooldown Manager, and that display's overlay is a different shape from the frame the spellbook, the buff bar and the action bar all wear, which is why a tracker came out rounded at the top and square at the bottom. The action bar's icon frame is drawn instead, at the same size and place as the mask it is cut for, and the Cooldown Manager's overlay is kept only for a client that has no such frame. /auraledger iconborder switches between the two, or draws none at all.
