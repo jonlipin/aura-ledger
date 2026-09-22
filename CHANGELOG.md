@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.29.0
+
+- The Cooldown Manager layout is written the way the manager reads it. Its category lists are the whole tracked set in display order, not a filter, so writing a single spell did not pick that spell out, it only reordered things and the manager carried on showing its own. The layout now keeps every cooldown the manager tracks and moves the ones a bar group wants into the bar row. Picking out the frames that belong to your trackers is the addon's job, by cooldown id, and that is the next piece.
+
 ## 1.28.1
 
 - /auraledger debug cdmapply now reads the layout back after writing it and reports what the game actually stored: the category enum values, which category each cooldown it was given belongs to, and the contents of our layout as the file holds it.

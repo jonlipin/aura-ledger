@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.28.1"
+ns.VERSION = "1.29.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -1571,8 +1571,9 @@ function ns.CDM.CooldownFor(t, cat)
 	end
 end
 
--- What the manager should hold: the spells of every tracker whose group asked the game to draw it.
--- Bars and icons are separate rows in the manager, so the group's style decides which one.
+-- What the trackers want from the manager: the cooldowns they name, and which of those should be
+-- drawn as bars rather than icons. The manager's own tracked set is left whole, so this is only
+-- about which row each one sits in.
 function ns.CDM.Wanted()
 	local cat = ns.CombatCatalogue()
 	local icons, bars, missing, seen = {}, {}, {}, {}
@@ -1593,8 +1594,23 @@ function ns.CDM.Wanted()
 	return icons, bars, missing
 end
 
--- Writes a layout of our own holding just those cooldowns. Returns true, or false and why.
-function ns.CDM.Apply(icons, bars)
+-- Every cooldown the manager currently tracks, in its own order, icons and bars together.
+function ns.CDM.TrackedSet()
+	local all = {}
+	local C, E = C_CooldownViewer, Enum and Enum.CooldownViewerCategory
+	if not (C and C.GetCooldownViewerCategorySet and E) then return all end
+	for _, category in ipairs({ E.TrackedBuff, E.TrackedBar }) do
+		if category ~= nil then
+			local ok, set = pcall(C.GetCooldownViewerCategorySet, category, true)
+			for _, id in ipairs((ok and PlainList(set)) or {}) do all[#all + 1] = id end
+		end
+	end
+	return all
+end
+
+-- Writes our layout: the manager's whole tracked set, with the cooldowns we want as bars moved
+-- into the bar row. Returns true, or false and why.
+function ns.CDM.Apply(bars)
 	if not ns.CDM.Available() then return false, "this client does not offer the layout data" end
 	if InCombatLockdown and InCombatLockdown() then return false, "not during a fight" end
 	local tag = CDMTag()
@@ -1615,12 +1631,18 @@ function ns.CDM.Apply(icons, bars)
 		while data[CDM_LAYOUT_IDS][id] do id = id + 1 end
 	end
 
+	-- The manager's lists are its tracked set in display order, not a filter: an id left out is not
+	-- hidden, it is only reordered. So the set is kept whole and the bars are moved across.
+	local wantBar = {}
+	for _, id in ipairs(bars or {}) do wantBar[id] = true end
+	local iconRow, barRow = {}, {}
+	for _, id in ipairs(ns.CDM.TrackedSet()) do
+		if wantBar[id] then barRow[#barRow + 1] = id else iconRow[#iconRow + 1] = id end
+	end
 	local E = Enum.CooldownViewerCategory
 	local overrides = {}
-	overrides[E.TrackedBuff] = icons
-	overrides[E.TrackedBar] = bars
-	if E.Essential then overrides[E.Essential] = {} end
-	if E.Utility then overrides[E.Utility] = {} end
+	overrides[E.TrackedBuff] = iconRow
+	overrides[E.TrackedBar] = barRow
 	data[CDM_LAYOUTS][tag] = data[CDM_LAYOUTS][tag] or {}
 	data[CDM_LAYOUTS][tag][id] = { [CDM_OVERRIDES] = overrides }
 	data[CDM_LAYOUT_IDS][id] = name
@@ -2520,8 +2542,9 @@ SlashCmdList.AURALEDGER = function(msg)
 		end
 	elseif cmd == "cdmapply" then
 		local icons, bars, missing = ns.CDM.Wanted()
-		Print(("Cooldown Manager: %d spell%s for icons, %d for bars%s"):format(#icons, #icons == 1 and "" or "s", #bars,
-			#missing > 0 and (", " .. #missing .. " with no entry in the manager (" .. table.concat(missing, ", ") .. ")") or ""))
+		Print(("Cooldown Manager: %d spell%s for icons, %d for bars, out of %d it tracks%s"):format(#icons, #icons == 1 and "" or "s", #bars,
+			#ns.CDM.TrackedSet(),
+			#missing > 0 and ("; %d with no entry (" .. table.concat(missing, ", ") .. ")"):format(#missing) or ""))
 		for _, g in ipairs(ns.profile.groups) do
 			if g.gameDrawn and not (g.live and g.live ~= "") then
 				for _, t in ipairs(g.trackers) do
@@ -2539,10 +2562,11 @@ SlashCmdList.AURALEDGER = function(msg)
 		if #icons == 0 and #bars == 0 then
 			Print("  Nothing to write. Set a group's 'In combat' to 'the game keeps it right' first.")
 		else
-			local ok, err = ns.CDM.Apply(icons, bars)
+			local ok, err = ns.CDM.Apply(bars)
 			if ok then
 				Print("  Written as " .. ns.CDM.LayoutName() .. ".")
 				ns.CDM.Verify(Print, icons, bars)
+				Print("  Now run /auraledger debug cdm2: the frames should carry the ids above.")
 			else
 				Print("  Not written: " .. tostring(err))
 			end
