@@ -8,7 +8,7 @@ Aura Ledger writes down every buff and debuff that lands on you, and everything 
 
 `/auraledger` (or the minimap button) opens the window. The left side is laid out like the spellbook, and borrows its art when the client provides it:
 
-- **Tabs across the top** pick a chapter. The first tab is your **Ledger**: everything that has ever been on you, with how often and how recently. After it comes a tab for **every class** listing the buffs that class can cast, so you can track Fortitude or Mark of the Wild before anyone has cast it on you. **Common** holds food, drink and the usual lockout debuffs. **Items** lists the buffs from flasks, elixirs, potions, scrolls, world buffs and trinkets, under the name of the buff itself. **Dungeons and raids** lists what mobs and bosses put on you, labelled by boss.
+- **Tabs across the top** pick a chapter. The first tab is your **Ledger**: everything that has ever been on you, with how often and how recently. After it comes a tab for **every class** listing the buffs that class can cast, so you can track Fortitude or Mark of the Wild before anyone has cast it on you. **Common** holds food, drink and the like. **Items** lists the buffs from flasks, elixirs, potions, scrolls, world buffs and trinkets, under the name of the buff itself.
 - Each page holds twelve auras. Turn pages with the arrows or the mouse wheel.
 - **Search** looks through every chapter at once, by name, spell ID or source ("naxx", "flask", "world buff").
 - **Add by spell name or ID** at the top of the page takes a name, a spell ID or a shift-clicked spell link, for anything that is not in the book yet.
@@ -30,6 +30,8 @@ The minimize button beside the close button shrinks the window to the Groups and
 ## Options
 
 Per **group**: name, icons with numbers or bars with icons, growth direction, icon size, bar width and height, spacing, how many per row before wrapping, scale, opacity, time text, names on bars, and whether to draw the bar border, the bar background and the icon frame.
+
+Debuffs are listed only where they can be followed: on your target. A debuff on you cannot be tracked by spell on this client, so use a group with Contents "Debuffs on me" for those.
 
 Per **tracker**: on **you** or on **your target** (a target tracker hides with no target); show when the aura is **active**, when it is **missing**, or **always** (turning red while missing); a warn window in seconds (with "missing": also shows while the aura has that long or less left, in red; with "always": the border turns red that early); match by name (any rank) or exact spell ID; buff, debuff or either; only when cast by you; a custom bar label; a Blizzard sound when the aura is applied, when it runs out, and when the tracker appears.
 

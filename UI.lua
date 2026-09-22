@@ -745,7 +745,7 @@ local function BookItems()
 		local have = {}
 		for _, h in pairs(ns.db.history) do
 			local hay = strlower(h.name or "") .. " " .. tostring(h.id or "")
-			if hay:find(query, 1, true) then
+			if hay:find(query, 1, true) and not (h.kind == "debuff" and not h.onTarget) then
 				list[#list + 1] = h
 				if h.name then have[strlower(h.name)] = true end
 			end
@@ -763,7 +763,7 @@ local function BookItems()
 		return list, "Search results"
 	end
 	if book.tab ~= "HISTORY" then
-		local titles = { COMMON = "Common", ITEMS = "Items", PVE = "Dungeons and raids" }
+		local titles = { COMMON = "Common", ITEMS = "Items" }
 		return ns.BookPages()[book.tab] or {}, titles[book.tab] or ClassLabel(book.tab)
 	end
 	for _, h in pairs(ns.db.history) do
@@ -771,6 +771,8 @@ local function BookItems()
 		if histFilter == "you" then keep = h.onYou or (not h.onTarget)
 		elseif histFilter == "target" then keep = h.onTarget
 		else keep = histFilter == "all" or h.kind == histFilter or h.kind == "any" end
+		-- A debuff only ever seen on you cannot be tracked by spell on this client; it is not offered.
+		if keep and h.kind == "debuff" and not h.onTarget then keep = false end
 		if keep then list[#list + 1] = h end
 	end
 	if histSort == "name" then
@@ -1274,6 +1276,7 @@ local function BuildGroupPanel(width)
 	exportG:SetScript("OnEnter", function(self) TextTooltip(self, "Export this group", "Gives you a string holding the whole group (its look, conditions and every tracker) to paste elsewhere.") end)
 	exportG:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	b:Header("Group")
+	b:Note("On this client the addon cannot see auras in combat. Addon-drawn trackers update between fights; 'Track in combat' hands the drawing to the game.")
 	b:Edit("Name", function() local g = G() return g and g.name or "" end,
 		function(text) local g = G() if g then g.name = (text ~= "" and text) or nil GroupChanged() end end)
 	b:Cycle("Show as", { { "icons", "Icons with numbers" }, { "bars", "Bars with icons" } },
@@ -1286,12 +1289,12 @@ local function BuildGroupPanel(width)
 		function() local g = G() return g and g.live or "" end,
 		function(v) local g = G() if g then g.live = (v ~= "" and v) or nil GroupChanged() b:Sync() end end,
 		"My trackers: the trackers in this group, drawn by the addon. The other choices hand the group to the game, which draws every aura of that kind on you or on your target and keeps it current in combat, where the addon cannot see auras. Icon size, spacing, icon frame and position are yours; icons, timers and stacks are the game's. Bars, names and per-tracker settings do not apply. Trackers kept in such a group still play their sounds.")
-	b:Check("Trackers drawn by the game", function() local g = G() return g and g.gameDrawn or false end,
+	b:Check("Track in combat (drawn by the game)", function() local g = G() return g and g.gameDrawn or false end,
 		function(v) local g = G() if g then g.gameDrawn = v or nil GroupChanged() end end,
-		"Each tracker in this group gets a game-owned frame filtered to its spell. The game shows it while the aura is on you, in combat too, and hides it when it is gone, uncovering the tracker's 'missing' art. So active and missing both stay right in combat. 'Show when it is missing' behaves like 'Always' here (the game cannot be told to show nothing while the aura is up). Every tracker keeps a cell (the layout cannot follow what the game hides), and the warn window does not apply. The game only matches spells for buffs on you and for debuffs on your target, so a debuff-on-me tracker, or one the ledger has no spell ID for, is drawn by the addon as before; use Contents: Debuffs on me for those.")
-	b:Check("Only this group's trackers (experimental)", function() local g = G() return g and g.liveOnlyMine or false end,
+		"Off: the addon draws the trackers, and on this client they only update out of combat. On: the game draws each tracker and keeps it right in combat, but it always shows the aura while it is active ('It is missing' behaves like 'Always'), every tracker keeps its cell, and the warn window does not apply. Works for buffs on you and for debuffs on your target; a debuff on you cannot be drawn by spell (use Contents: Debuffs on me), and a target's auras are only re-read in combat when they change.")
+	b:Check("Only this group's trackers", function() local g = G() return g and g.liveOnlyMine or false end,
 		function(v) local g = G() if g then g.liveOnlyMine = v or nil GroupChanged() end end,
-		"For a game-drawn group: ask the game to show only the spells this group's trackers name. Whether the game honours this is not yet known; if the group shows the same as before, it does not.")
+		"For a category group: show only the spells this group's trackers name.")
 	b:Cycle("Grow towards", ns.GROWS,
 		function() local g = G() return g and g.grow or "RIGHT" end,
 		function(v) local g = G() if g then ns.Display:SetGrow(g, v) end end,
@@ -1386,7 +1389,7 @@ local function BuildTrackerPanel(width)
 	b:Cycle("Show when", { { "active", "It is active" }, { "missing", "It is missing" }, { "always", "Always (red when missing)" } },
 		function() local t = T() return t and t.show or "active" end,
 		function(v) local t = T() if t then t.show = v TrackerChanged() end end,
-		"Active: shows while you have it. Missing: shows only while you do not. Always: shows both ways and turns red while missing.")
+		"Active: shows while you have it. Missing: shows only while you do not. Always: shows both ways and turns red while missing. In a group with 'Track in combat', Missing behaves like Always.")
 	b:Slider("Warn before it runs out (seconds, 0 = off)", { min = 0, max = 300, step = 1,
 		get = function() local t = T() return t and (t.warn or 0) end,
 		set = function(v) local t = T() if t then t.warn = (v > 0) and v or nil TrackerChanged() end end,
@@ -1406,10 +1409,34 @@ local function BuildTrackerPanel(width)
 	b:Cycle("On", { { "player", "Me" }, { "target", "My target" } },
 		function() local t = T() return t and t.unit or "player" end,
 		function(v) local t = T() if t then t.unit = (v ~= "player") and v or nil TrackerChanged() end end,
-		"Me: the aura on you. My target: the aura on whatever you have targeted, such as your curse on a mob or a buff it cast on itself. A target tracker hides when you have no target.")
+		"Me: the aura on you. My target: the aura on whatever you have targeted, such as your curse on a mob or a buff it cast on itself. A target tracker hides when you have no target. In combat, after you switch targets, the new target's auras are only re-read when they change; out of combat they are re-read at once.")
 	b:Cycle("Type", { { "any", "Buff or debuff" }, { "buff", "Buff only" }, { "debuff", "Debuff only" } },
 		function() local t = T() return t and t.kind or "any" end,
-		function(v) local t = T() if t then t.kind = v TrackerChanged() end end)
+		function(v)
+			local t = T()
+			if not t then return end
+			t.kind = v
+			if v == "debuff" and (t.unit or "player") == "player" then
+				t.unit = "target"
+				ns.Print("A debuff can only be followed on a target on this client; this tracker now watches your target.")
+			end
+			TrackerChanged()
+			b:Sync()
+		end,
+		"On this client a debuff on you cannot be followed by spell; debuff trackers watch your target. For every debuff on you, use a group with Contents: Debuffs on me.")
+	local limitNote = b:Note("Debuff trackers watch your target: a debuff on you cannot be followed by spell on this client. For every debuff on you use a group with Contents: Debuffs on me.")
+	b.syncers[#b.syncers + 1] = function()
+		local t = T()
+		local shown = t and (t.kind == "debuff" or ((t.unit or "player") == "player" and t.kind ~= "buff"))
+		limitNote:SetShown(shown and true or false)
+		if t and t.kind == "buff" then
+			limitNote:SetText("")
+		elseif t and (t.unit or "player") == "player" and t.kind ~= "debuff" then
+			limitNote:SetText("Set to 'Buff or debuff' on you: only the buff side can be followed in combat. Set the type to Buff only, or watch your target for a debuff.")
+		else
+			limitNote:SetText("Debuff trackers watch your target: a debuff on you cannot be followed by spell on this client. For every debuff on you use a group with Contents: Debuffs on me.")
+		end
+	end
 	b:Check("Only when it was cast by me", function() local t = T() return t and t.mine end,
 		function(v) local t = T() if t then t.mine = v TrackerChanged() end end,
 		"Ignores the same aura when it comes from someone else.")

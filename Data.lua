@@ -83,6 +83,7 @@ ns.BOOK = {
 	-- Things every class runs into.
 	COMMON = {
 		{ "Well Fed", 19705 }, { "Food", 433 }, { "Drink", 430 }, { "First Aid", 746 },
+		{ "Essence of the Red", 23513, "buff", "BWL: Vaelastrasz" },
 		{ "Weakened Soul", 6788, "debuff" }, { "Forbearance", 25771, "debuff" },
 		{ "Recently Bandaged", 11196, "debuff" }, { "Resurrection Sickness", 15007, "debuff" },
 	},
@@ -158,7 +159,7 @@ ns.BOOK.PVE = {
 	{ "Bellowing Roar", 18431, D, "Onyxia, Nefarian" },
 	-- Blackwing Lair
 	{ "Conflagration", 23023, D, "BWL: Razorgore" }, { "Burning Adrenaline", 18173, D, "BWL: Vaelastrasz" },
-	{ "Essence of the Red", 23513, "buff", "BWL: Vaelastrasz" }, { "Flame Buffet", 23341, D, "BWL: drakes" },
+	{ "Flame Buffet", 23341, D, "BWL: drakes" },
 	{ "Shadow of Ebonroc", 23340, D, "BWL: Ebonroc" },
 	{ "Brood Affliction: Blue", 23153, D, "BWL: Chromaggus" }, { "Brood Affliction: Black", 23154, D, "BWL: Chromaggus" },
 	{ "Brood Affliction: Red", 23155, D, "BWL: Chromaggus" }, { "Brood Affliction: Bronze", 23170, D, "BWL: Chromaggus" },
@@ -197,7 +198,10 @@ ns.BOOK.PVE = {
 	{ "Unholy Aura", 17467, D, "Stratholme: Baron Rivendare" }, { "Hand of Thaurissan", 17492, D, "BRD: Emperor" },
 }
 
-ns.BOOK_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID", "COMMON", "ITEMS", "PVE" }
+-- The Dungeons and raids chapter (mob debuffs on you) is kept in the data but not offered: on this
+-- client a debuff on you cannot be tracked by spell in combat. A group with Contents "Debuffs on me"
+-- shows them all instead.
+ns.BOOK_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID", "COMMON", "ITEMS" }
 
 -- Turn the raw rows into objects shaped like ledger rows, once.
 local built
@@ -207,7 +211,10 @@ function ns.BookPages()
 	for token, rows in pairs(ns.BOOK) do
 		local list = {}
 		for _, row in ipairs(rows) do
-			list[#list + 1] = { name = row[1], listId = row[2], kind = row[3] or "buff", note = row[4], prebuilt = true, class = token }
+			-- Debuff rows are left out: a debuff on you cannot be followed by spell in combat.
+			if (row[3] or "buff") ~= "debuff" then
+				list[#list + 1] = { name = row[1], listId = row[2], kind = row[3] or "buff", note = row[4], prebuilt = true, class = token }
+			end
 		end
 		built[token] = list
 	end

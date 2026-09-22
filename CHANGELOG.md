@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.20.0
+
+- The addon now offers only what the Forever client allows, and says so where it matters.
+- Debuffs on you cannot be followed by spell in combat, so debuff rows are gone from the book (the Dungeons and raids chapter is no longer offered, the lockout debuffs are gone from Common) and from the ledger unless the debuff was seen on a target. New debuff trackers watch your target from the start, and setting a tracker's type to Debuff moves it to your target with a message. A group with Contents "Debuffs on me" remains the way to see every debuff on you in combat.
+- "Trackers drawn by the game" is now "Track in combat (drawn by the game)". Off: the addon draws the trackers and they update between fights. On: the game draws them and keeps them right in combat, but always shows the aura while it is active ("It is missing" behaves like "Always"). The group panel and the tracker options carry short notes about this.
+- Target trackers: out of combat the new target's auras are re-read the moment you switch; in combat the game only re-reads them when they change. The "On" option says so.
+
 ## 1.19.0
 
 - The mask trick behind game-drawn "show when missing" trackers is gone: on this client a mask still applies while its frame is hidden, so it blanked the missing icon for good. In a game-drawn group, "It is missing" now behaves like "Always": the game's icon while the aura is up, the red missing icon the moment it is gone, in combat too. The option text says so. /auraledger nomask is removed.

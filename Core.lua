@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.19.0"
+ns.VERSION = "1.20.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -297,13 +297,16 @@ end
 -- ------------------------------------------------------------------
 function ns.NewTracker(h)
 	local idOnly = h.idOnly or not h.name
+	local kind = h.kind or "any"
 	return {
 		uid = ns.NewUid(),
 		name = h.name, id = h.id, icon = h.icon,
-		kind = h.kind or "any",
+		kind = kind,
 		matchId = (idOnly or h.byId) and true or false,
 		show = "active",
 		mine = false,
+		-- A debuff can only be followed on a target on this client; start it there.
+		unit = (kind == "debuff") and "target" or nil,
 		cond = {},
 	}
 end
@@ -1625,6 +1628,7 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 	elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
 		HandleCast(a1, a3)
 	elseif event == "PLAYER_TARGET_CHANGED" then
+		if ns.Display and ns.Display.TargetChanged then ns.Display:TargetChanged() end
 		ns.targetGUID = UnitGUID and Clean(UnitGUID("target")) or nil
 		ns.targetAuras = {}
 		Reindex()

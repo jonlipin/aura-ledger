@@ -1363,6 +1363,22 @@ function Display.FrameFor(g)
 	return active[g.uid]
 end
 
+-- Out of combat a target container can be made to re-read the new target (a show from addon
+-- code is fine then); in combat the game only updates it when that target's auras change.
+function Display:TargetChanged()
+	if InCombatLockdown and InCombatLockdown() then return end
+	for _, f in pairs(active) do
+		local list = {}
+		if f.slotC and f.slotC.target then list[#list + 1] = f.slotC.target end
+		if f.live and f.live.alDriven then list[#list + 1] = f.live end
+		for _, c in ipairs(list) do
+			pcall(function()
+				if c:IsShown() then c:Hide() c:Show() end
+			end)
+		end
+	end
+end
+
 function Display:RefreshGroup(g)
 	local f = active[g.uid]
 	if not f then return end
