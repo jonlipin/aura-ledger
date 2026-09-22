@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.12.1
+
+- Fixed: the by-spell question added in 1.12.0 answers "nothing" for every aura while the client hides them, so it was dropping buffs that were still up. It is no longer used to decide anything; /auraledger probe still shows what the client answers.
+- Your own casts are not hidden in combat. A successful cast of a spell the ledger knows as an aura now creates or refreshes an estimated aura: a buff on you, or a debuff on your target, with the ledger's duration and the pocket watch mark. Reapplying a buff mid-fight clears its "missing" tracker, and a cast like Blood Fury shows its bar for the remembered duration.
+- What still cannot be seen in combat: auras put on you by others (a mob's debuff landing, a party member's buff). Those update when combat ends.
+
 ## 1.12.0
 
 - In combat, each tracker is now asked about directly by spell (C_UnitAuras.GetAuraDataBySpellName, or GetPlayerAuraBySpellID when matching by id). When the client answers "nothing" the aura is treated as gone; when it answers with an aura (even one whose fields are hidden) the aura is treated as present, with the timer taken from the ledger when the real one is hidden. This runs on every scan while the aura list is unreadable.

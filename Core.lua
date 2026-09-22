@@ -8,9 +8,9 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.12.0"
+ns.VERSION = "1.12.1"
 ns.report = {}
-ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0 }
+ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
 ns.env = {}
 ns.QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -567,9 +567,8 @@ local function ReadFilter(unit, filter, kind, out)
 end
 
 -- ------------------------------------------------------------------
--- Asking by spell. While the aura list is secret, a lookup by spell name or id may still answer
--- "nothing" or "a table" in the open, even when the table's fields are secret. That is enough to
--- know a tracked aura is present or absent. The debug report shows how the client answers.
+-- Asking by spell. Kept for /auraledger probe only: on this client a lookup by spell name or id
+-- answers nil for everything while auras are secret, so it cannot tell present from absent.
 -- ------------------------------------------------------------------
 local probeStats = { calls = 0, present = 0, absent = 0, unknown = 0, errors = 0 }
 ns.probeStats = probeStats
@@ -615,50 +614,6 @@ local function ProbeOne(unit, t)
 end
 ns.ProbeOne = ProbeOne
 
-local function ProbeTrackers(unit, fresh, now)
-	if not ns.profile then return end
-	for _, g in ipairs(ns.profile.groups) do
-		for _, t in ipairs(g.trackers) do
-			if (t.unit or "player") == unit and (t.name or t.id) then
-				local state, a, kind = ProbeOne(unit, t)
-				if state == "present" then
-					probeStats.present = probeStats.present + 1
-					local existing
-					for _, e in pairs(fresh) do if SameAura(t, e) then existing = e break end end
-					local name = Clean(a.name) or t.name or ("spell " .. tostring(t.id))
-					local e = existing
-					if not e then
-						local key = "p:" .. unit .. ":" .. tostring(t.id or strlower(name))
-						e = { key = key, name = name, id = Clean(a.spellId) or t.id, icon = Clean(a.icon) or t.icon, count = 0,
-							duration = 0, expires = 0, kind = kind, unit = unit, synth = true, estimated = true, stale = true }
-						local h = ns.db.history[kind .. ":" .. strlower(name)]
-						if h and h.duration and h.duration > 0 then e.duration, e.expires = h.duration, now + h.duration end
-						if not e.icon and h and h.icon then e.icon = h.icon end
-					end
-					-- Whatever the client lets through refreshes the entry.
-					local dur, exp = Clean(a.duration), Clean(a.expirationTime)
-					if dur and exp then e.duration, e.expires, e.estimated = dur, exp, false end
-					local cnt = Clean(a.applications)
-					if cnt then e.count = cnt end
-					local src = Clean(a.sourceUnit)
-					if src then e.mine = (src == "player" or src == "pet") end
-					local dispel = Clean(a.dispelName)
-					if dispel then e.dispel = dispel end
-					e.probed = true -- the frame icons no longer get a say over this one
-					fresh[e.key] = e
-				elseif state == "absent" then
-					probeStats.absent = probeStats.absent + 1
-					for k, e in pairs(fresh) do
-						if (e.stale or e.estimated) and SameAura(t, e) and (t.kind == "any" or not t.kind or e.kind == t.kind) then fresh[k] = nil end
-					end
-				else
-					probeStats.unknown = probeStats.unknown + 1
-				end
-			end
-		end
-	end
-end
-
 local firstScan = true
 
 -- One unit's scan: read what can be read, carry the rest forward. Returns the new table and whether
@@ -694,8 +649,6 @@ local function ScanUnit(unit, old, quiet)
 				end
 			end
 		end
-		-- Then ask about each tracked aura by spell: present ones are kept or added, absent ones dropped.
-		ProbeTrackers(unit, fresh, now)
 	end
 	return fresh, unreadable > 0, historyChanged
 end
@@ -915,6 +868,69 @@ end
 ns.ReconcileWithFrames = ReconcileWithFrames
 ns.CollectFrameIcons = CollectFrameIcons
 
+-- ------------------------------------------------------------------
+-- Your own casts are not secret. While auras are, a successful cast of a spell the ledger knows as
+-- an aura creates or refreshes an estimated aura: a buff on you, a debuff on your target, with the
+-- ledger's duration. That is how a buff reapplied mid-fight clears a "missing" tracker.
+-- ------------------------------------------------------------------
+local function SpellName(spellId)
+	local name
+	if C_Spell and C_Spell.GetSpellName then
+		local ok, v = pcall(C_Spell.GetSpellName, spellId)
+		if ok then name = Clean(v) end
+	end
+	if not name and C_Spell and C_Spell.GetSpellInfo then
+		local ok, info = pcall(C_Spell.GetSpellInfo, spellId)
+		if ok and type(info) == "table" then name = Clean(info.name) end
+	end
+	if not name and GetSpellInfo then
+		local ok, v = pcall(GetSpellInfo, spellId)
+		if ok then name = Clean(v) end
+	end
+	return name
+end
+
+local function HandleCast(unit, spellId)
+	if unit ~= "player" and unit ~= "pet" then return end
+	spellId = Clean(spellId)
+	if type(spellId) ~= "number" then return end
+	ns.stats.casts = ns.stats.casts + 1
+	if not (ns.restricted or AurasSecret()) then return end -- the real aura event is on its way
+	local name = SpellName(spellId)
+	if not name then return end
+	local lname = strlower(name)
+	local now = GetTime()
+	local used = false
+	for _, kind in ipairs({ "buff", "debuff" }) do
+		local h = ns.db.history[kind .. ":" .. lname]
+		local unitTo = kind == "buff" and "player" or "target"
+		if h and (unitTo == "player" or (UnitExists and Clean(UnitExists("target")))) then
+			local auras = AuraTable(unitTo)
+			local existing
+			for _, e in pairs(auras) do
+				if e.kind == kind and e.name and strlower(e.name) == lname then existing = e break end
+			end
+			local duration = h.duration or 0
+			if existing then
+				if duration > 0 then existing.duration, existing.expires = duration, now + duration end
+				existing.estimated, existing.stale, existing.probed = true, true, true
+			else
+				local key = "c:" .. unitTo .. ":" .. lname
+				auras[key] = { key = key, name = h.name or name, id = spellId, icon = h.icon, count = 0, duration = duration,
+					expires = duration > 0 and (now + duration) or 0, kind = kind, unit = unitTo, mine = true,
+					synth = true, estimated = true, stale = true, probed = true }
+			end
+			used = true
+		end
+	end
+	if used then
+		ns.stats.castsUsed = ns.stats.castsUsed + 1
+		Reindex()
+		ns.dirty = true
+	end
+end
+ns.HandleCast = HandleCast
+
 -- Combat log: only consulted while auras are unreadable, to catch applications and removals on
 -- you or on your target.
 local AURA_EVENTS = {
@@ -1037,7 +1053,7 @@ local function Startup()
 	if ns.db.combatLog and not registered.COMBAT_LOG_EVENT_UNFILTERED then SafeRegister("COMBAT_LOG_EVENT_UNFILTERED") end
 end
 
-events:SetScript("OnEvent", function(_, event, a1, a2)
+events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 	if event == "ADDON_LOADED" then
 		if a1 == ADDON then ns.InitDB() end
 		-- The player opened the spellbook: its art names can be read now.
@@ -1068,6 +1084,8 @@ events:SetScript("OnEvent", function(_, event, a1, a2)
 		HandleAuraInfo(a1, a2)
 		Reindex()
 		ns.dirty = true
+	elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
+		HandleCast(a1, a3)
 	elseif event == "PLAYER_TARGET_CHANGED" then
 		ns.targetGUID = UnitGUID and Clean(UnitGUID("target")) or nil
 		ns.targetAuras = {}
@@ -1103,7 +1121,7 @@ SafeRegister("ADDON_ACTION_FORBIDDEN")
 -- a forbidden action (the "blocked from an action only available to the Blizzard UI" dialog at
 -- login, which pcall cannot stop). The combat log handler stays for clients that allow it, behind
 -- ns.db.combatLog, which is off by default.
-for _, ev in ipairs({ "UNIT_AURA", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD",
+for _, ev in ipairs({ "UNIT_AURA", "UNIT_SPELLCAST_SUCCEEDED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD",
 	"ADDON_RESTRICTION_STATE_CHANGED" }) do
 	SafeRegister(ev)
 end
@@ -1388,9 +1406,8 @@ local function Debug()
 		YesNo(fi.readable), fi.reads, fi.removed, fi.added))
 	Print(("    last read: %d shown, %d unreadable, trusted before: %s"):format(fi.shown, fi.unreadable, YesNo(fi.proven)))
 	if #fi.sample > 0 then Print("    frame icons seen: " .. table.concat(fi.sample, "; ")) end
-	local ps = ns.probeStats
-	Print(("  asked by spell while restricted: calls %d, present %d, absent %d, unknown %d, errors %d (APIs: BySpellName %s, PlayerBySpellID %s)"):format(
-		ps.calls, ps.present, ps.absent, ps.unknown, ps.errors, YesNo(C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName), YesNo(C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID)))
+	Print(("  your casts: %d seen, %d turned into auras while restricted (spell cast events %s)"):format(
+		s.casts, s.castsUsed, registered.UNIT_SPELLCAST_SUCCEEDED and "registered" or "not registered"))
 	for _, d in ipairs(fi.drops) do Print("    dropped: " .. d) end
 	local live, carried = 0, 0
 	for _, e in pairs(ns.auras) do live = live + 1 if e.stale or e.estimated then carried = carried + 1 end end
