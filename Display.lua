@@ -676,6 +676,127 @@ end
 -- ------------------------------------------------------------------
 -- Group frames
 -- ------------------------------------------------------------------
+-- ------------------------------------------------------------------
+-- Groups drawn by the game. Blizzard's AuraContainer shows the auras matching a filter and keeps
+-- them current in combat, where the addon itself cannot see them. It hands each button the
+-- icon, countdown and stack count; we give it the size, spacing, art and place. The buttons are
+-- forbidden frames: nothing is read back from them and no scripts are set on them.
+-- ------------------------------------------------------------------
+local liveMethodsLogged = false
+
+local function LiveKey(g)
+	return (g.live or "") .. ":" .. g.size .. ":" .. g.spacing .. ":" .. (g.perRow or 8) .. ":" .. tostring(g.iconFrame ~= false)
+end
+
+local function InitLiveButton(g)
+	return function(button)
+		if not button then return end
+		local s = skin
+		local S = g.size
+		pcall(button.SetSize, button, S, S)
+		local icon = button:CreateTexture(nil, "ARTWORK")
+		icon:SetAllPoints(button)
+		local c = s.soloIconCoords or s.iconCoords or { 0.07, 0.93, 0.07, 0.93 }
+		icon:SetTexCoord(c[1], c[2], c[3], c[4])
+		pcall(button.SetIcon, button, icon)
+		local time = button:CreateFontString(nil, "OVERLAY")
+		time:SetFont(FONT, max(8, floor(S * 0.4)), "OUTLINE")
+		time:SetPoint("CENTER", button, "CENTER", 0, 0)
+		if g.timers ~= false then pcall(button.SetDurationText, button, time) end
+		local count = button:CreateFontString(nil, "OVERLAY")
+		count:SetFont(FONT, max(7, floor(S * 0.3)), "OUTLINE")
+		count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
+		pcall(button.SetApplicationCountText, button, count)
+		if g.iconFrame ~= false then
+			local w = { under = button, over = button, decor = {}, iconArt = {} }
+			PlaceDecor(w, s.soloIconDecor or s.iconDecor, "iconArt", icon, S)
+		end
+		pcall(button.SetMouseMotionEnabled, button, true)
+		pcall(button.SetTooltipAnchor, button, "ANCHOR_RIGHT")
+		if not liveMethodsLogged and ns.LogLine then
+			liveMethodsLogged = true
+			local names = {}
+			pcall(function()
+				local idx = getmetatable(button) and getmetatable(button).__index
+				if type(idx) == "table" then
+					for k in pairs(idx) do
+						if type(k) == "string" and k:find("Icon") or k:find("Duration") or k:find("Count") or k:find("Dispel") or k:find("Caster") or k:find("Tooltip") or k:find("Name") or k:find("Bar") or k:find("Aura") then names[#names + 1] = k end
+					end
+				end
+			end)
+			table.sort(names)
+			ns.LogLine("game-drawn button methods: " .. table.concat(names, ", "))
+		end
+	end
+end
+
+-- Builds (or rebuilds) the container for a live group. Not possible in combat: returns nil then
+-- and is tried again on the next refresh.
+local function EnsureLive(f, g)
+	local key = LiveKey(g)
+	if f.live and f.liveKey == key then return f.live end
+	if InCombatLockdown and InCombatLockdown() then return f.live end
+	if f.live then
+		f.live:Hide()
+		f.live:ClearAllPoints()
+		f.live = nil
+	end
+	local ok, c = pcall(CreateFrame, "AuraContainer", nil, f, "CustomAuraContainerTemplate")
+	if not (ok and c) then
+		ns.report["game-drawn groups"] = "AuraContainer not available: " .. tostring(c)
+		return nil
+	end
+	local S, sp, perRow = g.size, g.spacing, max(1, g.perRow or 8)
+	c:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
+	c:SetSize(perRow * (S + sp) - sp, 3 * (S + sp) - sp)
+	c:SetFrameLevel(f:GetFrameLevel() + 1)
+	local settings = {
+		maxFrameCount = perRow * 3,
+		initializeFrame = InitLiveButton(g),
+		layout = { elementWidth = S, elementHeight = S, elementSpacing = sp, lineSpacing = sp, maxElementsPerLine = perRow, elementsPerLine = perRow },
+	}
+	local okG, err
+	if c.AddAuraGroup then
+		okG, err = pcall(c.AddAuraGroup, c, "al_" .. tostring(g.uid), g.live, settings)
+	elseif c.AddAuraFilter then
+		okG, err = pcall(c.AddAuraFilter, c, g.live, settings)
+	else
+		okG, err = false, "no AddAuraGroup"
+	end
+	if not okG then
+		ns.report["game-drawn groups"] = "aura group refused: " .. tostring(err)
+		c:Hide()
+		return nil
+	end
+	if c.SetUnit then pcall(c.SetUnit, c, "player") end
+	c:Show()
+	f.live, f.liveKey = c, key
+	ns.report["game-drawn groups"] = "AuraContainer ok (" .. g.live .. ")"
+	return c
+end
+
+local function LayoutLive(f, g, unlocked)
+	local S, sp, perRow = g.size, g.spacing, max(1, g.perRow or 8)
+	for _, widget in ipairs(f.widgets) do
+		widget:Hide()
+		widget.tracker, widget.entry, widget.timed = nil, nil, false
+	end
+	local c = EnsureLive(f, g)
+	f:SetSize(perRow * (S + sp) - sp, S)
+	f:SetAlpha(g.alpha or 1)
+	f.chrome:SetShown(unlocked)
+	if unlocked then
+		f.chrome.label:SetText(ns.GroupName(g) .. " (drawn by the game)")
+		local sel = ns.selected and ns.selected.group == g
+		if f.chrome.SetBackdropBorderColor then
+			if sel then f.chrome:SetBackdropBorderColor(0.3, 1, 0.4, 1) else f.chrome:SetBackdropBorderColor(1, 0.82, 0, 0.9) end
+		end
+	end
+	local pass = unlocked or ns.CondPass(g.cond)
+	if c then c:SetShown(pass) end
+	f:SetShown(pass and (c ~= nil or unlocked))
+end
+
 local function CreateGroupFrame()
 	local f = CreateFrame("Frame", nil, UIParent)
 	f:SetMovable(true)
@@ -848,7 +969,12 @@ function Display:RefreshGroup(g)
 		Sounds(t, entry, show, unlocked, unlocked and ns.CondPass(g.cond) or groupPass)
 		if show then visible[#visible + 1] = { t = t, entry = entry, expiring = expiring } end
 	end
-	LayoutGroup(f, g, visible, unlocked)
+	if g.live and g.live ~= "" then
+		LayoutLive(f, g, unlocked)
+	else
+		if f.live then f.live:Hide() end
+		LayoutGroup(f, g, visible, unlocked)
+	end
 end
 
 function Display:Refresh()
@@ -877,7 +1003,7 @@ function Display:Tick(now)
 					end
 				end
 			end
-			if f:IsShown() then
+			if f:IsShown() and not (g.live and g.live ~= "") then
 				for _, w in ipairs(f.widgets) do
 					if w:IsShown() then TickWidget(w, g, now) end
 				end
@@ -896,6 +1022,7 @@ function Display:Rebuild()
 		if not wanted[uid] then
 			f:Hide()
 			f.group = nil
+			if f.live then f.live:Hide() f.live = nil f.liveKey = nil end
 			f.chrome.hl:Hide()
 			active[uid] = nil
 			pool[#pool + 1] = f

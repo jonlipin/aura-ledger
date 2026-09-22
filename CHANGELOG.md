@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.17.0
+
+- Groups drawn by the game. A group's new "Contents" option can hand it to the game: "Debuffs on me", "Debuffs on me I could dispel", "Buffs on me" or "Buffs on me that I cast". The game then draws every aura of that kind on you through its AuraContainer and keeps it current in combat, where the addon cannot see auras; this is how GODMODE_GTFO shows debuffs mid-fight. Icon size, spacing, icons per row, icon frame art, opacity, scale, conditions and position stay yours; the icons, countdowns and stack counts are the game's. Bars, names and per-tracker settings do not apply to such a group. Trackers kept in it still play their sounds. The container is built out of combat; a group switched over during a fight fills in when the fight ends.
+
 ## 1.16.0
 
 - Tracker sounds in combat. The "When applied" and "When it runs out" sounds are now registered with the game itself (C_UnitAuras.AddAuraSound), which plays them when that spell's aura is added to you or removed from you, including in combat where the addon cannot see the aura. This covers every rank the ledger has seen under the tracker's name. Sound choices that can be handed to the game are marked "(combat)" in the picker: Soft bells, Raid warning, and the new Ready check, Level up, Alarm clock 1 and 2, Flag taken. The other choices still play out of combat only.

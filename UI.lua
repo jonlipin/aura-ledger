@@ -1196,7 +1196,7 @@ local function UpdateTreeRow(row, item)
 		local off = g.cond and g.cond.never
 		local groupC, dimC, offC = InkCodes()
 		row.text:SetText((off and offC or groupC) .. ns.GroupName(g) .. "|r  " .. dimC
-			.. (off and "off" or (g.style == "bars" and "bars" or "icons")) .. "|r")
+			.. (off and "off" or ((g.live and g.live ~= "") and "game-drawn" or (g.style == "bars" and "bars" or "icons"))) .. "|r")
 		row.sel:SetShown(SelectedGroup() == g and not SelectedTracker())
 	end
 end
@@ -1280,6 +1280,12 @@ local function BuildGroupPanel(width)
 		function() local g = G() return g and g.style or "icons" end,
 		function(v) local g = G() if g then g.style = v if v == "bars" and (g.grow == "RIGHT" or g.grow == "LEFT") then ns.Display:SetGrow(g, "DOWN") end GroupChanged() b:Sync() end end,
 		"Icons show the time left as a number on the icon. Bars show an icon, the name and a draining bar.")
+	local liveChoices = { { "", "My trackers" } }
+	for _, lf in ipairs(ns.LIVE_FILTERS) do liveChoices[#liveChoices + 1] = { lf[1], lf[2] .. " (drawn by the game)" } end
+	b:Cycle("Contents", liveChoices,
+		function() local g = G() return g and g.live or "" end,
+		function(v) local g = G() if g then g.live = (v ~= "" and v) or nil GroupChanged() b:Sync() end end,
+		"My trackers: the trackers in this group, drawn by the addon. The other choices hand the group to the game, which draws every aura on you of that kind and keeps it current in combat, where the addon cannot see auras. Icon size, spacing, icon frame and position are yours; icons, timers and stacks are the game's. Bars, names and per-tracker settings do not apply. Trackers kept in such a group still play their sounds.")
 	b:Cycle("Grow towards", ns.GROWS,
 		function() local g = G() return g and g.grow or "RIGHT" end,
 		function(v) local g = G() if g then ns.Display:SetGrow(g, v) end end,
