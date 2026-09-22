@@ -694,7 +694,7 @@ end
 local function InitLiveButton(g)
 	return function(button)
 		if not button then return end
-		local s = skin
+		local s = BuildSkin()
 		local S = g.size
 		pcall(button.SetSize, button, S, S)
 		local icon = button:CreateTexture(nil, "ARTWORK")
@@ -876,7 +876,7 @@ end
 local function InitSlotFrame(g)
 	return function(button)
 		if not button then return end
-		local s = skin
+		local s = BuildSkin()
 		local bars = g.style == "bars"
 		local W, H = bars and g.barW or g.size, bars and g.barH or g.size
 		pcall(button.SetSize, button, W, H)

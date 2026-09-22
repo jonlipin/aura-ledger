@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.18.2
+
+- Fixed: an error at load (Display.lua:888, skin was nil) when a group drawn by the game existed before any addon-drawn tracker had been built.
+- Fixed: a tracker sound registered with the game could keep playing after its choice was changed or removed, because the game's registrations outlive a reload while the addon's record of them did not. Registration ids are now kept in the saved variables and cleared on load. /auraledger soundclear removes every registration on the spot, and /auraledger debug lists what is registered (spell, trigger, sound).
+
 ## 1.18.1
 
 - Fixed: game-drawn bars were black with a thin line; the bar's fill was given the whole texture sheet instead of the Cooldown Manager's fill strip.

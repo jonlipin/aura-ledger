@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.18.1"
+ns.VERSION = "1.18.2"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -1460,7 +1460,34 @@ end
 -- ------------------------------------------------------------------
 local auraSoundRegs = {}
 ns.blizzardSound = setmetatable({}, { __mode = "k" })
-ns.auraSoundStats = { registered = 0, failed = 0, lastError = nil }
+ns.auraSoundStats = { registered = 0, failed = 0, lastError = nil, cleared = 0 }
+
+-- Registrations live in the game, not in Lua: a reload forgets them here but not there. Their ids
+-- are kept in the saved variables and removed on the next load before registering afresh.
+function ns.ClearStaleAuraSounds()
+	local C = C_UnitAuras
+	if not (C and C.RemoveAuraSound) or not ns.db then return end
+	local old = ns.db.auraSoundIds
+	ns.db.auraSoundIds = {}
+	if type(old) ~= "table" then return end
+	for _, id in pairs(old) do
+		if pcall(C.RemoveAuraSound, id) then ns.auraSoundStats.cleared = ns.auraSoundStats.cleared + 1 end
+	end
+end
+
+function ns.ClearAllAuraSounds()
+	local C = C_UnitAuras
+	if not (C and C.RemoveAuraSound) then return 0 end
+	local n = 0
+	for key, id in pairs(auraSoundRegs) do
+		pcall(C.RemoveAuraSound, id)
+		auraSoundRegs[key] = nil
+		n = n + 1
+	end
+	ns.auraSoundStats.registered = 0
+	if ns.db then ns.db.auraSoundIds = {} end
+	return n
+end
 
 local function TrackerSpellIds(t)
 	local ids = {}
@@ -1507,6 +1534,7 @@ function ns.SyncAuraSounds()
 		if not wanted[key] then
 			pcall(C.RemoveAuraSound, regId)
 			auraSoundRegs[key] = nil
+			if ns.db.auraSoundIds then ns.db.auraSoundIds[key] = nil end
 			ns.auraSoundStats.registered = ns.auraSoundStats.registered - 1
 		end
 	end
@@ -1515,6 +1543,8 @@ function ns.SyncAuraSounds()
 			local ok, regId = pcall(C.AddAuraSound, w.trigger, { unitToken = w.unit, spellID = w.id, soundFileID = w.file, outputChannel = "Master" })
 			if ok and regId then
 				auraSoundRegs[key] = regId
+				ns.db.auraSoundIds = ns.db.auraSoundIds or {}
+				ns.db.auraSoundIds[key] = regId
 				ns.auraSoundStats.registered = ns.auraSoundStats.registered + 1
 			else
 				ns.auraSoundStats.failed = ns.auraSoundStats.failed + 1
@@ -1559,7 +1589,7 @@ end
 
 events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 	if event == "ADDON_LOADED" then
-		if a1 == ADDON then ns.InitDB() ns.LogLine("=== Aura Ledger " .. ns.VERSION .. " loaded " .. (date and date("%Y-%m-%d %H:%M") or "")) end
+		if a1 == ADDON then ns.InitDB() ns.ClearStaleAuraSounds() ns.LogLine("=== Aura Ledger " .. ns.VERSION .. " loaded " .. (date and date("%Y-%m-%d %H:%M") or "")) end
 		-- The player opened the spellbook: its art names can be read now.
 		if a1 == "Blizzard_PlayerSpells" and loaded and ns.UI and ns.UI.ApplyBookArt then ns.UI:ApplyBookArt() end
 		return
@@ -1918,7 +1948,14 @@ local function Debug()
 	Print(("  instance ids while restricted: calls %d (plain %d, secret %d, errors %d), applied %d, removed by instance %d, casts bound %d, unknown auras %d"):format(
 		sh.calls, sh.plain, sh.secret, sh.errors, sh.reads, sh.removed, sh.bound, sh.unknown))
 	local as = ns.auraSoundStats
-	Print(("  Blizzard aura sounds: %d registered, %d failed%s (API %s)"):format(as.registered, as.failed, as.lastError and (", last error " .. as.lastError) or "", YesNo(C_UnitAuras and C_UnitAuras.AddAuraSound)))
+	Print(("  Blizzard aura sounds: %d registered, %d failed, %d stale ones cleared at load%s (API %s)"):format(as.registered, as.failed, as.cleared, as.lastError and (", last error " .. as.lastError) or "", YesNo(C_UnitAuras and C_UnitAuras.AddAuraSound)))
+	for key, id in pairs(ns.db.auraSoundIds or {}) do
+		local unit, spell, trigger, file = key:match("^(.-):(%d+):(%d+):(%d+)$")
+		local cname
+		for _, c in ipairs(ns.SOUND_CHOICES) do if c[4] and tostring(c[4]) == file then cname = c[1] end end
+		Print(("    %s spell %s (%s) on %s: %s [file %s], registration %s"):format(
+			trigger == "2" and "removed" or trigger == "1" and "stacks" or "added", tostring(spell), ns.SpellName and ns.SpellName(tonumber(spell)) or "?", tostring(unit), cname or "?", tostring(file), tostring(id)))
+	end
 	local vs = ns.viewerStats
 	Print(("  Cooldown Manager buff viewers while restricted: reads %d, items %d (plain %d, secret %d), buffs seen present %d, seen gone %d"):format(
 		vs.reads, vs.items, vs.plain, vs.secret, vs.present, vs.absent))
@@ -2083,6 +2120,8 @@ SlashCmdList.AURALEDGER = function(msg)
 			end
 			if found == 0 then Print("nothing documented under that name (try the exact name from /api search)") end
 		end
+	elseif cmd == "soundclear" then
+		Print(("removed %d aura sound registrations from the game; they come back on the next change or reload for trackers that still have a sound set"):format(ns.ClearAllAuraSounds()))
 	elseif cmd == "soundtest" then
 		local i = 0
 		local function step()
