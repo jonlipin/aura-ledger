@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.41.4"
+ns.VERSION = "1.41.5"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1606,6 +1606,7 @@ local function Startup()
 	if loaded then return end
 	loaded = true
 	ns.InitDB()
+	ns.ApplyMaskSettings()
 	ns.playerGUID = UnitGUID and UnitGUID("player")
 	ns.targetGUID = UnitGUID and Clean(UnitGUID("target")) or nil
 	ns.combatFlag = (InCombatLockdown and InCombatLockdown()) and true or false
@@ -1959,19 +1960,41 @@ end
 -- The shape covers about two thirds of the mask region, so the region is drawn larger than the
 -- texture: sized to the texture it would show only the middle of the picture.
 ns.ICON_MASK = "UI-HUD-ActionBar-IconFrame-Mask"
-local MASK_OVER = 0.26
+-- How far past the icon the mask region is drawn, and how far up, both as a share of the icon's
+-- size. The shape fills about two thirds of the region, hence the first; it does not sit in the
+-- middle of it on this client, hence the second. /auraledger iconmask sets them.
+ns.MASK_OVER, ns.MASK_SHIFT = 0.26, 0
 
 -- "size" is what the icon will be, which the caller knows: read off the texture instead, it can
 -- still be nothing at all, and a mask drawn to nothing sits on the icon and hides all but its
 -- middle.
+-- Every mask made, so a change to the numbers can be seen without a reload.
+local masks = {}
+
 local function PointMask(m, tex, size)
 	local w = size or (tex.GetWidth and tex:GetWidth()) or 0
 	local h = size or (tex.GetHeight and tex:GetHeight()) or 0
 	if not w or w <= 0 then w = 40 end
 	if not h or h <= 0 then h = 40 end
+	local over, shift = ns.MASK_OVER, ns.MASK_SHIFT * h
 	m:ClearAllPoints()
-	m:SetPoint("TOPLEFT", tex, "TOPLEFT", -MASK_OVER * w, MASK_OVER * h)
-	m:SetPoint("BOTTOMRIGHT", tex, "BOTTOMRIGHT", MASK_OVER * w, -MASK_OVER * h)
+	m:SetPoint("TOPLEFT", tex, "TOPLEFT", -over * w, over * h + shift)
+	m:SetPoint("BOTTOMRIGHT", tex, "BOTTOMRIGHT", over * w, -over * h + shift)
+	m.alSize = size
+end
+
+-- Puts every mask back where the current numbers say, for tuning them in game.
+function ns.RepointMasks()
+	local n = 0
+	for tex, m in pairs(masks) do
+		if tex.alMask == m then
+			PointMask(m, tex, m.alSize)
+			n = n + 1
+		else
+			masks[tex] = nil
+		end
+	end
+	return n
 end
 
 local function MaskOne(frame, tex, size)
@@ -1985,6 +2008,7 @@ local function MaskOne(frame, tex, size)
 		PointMask(m, tex, size)
 		if tex.AddMaskTexture and pcall(tex.AddMaskTexture, tex, m) then
 			tex.alMask = m
+			masks[tex] = m
 		else
 			pcall(m.Hide, m)
 		end
@@ -1992,6 +2016,10 @@ local function MaskOne(frame, tex, size)
 end
 
 function ns.MaskIcon(frame, ...)
+	if ns.db and ns.db.maskOff then
+		ns.report["icon mask"] = "turned off (/auraledger iconmask on)"
+		return false
+	end
 	if not (frame.CreateMaskTexture and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(ns.ICON_MASK)) then
 		ns.report["icon mask"] = "none"
 		return false
@@ -2007,6 +2035,9 @@ end
 -- should keep its own corners.
 function ns.SetIconMask(frame, tex, on, size)
 	if not tex then return false end
+	if on and ns.db and ns.db.maskOff then
+		on = false
+	end
 	if on then
 		if not (frame.CreateMaskTexture and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(ns.ICON_MASK)) then
 			ns.report["icon mask"] = "none"
@@ -2019,9 +2050,16 @@ function ns.SetIconMask(frame, tex, on, size)
 	if tex.alMask then
 		if tex.RemoveMaskTexture then pcall(tex.RemoveMaskTexture, tex, tex.alMask) end
 		pcall(tex.alMask.Hide, tex.alMask)
+		masks[tex] = nil
 		tex.alMask = nil
 	end
 	return false
+end
+
+-- The icon mask's numbers, once the saved settings are in hand.
+function ns.ApplyMaskSettings()
+	ns.MASK_OVER = tonumber(ns.db and ns.db.maskOver) or 0.26
+	ns.MASK_SHIFT = tonumber(ns.db and ns.db.maskShift) or 0
 end
 
 ns.DIAG_ORDER = { "log", "api", "gd", "cdm2", "cdmapply", "cdmrestore", "probe", "atlases", "icon", "combatlog" }
@@ -2280,6 +2318,29 @@ SlashCmdList.AURALEDGER = function(msg)
 		ns.db.combatLog = not ns.db.combatLog
 		if ns.db.combatLog and not registered.COMBAT_LOG_EVENT_UNFILTERED then SafeRegister("COMBAT_LOG_EVENT_UNFILTERED") end
 		Print("Combat log source " .. (ns.db.combatLog and "on (if the client shows the blocked dialog, turn it off again)." or "off. Type /reload to finish turning it off."))
+	elseif cmd == "iconmask" then
+		local word = strlower(rest or "")
+		if word == "off" or word == "on" then
+			ns.db.maskOff = (word == "off") or nil
+			Print("Icon mask: " .. (ns.db.maskOff and "off, icons keep their own corners" or "on")
+				.. ". Trackers follow at once" .. (ns.db.maskOff and "" or " once they are drawn again") .. "; the window follows after a /reload.")
+			if ns.Display then ns.Display:Rebuild() end
+			return
+		end
+		local a, b = rest:match("^(%S*)%s*(%S*)$")
+		local over, shift = tonumber(a), tonumber(b)
+		if over then ns.db.maskOver = over end
+		if shift then ns.db.maskShift = shift end
+		if over or shift then
+			ns.MASK_OVER = tonumber(ns.db.maskOver) or 0.26
+			ns.MASK_SHIFT = tonumber(ns.db.maskShift) or 0
+			local n = ns.RepointMasks()
+			Print(("Icon mask: out %.3f, up %.3f. %d mask%s moved; the book follows after a /reload."):format(
+				ns.MASK_OVER, ns.MASK_SHIFT, n, n == 1 and "" or "s"))
+		else
+			Print(("Icon mask: %s, out %.3f, up %.3f."):format(ns.db.maskOff and "|cffff5050off|r" or "on", ns.MASK_OVER, ns.MASK_SHIFT))
+			Print("|cffffd000/auraledger iconmask <out> <up>|r, both as a share of the icon: out is how far past the icon the mask art is drawn, up moves the shape against the icon. |cffffd000/auraledger iconmask off|r leaves icons their own square corners.")
+		end
 	elseif cmd == "atlases" then
 		if ns.UI and ns.UI.PrintAtlases then ns.UI:PrintAtlases() end
 	elseif cmd == "icon" then

@@ -435,6 +435,9 @@ function Display:IconReport(emit)
 	local s = BuildSkin()
 	emit("icon art from: " .. tostring(s.iconSource or s.source))
 	emit("icon mask: " .. tostring(ns.report["icon mask"] or "not tried yet"))
+	local mi = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(ns.ICON_MASK)
+	emit(("  mask art: %s, drawn out %.3f and up %.3f of the icon"):format(
+		mi and ((mi.width or 0) .. "x" .. (mi.height or 0)) or "no atlas", ns.MASK_OVER, ns.MASK_SHIFT))
 	emit(("crop: %s"):format(s.soloIconCoords and table.concat(s.soloIconCoords, ", ") or (s.iconCoords and table.concat(s.iconCoords, ", ") or "none")))
 	for _, which in ipairs({ { "bar donor", s.iconDecor }, { "icon donor", s.soloIconDecor } }) do
 		local list = which[2]
