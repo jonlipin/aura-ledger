@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.15.0
+
+- While auras are secret, the addon now asks C_UnitAuras.GetUnitAuraInstanceIDs for the instance ids on you. When that list is readable, presence per instance is known in combat: a carried buff whose instance disappears is dropped at once (clicked off, dispelled, or run out), a spell you cast binds to the instance that appears, and instances nothing claims are kept as "Unknown buff" / "Unknown debuff" entries. When the list is hidden, nothing changes.
+- /auraledger probe reports the instance id list and the per-instance helpers (expiry, caster, duration object, filter test) with each answer marked plain or secret; /auraledger debug has an "instance ids while restricted" line.
+
 ## 1.14.1
 
 - The secret index reads from 1.14.0 are removed: on this client they fail with "Auras cannot be accessed when secret while tainted", so they learned nothing and only raised errors.

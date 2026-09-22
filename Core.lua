@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.14.1"
+ns.VERSION = "1.15.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -20,8 +20,35 @@ local HISTORY_CAP = 1500
 
 local strlower, floor, max, min = string.lower, math.floor, math.max, math.min
 
+-- Everything printed is also kept in the saved variables (AuraLedgerDB.log, newest last), so the
+-- output of the diagnostic commands can be read from disk after a /reload instead of from chat.
+local LOG_CAP = 800
+local pendingLog = {}
+local function LogLine(text)
+	local line = (date and date("%H:%M:%S") or "") .. " " .. text
+	local db = ns.db
+	if db then
+		db.log = db.log or {}
+		if #pendingLog > 0 then
+			for _, l in ipairs(pendingLog) do db.log[#db.log + 1] = l end
+			pendingLog = {}
+		end
+		db.log[#db.log + 1] = line
+		if #db.log > LOG_CAP + 100 then
+			local keep = {}
+			for i = #db.log - LOG_CAP + 1, #db.log do keep[#keep + 1] = db.log[i] end
+			db.log = keep
+		end
+	else
+		pendingLog[#pendingLog + 1] = line
+	end
+end
+ns.LogLine = LogLine
+
 local function Print(msg)
-	DEFAULT_CHAT_FRAME:AddMessage("|cff00ccffAura Ledger:|r " .. tostring(msg))
+	msg = tostring(msg)
+	DEFAULT_CHAT_FRAME:AddMessage("|cff00ccffAura Ledger:|r " .. msg)
+	LogLine((msg:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")))
 end
 ns.Print = Print
 
@@ -620,6 +647,95 @@ local firstScan = true
 
 -- One unit's scan: read what can be read, carry the rest forward. Returns the new table and whether
 -- anything was unreadable.
+-- ------------------------------------------------------------------
+-- Instance ids while secret. The aura list cannot be read, but GetUnitAuraInstanceIDs may still
+-- say which instances are on the unit. That is enough for presence: a carried aura whose instance
+-- is gone has ended, a spell you just cast is the newest instance that appeared, and instances
+-- nobody claims are kept as unknown entries so a later cast can still bind to them.
+-- ------------------------------------------------------------------
+-- UNIT_AURA payload: removals and refreshes arrive by instance id even while contents are secret.
+-- The lists inside the payload can themselves be secret in combat: they look like tables to
+-- type() but ipairs refuses them. Returns a plain array or nil.
+local function PlainList(v)
+	v = Clean(v)
+	if type(v) ~= "table" then return nil end
+	local ok, out = pcall(function()
+		local list = {}
+		for _, id in ipairs(v) do list[#list + 1] = Clean(id) end
+		return list
+	end)
+	return ok and out or nil
+end
+
+local shadowStats = { calls = 0, plain = 0, secret = 0, errors = 0, reads = 0, removed = 0, bound = 0, unknown = 0 }
+ns.shadowStats = shadowStats
+
+local function InstanceList(unit, filter, kind, into)
+	local C = C_UnitAuras
+	if not (C and C.GetUnitAuraInstanceIDs) then return false end
+	shadowStats.calls = shadowStats.calls + 1
+	local ok, ids = pcall(C.GetUnitAuraInstanceIDs, unit, filter)
+	if not ok then shadowStats.errors = shadowStats.errors + 1 return false end
+	local list = PlainList(ids)
+	if not list then
+		if ids ~= nil then shadowStats.secret = shadowStats.secret + 1 end
+		return false
+	end
+	shadowStats.plain = shadowStats.plain + 1
+	for _, inst in ipairs(list) do
+		if type(inst) == "number" then into[#into + 1] = { inst = inst, kind = kind } end
+	end
+	return true
+end
+
+local function ApplyShadow(unit, fresh, shadow, now)
+	local present = {}
+	for _, sh in ipairs(shadow) do present[sh.inst] = sh end
+	shadowStats.reads = shadowStats.reads + 1
+	local claimed = {}
+	-- Carried entries: still there, or gone.
+	for key, e in pairs(fresh) do
+		if e.inst then
+			if present[e.inst] then
+				claimed[e.inst] = true
+				e.probed = true -- confirmed by instance; the frame icons get no say
+			elseif e.stale or e.estimated then
+				fresh[key] = nil
+				shadowStats.removed = shadowStats.removed + 1
+			end
+		end
+	end
+	-- Your recent casts: bind each to the newest unclaimed instance of its kind.
+	local synths = {}
+	for _, e in pairs(fresh) do
+		if e.synth and not e.inst and not e.unknown and e.createdAt and now - e.createdAt < 3 then synths[#synths + 1] = e end
+	end
+	table.sort(synths, function(a, b) return a.createdAt > b.createdAt end)
+	for _, e in ipairs(synths) do
+		local best
+		for inst, sh in pairs(present) do
+			if not claimed[inst] and sh.kind == e.kind and (not best or inst > best) then best = inst end
+		end
+		if best then
+			e.inst = best
+			claimed[best] = true
+			shadowStats.bound = shadowStats.bound + 1
+		end
+	end
+	-- Instances nobody knows.
+	for inst, sh in pairs(present) do
+		if not claimed[inst] then
+			local key = "u:" .. unit .. ":" .. tostring(inst)
+			if not fresh[key] then
+				fresh[key] = { key = key, inst = inst, name = sh.kind == "buff" and "Unknown buff" or "Unknown debuff", icon = ns.QUESTION,
+					count = 0, duration = 0, expires = 0, kind = sh.kind, unit = unit,
+					synth = true, estimated = true, stale = true, probed = true, unknown = true }
+				shadowStats.unknown = shadowStats.unknown + 1
+			end
+		end
+	end
+end
+
 local function ScanUnit(unit, old, quiet)
 	local now = GetTime()
 	local fresh, unreadable = {}, 0
@@ -651,6 +767,11 @@ local function ScanUnit(unit, old, quiet)
 				end
 			end
 		end
+		-- Instance ids may still be readable: presence per instance.
+		local shadow = {}
+		local okB = InstanceList(unit, "HELPFUL", "buff", shadow)
+		local okD = InstanceList(unit, "HARMFUL", "debuff", shadow)
+		if okB and okD then ApplyShadow(unit, fresh, shadow, now) end
 	end
 	return fresh, unreadable > 0, historyChanged
 end
@@ -678,19 +799,6 @@ function ns.Scan()
 	if historyChanged and ns.UI and ns.UI.RefreshHistory then ns.UI:RefreshHistory() end
 end
 
--- UNIT_AURA payload: removals and refreshes arrive by instance id even while contents are secret.
--- The lists inside the payload can themselves be secret in combat: they look like tables to
--- type() but ipairs refuses them. Returns a plain array or nil.
-local function PlainList(v)
-	v = Clean(v)
-	if type(v) ~= "table" then return nil end
-	local ok, out = pcall(function()
-		local list = {}
-		for _, id in ipairs(v) do list[#list + 1] = Clean(id) end
-		return list
-	end)
-	return ok and out or nil
-end
 
 -- Shape of the UNIT_AURA payloads seen while restricted, for the debug report.
 local payloadStats = { events = 0, plainRemoved = 0, secretRemoved = 0, plainUpdated = 0, secretUpdated = 0, plainAdded = 0, secretAdded = 0, full = 0, sample = nil }
@@ -1341,7 +1449,7 @@ end
 
 events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 	if event == "ADDON_LOADED" then
-		if a1 == ADDON then ns.InitDB() end
+		if a1 == ADDON then ns.InitDB() ns.LogLine("=== Aura Ledger " .. ns.VERSION .. " loaded " .. (date and date("%Y-%m-%d %H:%M") or "")) end
 		-- The player opened the spellbook: its art names can be read now.
 		if a1 == "Blizzard_PlayerSpells" and loaded and ns.UI and ns.UI.ApplyBookArt then ns.UI:ApplyBookArt() end
 		return
@@ -1695,6 +1803,9 @@ local function Debug()
 	if #fi.sample > 0 then Print("    frame icons seen: " .. table.concat(fi.sample, "; ")) end
 	Print(("  your casts: %d seen, %d turned into auras while restricted (spell cast events %s)"):format(
 		s.casts, s.castsUsed, registered.UNIT_SPELLCAST_SUCCEEDED and "registered" or "not registered"))
+	local sh = ns.shadowStats
+	Print(("  instance ids while restricted: calls %d (plain %d, secret %d, errors %d), applied %d, removed by instance %d, casts bound %d, unknown auras %d"):format(
+		sh.calls, sh.plain, sh.secret, sh.errors, sh.reads, sh.removed, sh.bound, sh.unknown))
 	local vs = ns.viewerStats
 	Print(("  Cooldown Manager buff viewers while restricted: reads %d, items %d (plain %d, secret %d), buffs seen present %d, seen gone %d"):format(
 		vs.reads, vs.items, vs.plain, vs.secret, vs.present, vs.absent))
@@ -1824,6 +1935,13 @@ SlashCmdList.AURALEDGER = function(msg)
 				end
 			end
 		end
+	elseif cmd == "log" then
+		if rest == "clear" then
+			if ns.db then ns.db.log = {} end
+			Print("log cleared")
+		else
+			Print(("log: %d lines kept in the saved variables (written on /reload or logout); /auraledger log clear empties it"):format(ns.db and ns.db.log and #ns.db.log or 0))
+		end
 	elseif cmd == "container" then
 		ns.ProbeContainer()
 	elseif cmd == "probe" then
@@ -1843,6 +1961,30 @@ SlashCmdList.AURALEDGER = function(msg)
 			end
 		end
 		if n == 0 then Print("  no trackers") end
+		do
+			local C = C_UnitAuras
+			local function DD(v) if issecretvalue and issecretvalue(v) then return "secret" end if type(v) == "table" then local l = PlainList(v) return l and ("plain list of " .. #l .. (#l > 0 and (" e.g. " .. tostring(l[1])) or "")) or "table (not iterable)" end return type(v) .. ":" .. tostring(v) end
+			for _, filter in ipairs({ "HELPFUL", "HARMFUL", "HELPFUL|PLAYER" }) do
+				local ok, ids = pcall(C.GetUnitAuraInstanceIDs, "player", filter)
+				Print(("  GetUnitAuraInstanceIDs(%s): %s"):format(filter, ok and DD(ids) or ("error " .. tostring(ids))))
+				local list = ok and PlainList(ids)
+				local first = list and list[1]
+				if first then
+					local okE, has = pcall(C.DoesAuraHaveExpirationTime, "player", first)
+					local okG, guid = pcall(C.GetAuraCasterGUID, "player", first)
+					local okR, dur = pcall(C.GetAuraDuration, "player", first)
+					local okF, filtered = pcall(C.IsAuraFilteredOutByInstanceID, "player", first, "PLAYER")
+					local okI, info = pcall(C.GetAuraDataByAuraInstanceID, "player", first)
+					Print(("    instance %s: hasExpiry %s, caster %s, duration object %s, filteredOut(PLAYER) %s, dataByInstance %s"):format(
+						tostring(first), okE and DD(has) or "error", okG and DD(guid) or "error", okR and DD(dur) or ("error " .. tostring(dur)), okF and DD(filtered) or "error",
+						okI and (type(info) == "table" and ((issecretvalue and issecretvalue(info)) and "secret" or ("table, name " .. DD(info.name) .. ", id " .. DD(info.spellId))) or DD(info)) or ("error " .. tostring(info):sub(1, 60))))
+				end
+			end
+			if C.GetAuraSlots then
+				local ok, tok, a, b = pcall(C.GetAuraSlots, "player", "HELPFUL", 40)
+				Print("  GetAuraSlots(HELPFUL): " .. (ok and (DD(tok) .. ", " .. DD(a) .. ", " .. DD(b)) or ("error " .. tostring(tok))))
+			end
+		end
 		Print("raw index reads on you, expected to fail with a taint message while secret (GetAuraDuration " .. YesNo(C_UnitAuras and C_UnitAuras.GetAuraDuration) .. "):")
 		local function D(v) if issecretvalue and issecretvalue(v) then return "secret" end return tostring(v) end
 		for _, filter in ipairs({ "HELPFUL", "HARMFUL" }) do
