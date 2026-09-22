@@ -1757,8 +1757,25 @@ local function Build()
 
 	-- ---- Layout pane ----
 	local mid = Pane(body, "Groups and trackers", BOOK_X + 24 + BOOK_W, BOOK_X + 24 + BOOK_W + TREE_W, LIP + 10)
-	local importBtn = MakeButton(mid, "Import", 70)
-	importBtn:SetPoint("TOPRIGHT", mid, "TOPRIGHT", -26, -2)
+	-- Import: a small note icon on the heading, in the spellbook's icon frame.
+	local importBtn = CreateFrame("Button", nil, mid)
+	importBtn:SetSize(20, 20)
+	importBtn:SetPoint("TOPRIGHT", mid, "TOPRIGHT", -30, -4)
+	importBtn.icon = importBtn:CreateTexture(nil, "ARTWORK")
+	importBtn.icon:SetAllPoints()
+	importBtn.icon:SetTexture("Interface\\Icons\\INV_Misc_Note_01")
+	importBtn.icon:SetTexCoord(0.07, 0.93, 0.07, 0.93)
+	MaskIcon(importBtn, importBtn.icon)
+	do
+		local art = SpellBookArt()
+		if art and art.iconFrame then
+			local fr = importBtn:CreateTexture(nil, "OVERLAY")
+			fr:SetAtlas(art.iconFrame)
+			fr:SetSize(26, 24)
+			fr:SetPoint("CENTER", importBtn.icon, "CENTER", -1.5, -1)
+		end
+	end
+	importBtn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
 	importBtn:SetScript("OnClick", function() UI:ShowImport() end)
 	importBtn:SetScript("OnEnter", function(self) TextTooltip(self, "Import", "Paste a tracker or group string from someone else, or from another character.") end)
 	importBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)

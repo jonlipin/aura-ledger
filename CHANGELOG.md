@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.2
+
+- The Import button on the Groups and trackers heading is a small note icon instead of a text button.
+
 ## 1.9.1
 
 - Group rows in the Groups and trackers list have the red X too: click it twice to delete the group and everything in it. The Delete group button is gone from the Options panel.

@@ -47,7 +47,7 @@ Trackers are drawn with art copied off the client's own frames when the game loa
 
 ## Sharing
 
-"Export tracker" and "Export group" in the Options panel produce a string starting with `!AL1:`; copy it and paste it to a friend or into another character's "Import" button on the Groups and trackers pane (or `/auraledger import <string>`). Trackers arrive as their own group, groups arrive whole, both near the middle of the screen.
+"Export tracker" and "Export group" in the Options panel produce a string starting with `!AL1:`; copy it and paste it to a friend or into the note icon on another character's Groups and trackers heading (or `/auraledger import <string>`). Trackers arrive as their own group, groups arrive whole, both near the middle of the screen.
 
 ## Combat and hidden auras
 
