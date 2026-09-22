@@ -293,9 +293,8 @@ local function HaveShape() return shapeInHand end
 -- whatever it is given, border and all. A donor that leans on a mask reports the whole picture, so
 -- that answer is not worth keeping.
 local function IconCrop(c)
-	-- With the manager's mask in hand the whole picture is wanted: its baked border is what the
-	-- manager shows, rounded off at the corners. Without one, that border is trimmed as ever.
-	if HaveShape() then return { 0, 1, 0, 1 } end
+	-- A spell icon's baked border is trimmed off, as the game trims it when it fills a slot itself.
+	-- Keeping it made a tracker the addon drew look wider than the same one drawn by the game.
 	if not c then return TRIM end
 	if c[1] <= 0.001 and c[2] >= 0.999 and c[3] <= 0.001 and c[4] >= 0.999 then return TRIM end
 	return c
@@ -1064,6 +1063,7 @@ local function ConfigureWidget(w, g)
 	local wantIcon = function() return g.iconFrame ~= false end
 	if w.configured == key then return end
 	w.configured = key
+	w.iconPx = nil
 	local s = skin
 	w.icon:ClearAllPoints()
 	w.time:ClearAllPoints()
@@ -1080,7 +1080,8 @@ local function ConfigureWidget(w, g)
 		-- is told the size it clips, because the icon has not been given one yet.
 		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false, IS)
 		local inset = (masked or BorderMode() ~= "cdm") and 0 or IconInset(s, true, IS, g.iconFrame ~= false)
-		if HaveShape() and g.iconFrame ~= false then inset = max(inset, max(1, floor(IS / 20 + 0.5))) end
+		w.ringPx = (HaveShape() and g.iconFrame ~= false) and max(1, floor(IS / 20 + 0.5)) or 0
+		w.cellSize, w.cellBars = IS, true
 		-- The widget is as tall as the taller of the two, and both the icon and the bar hold its
 		-- middle, so scaling the icon moves neither off the other's line.
 		local WH = max(H, IS)
@@ -1136,7 +1137,9 @@ local function ConfigureWidget(w, g)
 		local S = g.size
 		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false, S)
 		local inset = (masked or BorderMode() ~= "cdm") and 0 or IconInset(s, false, S, g.iconFrame ~= false)
-		if HaveShape() and g.iconFrame ~= false then inset = max(inset, max(1, floor(S / 20 + 0.5))) end
+		-- Room for the ring, kept until there is a ring to show: see SizeIconForRing.
+		w.ringPx = (HaveShape() and g.iconFrame ~= false) and max(1, floor(S / 20 + 0.5)) or 0
+		w.cellSize, w.cellBars = S, false
 		w:SetSize(S, S)
 		w.icon:SetSize(S - inset * 2, S - inset * 2)
 		w.icon:SetPoint("CENTER")
@@ -1187,6 +1190,18 @@ local function TintFill(w, kind, missing)
 	end
 end
 
+-- The picture fills its cell, and gives up the ring's width all round only while a ring is shown.
+local function SizeIconForRing(w, ringOn)
+	local cell = w.cellSize
+	if not cell or not w.ringPx then return end
+	local px = ringOn and w.ringPx or 0
+	if w.iconPx == px then return end
+	w.iconPx = px
+	w.icon:SetSize(max(1, cell - px * 2), max(1, cell - px * 2))
+	w.icon:ClearAllPoints()
+	if w.cellBars then w.icon:SetPoint("LEFT", w, "LEFT", px, 0) else w.icon:SetPoint("CENTER") end
+end
+
 local function PaintWidget(w, g, t, entry, preview, expiring)
 	w.tracker, w.group, w.entry, w.expiring = t, g, entry, expiring
 	ConfigureWidget(w, g)
@@ -1220,8 +1235,9 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 		br, bg, bb, strong = 0.1, 0.1, 0.1, false
 	end
 	if HaveShape() and not w.shapeBorder then
-		ShapeRing(w, w.ringRef or w.icon, (w.group and w.group.style == "bars") and ns.BarIconSize(w.group) or (w.group and w.group.size) or 40,
-			br ~= nil and (w.group == nil or w.group.iconFrame ~= false), br, bg, bb)
+		local ringOn = br ~= nil and (w.group == nil or w.group.iconFrame ~= false)
+		SizeIconForRing(w, ringOn)
+		ShapeRing(w, w.ringRef or w.icon, w.cellSize or 40, ringOn, br, bg, bb)
 		w.border:Hide()
 	elseif ShapeBorderColor(w, br or 1, bg or 1, bb or 1) then
 		w.border:Hide()

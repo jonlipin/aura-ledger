@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.46.2
+
+- A tracker the game draws is framed like the ones the addon draws. Since 1.45.0 a picture was kept whole wherever the manager's mask was in hand, on the reading that the dark line round the manager's icons is the picture's own baked border. The game trims that border off when it fills a slot, so the game's icon looked zoomed in beside the addon's. Every picture is trimmed now, the way the game trims one.
+
+## 1.46.1
+
+- A group keeps its shape when the window opens. The ring that carries a tracker's state is a band round the outside of its cell, and the picture was being pulled in off that band whatever the tracker was doing: with the window open the addon draws every cell, so every picture sat smaller than the same tracker drawn by the game, and the group appeared to change. A picture fills its cell now and gives up the band only while a ring is actually being shown.
+
 ## 1.46.0
 
 - A missing aura is grey rather than red. The picture is already drained of colour the moment an aura goes; painting it red on top of that and ringing it in red reads as a warning when nothing is wrong, since it is only a buff you have not got. It is now drained and dimmed a little, with a dark ring rather than a red one. Red is kept for the thing worth warning about: an aura inside its warn window, about to run out.
