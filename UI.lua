@@ -1064,9 +1064,56 @@ local function CreateTreeRow(parent)
 		local cond = ns.CondSummary(item.t and item.t.cond or item.g.cond)
 		TextTooltip(self, item.t and (item.t.name or ("Spell " .. tostring(item.t.id))) or ns.GroupName(item.g),
 			item.t and ("Shows when " .. (SHOW_TAG[item.t.show] or "active")) or (#item.g.trackers .. " tracker" .. (#item.g.trackers == 1 and "" or "s")),
-			cond ~= "" and ("Only: " .. cond) or nil)
+			cond ~= "" and ("Only: " .. cond) or nil,
+			item.t and "|cffaaaaaaDrag: onto a group or tracker to move it, onto empty space for a group of its own, or out onto the screen.|r" or nil)
 	end)
 	row:SetScript("OnLeave", function(self) if self.plated then self.hl:SetAlpha(0.3) else self.hl:Hide() end GameTooltip:Hide() end)
+	-- Trackers can be dragged: onto a group heading (join it), onto a tracker (before or after it),
+	-- onto empty list space (a group of its own), or out of the window (onto the screen).
+	row:RegisterForDrag("LeftButton")
+	row:SetScript("OnDragStart", function(self)
+		local item = self.item
+		if not item or not item.t then return end
+		self.dragging = item
+		GameTooltip:Hide()
+		ns.Display:BeginGhost(item.t.icon, "New group here", nil, "|cff40ff60Drop on a group or tracker, or on empty space for a new group|r")
+	end)
+	row:SetScript("OnDragStop", function(self)
+		local item = self.dragging
+		self.dragging = nil
+		if not item then return end
+		local t = item.t
+		local from = ns.FindGroupOf(t)
+		if not from then ns.Display:EndGhost() return end
+		local target
+		for _, r in ipairs(treeList.rows) do
+			if r:IsShown() and r.item and r:IsMouseOver() then target = r break end
+		end
+		local overList = treeList.scroll:IsMouseOver()
+		local cancelled, cx, cy, screenGroup, index = ns.Display:EndGhost()
+		if target and target.item.t then
+			if target.item.t ~= t then
+				local g = target.item.g
+				local at = 1
+				for i, other in ipairs(g.trackers) do if other == target.item.t then at = i break end end
+				local _, rowCy = target:GetCenter()
+				local s = target:GetEffectiveScale() / UIParent:GetEffectiveScale()
+				if rowCy and cy < rowCy * s then at = at + 1 end
+				ns.MoveTracker(t, g, at)
+			end
+		elseif target then
+			if target.item.g ~= from or #from.trackers > 1 then ns.MoveTracker(t, target.item.g) end
+		elseif overList or cancelled then
+			if #from.trackers > 1 then ns.MoveTracker(t, ns.NewGroupLike(from)) end
+		elseif screenGroup then
+			ns.MoveTracker(t, screenGroup, index)
+		else
+			if #from.trackers > 1 then ns.MoveTracker(t, ns.NewGroupLike(from, cx - 18, cy + 18))
+			else from.x, from.y = cx - 18, cy + 18 ns.Display:Rebuild() end
+		end
+		ns.selected = { group = ns.FindGroupOf(t), tracker = t }
+		UI:ShowSelection()
+	end)
 	return row
 end
 
@@ -1308,21 +1355,12 @@ local function BuildTrackerPanel(width)
 	b:Conditions(function() local t = T() return t and t.cond end, TrackerChanged)
 
 	b.y = b.y - 8
-	local own = MakeButton(trackerPanel, "Move to its own group", 170)
-	own:SetPoint("TOPLEFT", 8, b.y)
-	own:SetScript("OnClick", function()
-		local t = T()
-		local g = t and ns.FindGroupOf(t)
-		if not g or #g.trackers < 2 then return end
-		local ng = ns.NewGroup((g.x or 500) + 30, (g.y or 400) - 60)
-		for _, key in ipairs({ "style", "size", "barW", "barH", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "watch" }) do ng[key] = g[key] end
-		ns.MoveTracker(t, ng)
-	end)
+	b:Note("To move this tracker to another group, or out into a group of its own, drag it in the Groups and trackers list.")
 	local remove = b:ConfirmButton("Remove tracker", 170, function()
 		local t = T()
 		if t then ns.RemoveTracker(t) end
 	end)
-	remove:SetPoint("LEFT", own, "RIGHT", 8, 0)
+	remove:SetPoint("TOPLEFT", 8, b.y)
 	b.y = b.y - 34
 	trackerPanel.height = -b.y
 	trackerPanel:SetHeight(trackerPanel.height)

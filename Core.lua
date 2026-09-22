@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.7.3"
+ns.VERSION = "1.8.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0 }
 ns.auras = {}
@@ -258,6 +258,15 @@ function ns.NewTracker(h)
 		mine = false,
 		cond = {},
 	}
+end
+
+-- The look of a group, copied when a tracker is pulled out into a group of its own.
+ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "watch" }
+
+function ns.NewGroupLike(g, x, y)
+	local ng = ns.NewGroup(x or ((g.x or 500) + 30), y or ((g.y or 400) - 60))
+	for _, key in ipairs(ns.GROUP_STYLE_KEYS) do ng[key] = g[key] end
+	return ng
 end
 
 function ns.NewGroup(x, y)

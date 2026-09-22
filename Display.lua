@@ -1000,17 +1000,17 @@ local function GetGhost()
 		local g, f
 		if not overWindow then g, f = Display:GroupAt(cx, cy, self.except) end
 		Highlight(f)
-		if overWindow then self.text:SetText("|cffff6060Cancel|r")
+		if overWindow then self.text:SetText(self.windowText or "|cffff6060Cancel|r")
 		elseif g then self.text:SetText("|cff40ff60Add to " .. ns.GroupName(g) .. "|r")
 		else self.text:SetText(self.freeText or "Place here") end
 	end)
 	return ghost
 end
 
-function Display:BeginGhost(icon, freeText, except)
+function Display:BeginGhost(icon, freeText, except, windowText)
 	local gh = GetGhost()
 	gh.icon:SetTexture(icon or QUESTION)
-	gh.freeText, gh.except = freeText, except
+	gh.freeText, gh.except, gh.windowText = freeText, except, windowText
 	gh:Show()
 end
 
@@ -1094,10 +1094,7 @@ function Display:WidgetDragStop(w)
 		ns.MoveTracker(t, target, index)
 	else
 		-- Out on its own: a new group that keeps the look of the one it came from.
-		local ng = ns.NewGroup(cx - 18, cy + 18)
-		for _, key in ipairs({ "style", "size", "barW", "barH", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "watch" }) do
-			ng[key] = g[key]
-		end
+		local ng = ns.NewGroupLike(g, cx - 18, cy + 18)
 		ns.MoveTracker(t, ng)
 	end
 end

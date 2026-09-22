@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.8.0
+
+- Trackers can be dragged within the Groups and trackers list: drop one on a group heading to add it to that group, on another tracker to place it before or after it (in the same group or another), or on empty space in the list to give it a group of its own. Dragging out of the window still drops it onto the screen, joining an on-screen group or starting a new one there.
+- The "Move to its own group" button is gone; that is a drag now. "Remove tracker" stays.
+
 ## 1.7.3
 
 - The entry backplate no longer draws over the text on hover; it sits beneath the entry, shows faintly at rest (as the spellbook's does) and brightens on hover, in both the book and the Groups list.
