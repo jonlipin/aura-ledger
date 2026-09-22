@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.15.1"
+ns.VERSION = "1.15.2"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -61,6 +61,9 @@ end
 if DEFAULT_CHAT_FRAME and DEFAULT_CHAT_FRAME.SetMaxLines then
 	pcall(DEFAULT_CHAT_FRAME.SetMaxLines, DEFAULT_CHAT_FRAME, 2000)
 end
+
+local function YesNo(v) return v and "|cff40ff40yes|r" or "|cffff5050no|r" end
+ns.YesNo = YesNo
 
 local function Print(msg)
 	msg = tostring(msg)
@@ -1959,6 +1962,33 @@ SlashCmdList.AURALEDGER = function(msg)
 		else
 			Print(("log: %d addon lines and %d chat lines kept in the saved variables (written on /reload or logout); /auraledger log clear empties both"):format(
 				ns.db and ns.db.log and #ns.db.log or 0, ns.db and ns.db.chat and #ns.db.chat or 0))
+		end
+	elseif cmd == "api" then
+		local doc = APIDocumentation
+		if not doc then
+			Print("Blizzard's API documentation is not loaded; run any /api command first, then this again")
+		else
+			local want = strlower(rest or "")
+			local found = 0
+			for _, t in ipairs(doc.tables or {}) do
+				if strlower(t.Name or "") == want then
+					found = found + 1
+					Print(("%s %s (%s)"):format(t.Type or "table", t.Name, t.System and t.System.Name or "?"))
+					for _, f in ipairs(t.Fields or {}) do
+						Print(("  %s: %s%s%s%s"):format(f.Name, tostring(f.Type), f.Nilable and " (nilable)" or "", f.EnumValue ~= nil and (" = " .. tostring(f.EnumValue)) or "",
+							f.InnerType and (" of " .. tostring(f.InnerType)) or ""))
+					end
+				end
+			end
+			for _, f in ipairs(doc.functions or {}) do
+				if strlower(f.Name or "") == want or strlower((f.System and f.System.Namespace or "") .. "." .. (f.Name or "")) == want then
+					found = found + 1
+					Print(("function %s.%s"):format(f.System and f.System.Namespace or "?", f.Name))
+					for _, a in ipairs(f.Arguments or {}) do Print(("  arg %s: %s%s%s"):format(a.Name, tostring(a.Type), a.Nilable and " (nilable)" or "", a.Default ~= nil and (" default " .. tostring(a.Default)) or "")) end
+					for _, r in ipairs(f.Returns or {}) do Print(("  returns %s: %s%s"):format(r.Name, tostring(r.Type), r.Nilable and " (nilable)" or "")) end
+				end
+			end
+			if found == 0 then Print("nothing documented under that name (try the exact name from /api search)") end
 		end
 	elseif cmd == "container" then
 		ns.ProbeContainer()

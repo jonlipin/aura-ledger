@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.15.2
+
+- Fixed: /auraledger container failed before printing anything (a helper was defined further down the file).
+- New: /auraledger api <name> prints the fields of a documented structure, the values of an enum, or the arguments and returns of a function, from Blizzard's own API documentation (run any /api command first so it is loaded).
+
 ## 1.15.1
 
 - Longer logs. The chat window now keeps 2000 lines instead of the default 128, every message that reaches the main chat frame (including Blizzard's /api output) is mirrored into the saved variables (1500 lines), and the addon's own log keeps 3000 lines. Both are written on /reload or logout; /auraledger log shows the counts, /auraledger log clear empties them.
