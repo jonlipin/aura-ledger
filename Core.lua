@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.39.0"
+ns.VERSION = "1.39.1"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1665,16 +1665,10 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 				if ns.db.cdmLayout or ns.db.cdmSig then
 					ns.db.cdmSig = nil
 					local ok = ns.CDM and ns.CDM.Restore()
-					Print("The Cooldown Manager has been handed back to the game" .. (ok and "." or "; it may need a /reload.")
-						.. " Aura Ledger no longer uses it: borrowing its frames put this addon's taint on the game's own display.")
+					Print("Aura Ledger no longer uses the Cooldown Manager: borrowing its frames put this addon's mark on the game's own display, and the game then refused its own reads.")
+					Print(ok and "|cffffd000The manager has been handed back. Please type /reload once now|r: giving it back is itself a write from this addon, and only a reload clears the mark it leaves."
+						or "|cffff5050The manager could not be handed back.|r Choose another layout in the game's own Cooldown Manager settings, then /reload.")
 				end
-			end)
-			C_Timer.After(5, function()
-				if ns.db.cdmProbe == ns.VERSION or not ns.ProbeCDM then return end
-				ns.db.cdmProbe = ns.VERSION
-				ns.LogLine("=== automatic Cooldown Manager probe")
-				local summary = ns.ProbeCDM(ns.LogLine)
-				Print("Cooldown Manager: " .. tostring(summary) .. ". The full reading is in the log (/auraledger debug cdm2 to see it here).")
 			end)
 		end
 		if C_Timer and C_Timer.After then C_Timer.After(1, function() if ns.SyncAuraSounds then ns.SyncAuraSounds() end end) end
