@@ -1406,7 +1406,8 @@ local function BuildTrackerPanel(width)
 
 	b:Header("Sounds")
 	local soundChoices = { { 0, "None" } }
-	for i, c in ipairs(ns.SOUND_CHOICES) do soundChoices[#soundChoices + 1] = { i, c[1] } end
+	local combatSounds = C_UnitAuras and C_UnitAuras.AddAuraSound
+	for i, c in ipairs(ns.SOUND_CHOICES) do soundChoices[#soundChoices + 1] = { i, c[1] .. ((combatSounds and c[4]) and " (combat)" or "") } end
 	local function SoundCycle(label, key, tip)
 		b:Cycle(label, soundChoices,
 			function() local t = T() return t and t.snd and t.snd[key] or 0 end,
@@ -1416,12 +1417,14 @@ local function BuildTrackerPanel(width)
 				t.snd = t.snd or {}
 				t.snd[key] = (v > 0) and v or nil
 				if not next(t.snd) then t.snd = nil end
+				if ns.SyncAuraSounds then ns.SyncAuraSounds() end
 				if v > 0 then
 					local name, played = ns.PlaySoundChoice(v)
 					if not played then ns.Print(name .. " is not available on this client (or sound effects are muted); try the next one.") end
 				end
 			end, tip .. " Picking one plays it.", 150)
 	end
+	b:Note("Choices marked (combat) are played by the game itself, so they also fire while the aura is hidden in combat.")
 	SoundCycle("When applied", "applied", "Plays when the aura lands.")
 	SoundCycle("When it runs out", "removed", "Plays when the aura wears off or is removed.")
 	SoundCycle("When the tracker appears", "shown", "Plays when this tracker comes on screen, for whatever reason: the aura landing, going missing, or entering its warn window.")

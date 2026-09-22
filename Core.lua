@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.15.2"
+ns.VERSION = "1.16.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -1343,6 +1343,7 @@ function ns.ProbeContainer()
 		Print("  Enum.UnitAuraSoundTrigger: missing")
 	end
 	Print("  C_UnitAuras.AddAuraSound " .. YesNo(C_UnitAuras and C_UnitAuras.AddAuraSound) .. ", RemoveAuraSound " .. YesNo(C_UnitAuras and C_UnitAuras.RemoveAuraSound))
+	probeContainer:Hide()
 end
 
 -- Combat log: only consulted while auras are unreadable, to catch applications and removals on
@@ -1411,17 +1412,25 @@ local function HandleCombatLog()
 end
 
 -- ------------------------------------------------------------------
--- Alert sounds: Blizzard sound kit entries, looked up by name first, numeric id as fallback.
+-- Alert sounds: Blizzard sound kit entries, looked up by name first, numeric id as fallback. The
+-- fourth field is the sound's file id where known; only a file can be handed to Blizzard for
+-- playing in combat (see SyncAuraSounds), so those choices are the ones that work there.
+-- Saved trackers store the index, so entries are only ever appended.
 -- ------------------------------------------------------------------
 ns.SOUND_CHOICES = {
 	{ "Mystic chime",   "TUTORIAL_POPUP",         7355 },
 	{ "Gem clink",      "PUT_DOWN_GEMS",          1221 },
-	{ "Soft bells",     "ALARM_CLOCK_WARNING_3",  12889 },
+	{ "Soft bells",     "ALARM_CLOCK_WARNING_3",  12889, 567333 },
 	{ "Whisper toast",  "UI_BNET_TOAST",          18019 },
 	{ "Quest chime",    "IG_QUEST_LIST_COMPLETE", 878 },
 	{ "Auction gong",   "AUCTION_WINDOW_OPEN",    5274 },
 	{ "Map ping",       "MAP_PING",               3175 },
-	{ "Raid warning",   "RAID_WARNING",           8959 },
+	{ "Raid warning",   "RAID_WARNING",           8959,  567397 },
+	{ "Ready check",    "READY_CHECK",            8960,  567478 },
+	{ "Level up",       "LEVELUP",                888,   567431 },
+	{ "Alarm clock 1",  "ALARM_CLOCK_WARNING_1",  12867, 567388 },
+	{ "Alarm clock 2",  "ALARM_CLOCK_WARNING_2",  12888, 567399 },
+	{ "Flag taken",     "PVP_FLAG_TAKEN",         8174,  567275 },
 }
 
 -- Plays choice number n (0 or nil = silent). Returns the name and whether the client said it would play.
@@ -1432,6 +1441,79 @@ function ns.PlaySoundChoice(n)
 	local ok, willPlay = pcall(PlaySound, id, "SFX")
 	ns.report["last sound"] = ("%s (kit %s) -> %s"):format(c[1], tostring(id), tostring(ok and willPlay))
 	return c[1], ok and willPlay
+end
+
+-- ------------------------------------------------------------------
+-- Sounds played by Blizzard. C_UnitAuras.AddAuraSound registers a sound file against a spell id
+-- and a trigger (added, stacks increased, removed); the client plays it itself, in combat too,
+-- where the addon cannot see the aura. Every tracker with an "applied" or "runs out" sound whose
+-- choice has a file id is registered for each spell id it can stand for (all ranks the ledger
+-- has seen under that name). The display engine then leaves those two sounds to Blizzard.
+-- ------------------------------------------------------------------
+local auraSoundRegs = {}
+ns.blizzardSound = setmetatable({}, { __mode = "k" })
+ns.auraSoundStats = { registered = 0, failed = 0, lastError = nil }
+
+local function TrackerSpellIds(t)
+	local ids = {}
+	if t.id and (t.matchId or not t.name) then
+		ids[t.id] = true
+	elseif t.name then
+		for _, kind in ipairs({ "buff", "debuff" }) do
+			local h = ns.db.history[kind .. ":" .. strlower(t.name)]
+			if h and h.ids then for id in pairs(h.ids) do ids[id] = true end end
+		end
+		if t.id then ids[t.id] = true end
+	end
+	return ids
+end
+
+function ns.SyncAuraSounds()
+	local C = C_UnitAuras
+	if not (C and C.AddAuraSound and C.RemoveAuraSound) or not ns.profile then return end
+	local trig = Enum and Enum.UnitAuraSoundTrigger or {}
+	local triggers = { applied = trig.Added or 0, removed = trig.Removed or 2 }
+	local wanted = {}
+	for _, g in ipairs(ns.profile.groups) do
+		for _, t in ipairs(g.trackers) do
+			ns.blizzardSound[t] = nil
+			local snd = t.snd
+			if snd and (snd.applied or snd.removed) then
+				local unit = t.unit or "player"
+				for id in pairs(TrackerSpellIds(t)) do
+					for ev, trigger in pairs(triggers) do
+						local choice = ns.SOUND_CHOICES[snd[ev] or 0]
+						local file = choice and choice[4]
+						if file then
+							local key = unit .. ":" .. id .. ":" .. trigger .. ":" .. file
+							wanted[key] = { unit = unit, id = id, trigger = trigger, file = file }
+							ns.blizzardSound[t] = ns.blizzardSound[t] or {}
+							ns.blizzardSound[t][ev] = true
+						end
+					end
+				end
+			end
+		end
+	end
+	for key, regId in pairs(auraSoundRegs) do
+		if not wanted[key] then
+			pcall(C.RemoveAuraSound, regId)
+			auraSoundRegs[key] = nil
+			ns.auraSoundStats.registered = ns.auraSoundStats.registered - 1
+		end
+	end
+	for key, w in pairs(wanted) do
+		if not auraSoundRegs[key] then
+			local ok, regId = pcall(C.AddAuraSound, w.trigger, { unitToken = w.unit, spellID = w.id, soundFileID = w.file, outputChannel = "Master" })
+			if ok and regId then
+				auraSoundRegs[key] = regId
+				ns.auraSoundStats.registered = ns.auraSoundStats.registered + 1
+			else
+				ns.auraSoundStats.failed = ns.auraSoundStats.failed + 1
+				ns.auraSoundStats.lastError = tostring(regId)
+			end
+		end
+	end
 end
 
 -- ------------------------------------------------------------------
@@ -1517,6 +1599,7 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		ns.dirty = true
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		ns.playerGUID = UnitGUID and UnitGUID("player") or ns.playerGUID
+		if C_Timer and C_Timer.After then C_Timer.After(1, function() if ns.SyncAuraSounds then ns.SyncAuraSounds() end end) end
 		ns.UpdateEnv()
 		ns.dirty = true
 	elseif event == "ADDON_RESTRICTION_STATE_CHANGED" then
@@ -1826,6 +1909,8 @@ local function Debug()
 	local sh = ns.shadowStats
 	Print(("  instance ids while restricted: calls %d (plain %d, secret %d, errors %d), applied %d, removed by instance %d, casts bound %d, unknown auras %d"):format(
 		sh.calls, sh.plain, sh.secret, sh.errors, sh.reads, sh.removed, sh.bound, sh.unknown))
+	local as = ns.auraSoundStats
+	Print(("  Blizzard aura sounds: %d registered, %d failed%s (API %s)"):format(as.registered, as.failed, as.lastError and (", last error " .. as.lastError) or "", YesNo(C_UnitAuras and C_UnitAuras.AddAuraSound)))
 	local vs = ns.viewerStats
 	Print(("  Cooldown Manager buff viewers while restricted: reads %d, items %d (plain %d, secret %d), buffs seen present %d, seen gone %d"):format(
 		vs.reads, vs.items, vs.plain, vs.secret, vs.present, vs.absent))
@@ -1990,6 +2075,22 @@ SlashCmdList.AURALEDGER = function(msg)
 			end
 			if found == 0 then Print("nothing documented under that name (try the exact name from /api search)") end
 		end
+	elseif cmd == "soundtest" then
+		local i = 0
+		local function step()
+			i = i + 1
+			local c = ns.SOUND_CHOICES[i]
+			if not c then Print("sound test done") return end
+			if c[4] then
+				local ok, will = pcall(PlaySoundFile, c[4], "Master")
+				Print(("  %d %s: file %d -> %s"):format(i, c[1], c[4], ok and tostring(will) or ("error " .. tostring(will))))
+			else
+				Print(("  %d %s: kit only"):format(i, c[1]))
+			end
+			if C_Timer and C_Timer.After then C_Timer.After(1.5, step) else step() end
+		end
+		Print("playing each file sound in turn (1.5 s apart); say which ones you heard:")
+		step()
 	elseif cmd == "container" then
 		ns.ProbeContainer()
 	elseif cmd == "probe" then

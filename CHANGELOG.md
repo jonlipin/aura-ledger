@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.16.0
+
+- Tracker sounds in combat. The "When applied" and "When it runs out" sounds are now registered with the game itself (C_UnitAuras.AddAuraSound), which plays them when that spell's aura is added to you or removed from you, including in combat where the addon cannot see the aura. This covers every rank the ledger has seen under the tracker's name. Sound choices that can be handed to the game are marked "(combat)" in the picker: Soft bells, Raid warning, and the new Ready check, Level up, Alarm clock 1 and 2, Flag taken. The other choices still play out of combat only.
+- /auraledger soundtest plays each file sound in turn and reports what the client said, so unavailable files can be spotted. /auraledger debug shows how many aura sounds are registered.
+- The probe container from /auraledger container now hides itself after reporting.
+
 ## 1.15.2
 
 - Fixed: /auraledger container failed before printing anything (a helper was defined further down the file).

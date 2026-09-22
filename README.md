@@ -57,6 +57,7 @@ This client hides aura details from addons while addon restrictions are active (
 - removals still arrive and are applied straight away
 - the aura instance ids are asked for (GetUnitAuraInstanceIDs); when readable, a carried aura whose instance vanishes is dropped and your casts bind to the instance that appears
 - the Cooldown Manager's buff viewers are watched: an item shown there means that buff is on you, a hidden one means it is gone
+- "when applied" and "when it runs out" sounds are registered with the game (C_UnitAuras.AddAuraSound), which plays them itself in combat
 - your own successful casts are watched: casting a spell the ledger knows as an aura creates or refreshes an estimated aura (a buff on you, a debuff on your target) with the remembered duration
 - the icons on the default buff and debuff frames are watched while they stay readable: a carried buff whose icon vanishes is dropped, and an icon that appears is recognised from your trackers, the ledger or the book
 - anything carried or estimated wears a small pocket watch and a `~` in front of its time, and everything is re-read properly the moment the restriction lifts

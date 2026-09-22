@@ -821,8 +821,10 @@ local function Sounds(t, entry, show, unlocked, groupPass)
 		local snd = t.snd
 		-- A tracker that is switched off, or whose group is, stays quiet.
 		if snd and groupPass and ns.CondPass(t.cond) then
-			if active and not st.active then ns.PlaySoundChoice(snd.applied) end
-			if not active and st.active then ns.PlaySoundChoice(snd.removed) end
+			-- Blizzard plays these two itself when the tracker is registered with it (in combat too).
+			local bz = ns.blizzardSound and ns.blizzardSound[t]
+			if active and not st.active and not (bz and bz.applied) then ns.PlaySoundChoice(snd.applied) end
+			if not active and st.active and not (bz and bz.removed) then ns.PlaySoundChoice(snd.removed) end
 			if not unlocked and shown and not st.shown then ns.PlaySoundChoice(snd.shown) end
 		end
 	else
@@ -886,6 +888,7 @@ end
 
 -- Match frames to the saved groups, then redraw.
 function Display:Rebuild()
+	if ns.SyncAuraSounds then ns.SyncAuraSounds() end
 	if not ready then return end
 	local wanted = {}
 	for _, g in ipairs(ns.profile.groups) do wanted[g.uid] = g end
