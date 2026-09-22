@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.41.0
+
+- Bars have an icon scale, from half the bar's height to twice it. The icon keeps the middle of the bar's height, so a large one stands proud of the bar rather than pushing it down, and the bar, the frame art and the stack count all follow the size. It applies to the bars the addon draws and to the ones the game fills alike, and travels with a group when a tracker is pulled out of it.
+
+## 1.40.0
+
+- The icon mask added in 1.39.3 is gone. On this client that atlas is not the rounded square it is elsewhere, and it cut the picture down to a strip.
+- Icon art is taken from any donor again. Refusing it from a donor whose frame is not square, in 1.39.2, left icons with no border at all.
+- The stretching those two were aimed at is fixed at its source. Art was measured around whatever frame the donor's icon hangs on, which on a bar is the whole wide item, and then redrawn around a square icon. It is now measured around the icon itself, so it arrives the shape it started, and a bar's icon keeps the bar donor's art while a lone icon prefers the icon donor's.
+
 ## 1.39.3
 
 - The icon no longer shows past its border. The frame art copied from the Cooldown Manager has rounded corners and the icon under it was a plain square, so the corners of the picture sat outside the border. Icons are now masked with the same atlas Blizzard masks its own with, on the addon's icons and bars and on the slots the game fills. Turning the icon frame off removes the mask as well, so a bare icon keeps its square corners.

@@ -113,12 +113,11 @@ local function ApplyTexture(tex, d)
 	if d.layer and tex.SetDrawLayer then tex:SetDrawLayer(d.layer, d.sub or 0) end
 end
 
--- Where a region sits relative to the frame it is anchored to, as fractions of that frame's height
--- so it can be redrawn at any size. Stretched regions get overhangs past each edge; small regions
--- anchored by one point keep their size and side.
-local function Geometry(region, ref)
-	local rw, rh = ref:GetSize()
-	if not rw or rw <= 0 or not rh or rh <= 0 then return end
+-- Where a region sits inside "ref", in ref's own terms: x from the left edge, y from the top edge
+-- going down, so y is negative. Also reports a region held by a single point, and its own size.
+-- "box" may also name the region the art hangs off (the icon), so art anchored to the icon rather
+-- than to the frame around it is kept, measured against the icon's own rectangle.
+local function RectOf(region, ref, rw, rh, box)
 	local n = region:GetNumPoints() or 0
 	if n == 0 then return end
 	local w, h = region:GetSize()
@@ -128,11 +127,18 @@ local function Geometry(region, ref)
 	for i = 1, n do
 		local p, rel, rp, x, y = region:GetPoint(i)
 		if not p then return end
-		if rel ~= nil and rel ~= ref then return end
-		if rel == nil and region:GetParent() ~= ref then return end
+		-- The rectangle this point hangs off, in the reference frame's own terms.
+		local x0, y0, bw, bh = 0, 0, rw, rh
+		if box and box.region and rel == box.region then
+			x0, y0, bw, bh = box.l, -box.t, box.w, box.h
+		elseif rel ~= nil and rel ~= ref then
+			return
+		elseif rel == nil and region:GetParent() ~= ref then
+			return
+		end
 		x, y, rp = x or 0, y or 0, rp or p
-		local ax = (rp:find("LEFT") and 0) or (rp:find("RIGHT") and rw) or rw / 2
-		local ay = (rp:find("TOP") and 0) or (rp:find("BOTTOM") and -rh) or -rh / 2
+		local ax = (rp:find("LEFT") and x0) or (rp:find("RIGHT") and (x0 + bw)) or (x0 + bw / 2)
+		local ay = (rp:find("TOP") and y0) or (rp:find("BOTTOM") and (y0 - bh)) or (y0 - bh / 2)
 		ax, ay = ax + x, ay + y
 		if n == 1 then single = { p = p, rp = rp, x = x, y = y } end
 		if p:find("LEFT") then l = ax elseif p:find("RIGHT") then r = ax elseif w > 0 then l, r = ax - w / 2, ax + w / 2 end
@@ -143,10 +149,40 @@ local function Geometry(region, ref)
 	if t and not b and h > 0 then b = t - h end
 	if b and not t and h > 0 then t = b + h end
 	if not (l and r and t and b) then return end
-	if single and (r - l) < rw * 0.6 then
-		return { fixed = true, p = single.p, rp = single.rp, x = single.x / rh, y = single.y / rh, w = w / rh, h = h / rh }
+	return l, r, t, b, single, w, h
+end
+
+-- Where a region sits relative to the box it is drawn around, as fractions of that box's height so
+-- it can be redrawn at any size. "box" names a rectangle inside the reference frame: icon art is
+-- measured around the icon itself, because the frame it hangs on may be a whole bar item and art
+-- measured around that would be stretched when it is redrawn around a square icon. Stretched
+-- regions get overhangs past each edge; small regions anchored by one point keep their size and side.
+local function Geometry(region, ref, box)
+	local rw, rh = ref:GetSize()
+	if not rw or rw <= 0 or not rh or rh <= 0 then return end
+	local l, r, t, b, single, w, h = RectOf(region, ref, rw, rh, box)
+	if not l then return end
+	local bl, bt, bw, bh = 0, 0, rw, rh
+	if box then bl, bt, bw, bh = box.l, box.t, box.w, box.h end
+	if bw <= 0 or bh <= 0 then return end
+	if single and (r - l) < bw * 0.6 then
+		-- The box's own anchor point, and the region's, so the offset between them carries over.
+		local ax = (single.rp:find("LEFT") and bl) or (single.rp:find("RIGHT") and (bl + bw)) or (bl + bw / 2)
+		local ay = (single.rp:find("TOP") and -bt) or (single.rp:find("BOTTOM") and -(bt + bh)) or -(bt + bh / 2)
+		local px = (single.p:find("LEFT") and l) or (single.p:find("RIGHT") and r) or ((l + r) / 2)
+		local py = (single.p:find("TOP") and t) or (single.p:find("BOTTOM") and b) or ((t + b) / 2)
+		return { fixed = true, p = single.p, rp = single.rp, x = (px - ax) / bh, y = (py - ay) / bh, w = w / bh, h = h / bh }
 	end
-	return { l = -l / rh, r = (r - rw) / rh, t = t / rh, b = -(b + rh) / rh }
+	return { l = (bl - l) / bh, r = (r - (bl + bw)) / bh, t = (t + bt) / bh, b = (-(bt + bh) - b) / bh }
+end
+
+-- The icon's own rectangle inside the frame it hangs on, for use as that box.
+local function IconBox(iconTex, iconFrame)
+	local rw, rh = iconFrame:GetSize()
+	if not rw or rw <= 0 or not rh or rh <= 0 then return end
+	local l, r, t, b = RectOf(iconTex, iconFrame, rw, rh, nil)
+	if not l or (r - l) <= 0 or (t - b) <= 0 then return end
+	return { l = l, t = -t, w = r - l, h = t - b, region = iconTex }
 end
 
 local function ApplyGeometry(tex, geo, ref, H)
@@ -161,13 +197,13 @@ local function ApplyGeometry(tex, geo, ref, H)
 end
 
 -- Every visible texture on "frame" placed relative to "ref", except "skip".
-local function Collect(frame, ref, skip, into, under)
+local function Collect(frame, ref, skip, into, under, box)
 	if not frame or not frame.GetRegions then return end
 	for _, region in ipairs({ frame:GetRegions() }) do
 		if region ~= skip and IsA(region, "Texture") then
 			local d = DescribeTexture(region)
 			if d and not d.hidden then
-				local geo = Geometry(region, ref)
+				local geo = Geometry(region, ref, box)
 				if geo then
 					d.geo = geo
 					d.under = under or d.layer == "BACKGROUND" or d.layer == "BORDER"
@@ -244,17 +280,8 @@ local function SquareCoords(c)
 	return { cx - span, cx + span, cy - span, cy + span }
 end
 
--- Art collected against a frame that is not square cannot be redrawn around a square icon without
--- stretching, so the icon art the addon keeps must come from a square donor.
-local function SquareRef(frame)
-	if not frame or not frame.GetSize then return false end
-	local w, h = frame:GetSize()
-	if not w or not h or w <= 0 or h <= 0 then return false end
-	return abs(w - h) <= h * 0.1
-end
-
 Display.SquareCoords = SquareCoords
-Display.SquareRef = SquareRef
+Display.IconBox = IconBox
 
 local function SkinFromDonor(root, sourceName)
 	local bar = FindStatusBar(root, 0)
@@ -276,15 +303,10 @@ local function SkinFromDonor(root, sourceName)
 	if iconTex and iconFrame then
 		local ok, ulx, uly, llx, lly, urx = pcall(iconTex.GetTexCoord, iconTex)
 		if ok and ulx and urx and lly then s.iconCoords = SquareCoords({ ulx, urx, uly, lly }) end
-		-- On a bar donor the icon hangs on the whole bar item, which is wide: art measured against
-		-- it would be stretched around a square icon, so it is left alone.
-		if SquareRef(iconFrame) then
-			Collect(iconFrame, iconFrame, iconTex, s.iconDecor, false)
-			if iconFrame.GetChildren then
-				for _, child in ipairs({ iconFrame:GetChildren() }) do Collect(child, iconFrame, nil, s.iconDecor, false) end
-			end
-		else
-			s.iconRefWide = true
+		local box = IconBox(iconTex, iconFrame)
+		Collect(iconFrame, iconFrame, iconTex, s.iconDecor, false, box)
+		if iconFrame.GetChildren then
+			for _, child in ipairs({ iconFrame:GetChildren() }) do Collect(child, iconFrame, nil, s.iconDecor, false, box) end
 		end
 	end
 	return s
@@ -302,8 +324,10 @@ local function ViewerDonor(viewer)
 end
 
 local skin
--- The icon art to draw, whichever donor gave a square one.
-local function IconArt(s)
+-- The icon art to draw: a bar's icon keeps the art from the bar donor, a lone icon prefers the
+-- icon donor's, and either falls back to whichever was found.
+local function IconArt(s, bars)
+	if bars and s.iconDecor and #s.iconDecor > 0 then return s.iconDecor end
 	if s.soloIconDecor and #s.soloIconDecor > 0 then return s.soloIconDecor end
 	if s.iconDecor and #s.iconDecor > 0 then return s.iconDecor end
 	return {}
@@ -336,11 +360,12 @@ local function BuildSkin()
 	local iconDonor = ViewerDonor(EssentialCooldownViewer) or ViewerDonor(UtilityCooldownViewer) or ViewerDonor(BuffIconCooldownViewer)
 	if iconDonor then
 		local iconTex, iconFrame = FindIcon(iconDonor)
-		if iconTex and iconFrame and SquareRef(iconFrame) then
+		if iconTex and iconFrame then
 			s.soloIconDecor = {}
-			Collect(iconFrame, iconFrame, iconTex, s.soloIconDecor, false)
+			local box = IconBox(iconTex, iconFrame)
+			Collect(iconFrame, iconFrame, iconTex, s.soloIconDecor, false, box)
 			if iconFrame.GetChildren then
-				for _, child in ipairs({ iconFrame:GetChildren() }) do Collect(child, iconFrame, nil, s.soloIconDecor, false) end
+				for _, child in ipairs({ iconFrame:GetChildren() }) do Collect(child, iconFrame, nil, s.soloIconDecor, false, box) end
 			end
 			local ok, ulx, uly, llx, lly, urx = pcall(iconTex.GetTexCoord, iconTex)
 			if ok and ulx and urx and lly then s.soloIconCoords = SquareCoords({ ulx, urx, uly, lly }) end
@@ -362,9 +387,9 @@ local function BuildSkin()
 	-- Tinting: a file fill from the old art needs colour; copied art is already coloured.
 	if s.tint == nil then s.tint = false end
 	ns.report["bar skin"] = s.source .. (", " .. #s.decor .. " art pieces")
-	ns.report["icon skin"] = s.iconSource and (s.iconSource .. ", " .. #s.soloIconDecor .. " art pieces")
+	ns.report["icon skin"] = s.iconSource and (s.iconSource .. ", " .. #s.soloIconDecor .. " art pieces, "
+			.. #s.iconDecor .. " from the bar donor")
 		or (#s.iconDecor > 0 and ("from the bar donor, " .. #s.iconDecor .. " art pieces"))
-		or (s.iconRefWide and "none (the donor's icon hangs on a frame that is not square)")
 		or "none (default buff frame look)"
 	skin = s
 	return s
@@ -393,35 +418,6 @@ end
 
 -- Draws a list of copied art pieces on the under / over frames, relative to ref at height H.
 -- want(d) says whether a piece is wanted; pieces "under" the fill are background, the rest border.
--- The frame art has rounded corners; a plain square icon shows past them. Blizzard masks its own
--- icons with this atlas, which is what makes the art sit flush, so the addon uses it too. The mask
--- is only wanted while the frame art is drawn: a bare icon should keep its corners.
-local ICON_MASK = "UI-HUD-ActionBar-IconFrame-Mask"
-local function MaskIcon(owner, icon, on)
-	if not on then
-		if icon.alMask then
-			if icon.RemoveMaskTexture then pcall(icon.RemoveMaskTexture, icon, icon.alMask) end
-			pcall(icon.alMask.Hide, icon.alMask)
-			icon.alMask = nil
-		end
-		return
-	end
-	if icon.alMask then
-		icon.alMask:SetAllPoints(icon)
-		return
-	end
-	if not owner or not owner.CreateMaskTexture or not HasAtlas(ICON_MASK) then return end
-	local ok, mask = pcall(owner.CreateMaskTexture, owner)
-	if not ok or not mask or not mask.SetAtlas then return end
-	if not pcall(mask.SetAtlas, mask, ICON_MASK) then return end
-	mask:SetAllPoints(icon)
-	if not icon.AddMaskTexture or not pcall(icon.AddMaskTexture, icon, mask) then
-		pcall(mask.Hide, mask)
-		return
-	end
-	icon.alMask = mask
-end
-
 local function PlaceDecor(w, list, key, ref, H, want)
 	local pool = w[key]
 	for i, d in ipairs(list) do
@@ -567,7 +563,8 @@ local function CreateWidget(parent)
 end
 
 local function ConfigureWidget(w, g)
-	local key = g.style .. ":" .. g.size .. ":" .. g.barW .. ":" .. g.barH .. ":" .. tostring(g.border ~= false) .. tostring(g.background ~= false) .. tostring(g.iconFrame ~= false)
+	local key = g.style .. ":" .. g.size .. ":" .. g.barW .. ":" .. g.barH .. ":" .. tostring(g.barIconScale or 1)
+		.. ":" .. tostring(g.border ~= false) .. tostring(g.background ~= false) .. tostring(g.iconFrame ~= false)
 	local wantBar = function(d) if d.under then return g.background ~= false else return g.border ~= false end end
 	local wantIcon = function() return g.iconFrame ~= false end
 	if w.configured == key then return end
@@ -580,18 +577,20 @@ local function ConfigureWidget(w, g)
 	w.duration:ClearAllPoints()
 	if g.style == "bars" then
 		local H = g.barH
+		-- The icon keeps the middle of the bar's height whatever its scale, so a large one stands
+		-- proud of the bar top and bottom rather than pushing the bar down.
+		local IS = ns.BarIconSize(g)
 		w:SetSize(g.barW, H)
-		w.icon:SetPoint("TOPLEFT")
-		w.icon:SetSize(H, H)
+		w.icon:SetPoint("LEFT")
+		w.icon:SetSize(IS, IS)
 		local c = s.iconCoords or { 0.07, 0.93, 0.07, 0.93 }
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		w.bar:ClearAllPoints()
-		w.bar:SetPoint("TOPLEFT", w.icon, "TOPRIGHT", 2, 0)
+		w.bar:SetPoint("TOPLEFT", w, "TOPLEFT", IS + 2, 0)
 		w.bar:SetPoint("BOTTOMRIGHT")
 		w.bar:Show()
 		PlaceDecor(w, s.decor, "decor", w.bar, H, wantBar)
-		PlaceDecor(w, IconArt(s), "iconArt", w.icon, H, wantIcon)
-		MaskIcon(w, w.icon, g.iconFrame ~= false)
+		PlaceDecor(w, IconArt(s, true), "iconArt", w.icon, IS, wantIcon)
 		w.bar.bg:SetAlpha(g.background ~= false and 1 or 0)
 		if w.edge then
 			local edgeSize = max(8, min(16, floor(H * 0.6)))
@@ -616,7 +615,7 @@ local function ConfigureWidget(w, g)
 		w.name:Show()
 		w.duration:Show()
 		w.time:Hide()
-		w.count:SetFont(FONT, max(7, floor(H * 0.45)), "OUTLINE")
+		w.count:SetFont(FONT, max(7, floor(IS * 0.45)), "OUTLINE")
 		w.count:SetPoint("BOTTOMRIGHT", w.icon, "BOTTOMRIGHT", -1, 1)
 	else
 		local S = g.size
@@ -627,8 +626,7 @@ local function ConfigureWidget(w, g)
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		w.bar:Hide()
 		PlaceDecor(w, {}, "decor", w.bar, S)
-		PlaceDecor(w, IconArt(s), "iconArt", w.icon, S, wantIcon)
-		MaskIcon(w, w.icon, g.iconFrame ~= false)
+		PlaceDecor(w, IconArt(s, false), "iconArt", w.icon, S, wantIcon)
 		if w.edge then w.edge:Hide() end
 		w.name:Hide()
 		w.duration:Hide()
@@ -826,14 +824,15 @@ local function InitSlotFrame(g, mode, filter, store)
 		local bars = g.style == "bars"
 		local W, H = bars and g.barW or g.size, bars and g.barH or g.size
 		pcall(button.SetSize, button, W, H)
+		local IS = bars and ns.BarIconSize(g) or H
 		local icon = button:CreateTexture(nil, "ARTWORK")
 		local c = (bars and s.iconCoords) or s.soloIconCoords or s.iconCoords or { 0.07, 0.93, 0.07, 0.93 }
 		icon:SetTexCoord(c[1], c[2], c[3], c[4])
-		icon:SetSize(H, H)
-		if bars then icon:SetPoint("TOPLEFT") else icon:SetPoint("CENTER") end
+		icon:SetSize(IS, IS)
+		if bars then icon:SetPoint("LEFT") else icon:SetPoint("CENTER") end
 		pcall(button.SetIcon, button, icon)
 		local count = button:CreateFontString(nil, "OVERLAY")
-		count:SetFont(FONT, max(7, floor(H * (bars and 0.45 or 0.3))), "OUTLINE")
+		count:SetFont(FONT, max(7, floor(IS * (bars and 0.45 or 0.3))), "OUTLINE")
 		count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -1, 1)
 		pcall(button.SetApplicationCount, button, count)
 		local border = button:CreateTexture(nil, "OVERLAY")
@@ -844,7 +843,7 @@ local function InitSlotFrame(g, mode, filter, store)
 		pcall(button.AddDispelTypeTexture, button, border)
 		if bars then
 			local bar = CreateFrame("StatusBar", nil, button)
-			bar:SetPoint("TOPLEFT", icon, "TOPRIGHT", 2, 0)
+			bar:SetPoint("TOPLEFT", button, "TOPLEFT", IS + 2, 0)
 			bar:SetPoint("BOTTOMRIGHT")
 			bar:SetFrameLevel(button:GetFrameLevel() + 1)
 			-- The fill is a strip inside a sheet: the bar's texture needs the atlas (or the crop), not the sheet.
@@ -868,10 +867,7 @@ local function InitSlotFrame(g, mode, filter, store)
 			if not pcall(button.SetDurationBar, button, bar, dir ~= nil and { direction = dir } or nil) then pcall(button.SetDurationBar, button, bar) end
 			local w = { under = button, over = button, decor = {}, iconArt = {} }
 			PlaceDecor(w, s.decor, "decor", bar, H, function(dd) if dd.under then return g.background ~= false else return g.border ~= false end end)
-			if g.iconFrame ~= false then
-				PlaceDecor(w, IconArt(s), "iconArt", icon, H)
-				MaskIcon(button, icon, true)
-			end
+			if g.iconFrame ~= false then PlaceDecor(w, IconArt(s, true), "iconArt", icon, IS) end
 			local px = max(8, min(14, floor(H * 0.52)))
 			local textHolder = CreateFrame("Frame", nil, button)
 			textHolder:SetAllPoints(bar)
@@ -885,7 +881,7 @@ local function InitSlotFrame(g, mode, filter, store)
 			local name = textHolder:CreateFontString(nil, "OVERLAY")
 			ApplyFont(name, s.nameFont, H, px)
 			name:SetPoint("LEFT", bar, "LEFT", 4, 0)
-			name:SetWidth(max(10, W - H - 2 - 8 - 44))
+			name:SetWidth(max(10, W - IS - 2 - 8 - 44))
 			name:SetJustifyH("LEFT")
 			name:SetWordWrap(false)
 			if g.names ~= false then pcall(button.SetSpellName, button, name) end
@@ -905,8 +901,7 @@ local function InitSlotFrame(g, mode, filter, store)
 			end
 			if g.iconFrame ~= false then
 				local w = { under = button, over = button, decor = {}, iconArt = {} }
-				PlaceDecor(w, IconArt(s), "iconArt", icon, H)
-				MaskIcon(button, icon, true)
+				PlaceDecor(w, IconArt(s, false), "iconArt", icon, H)
 			end
 		end
 		pcall(button.SetMouseMotionEnabled, button, true)

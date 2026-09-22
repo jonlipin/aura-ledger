@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.39.3"
+ns.VERSION = "1.41.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -334,7 +334,16 @@ function ns.NewTracker(h)
 end
 
 -- The look of a group, copied when a tracker is pulled out into a group of its own.
-ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "gameDrawn" }
+ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "barIconScale", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "gameDrawn" }
+
+-- How big the icon on a bar is: the bar's own height by default, and anything from half that to
+-- twice it. Kept here so the addon's bars and the slots the game fills agree on the answer.
+function ns.BarIconSize(g)
+	local h = g.barH or 22
+	local scale = tonumber(g.barIconScale) or 1
+	if scale < 0.5 then scale = 0.5 elseif scale > 2 then scale = 2 end
+	return math.max(8, math.floor(h * scale + 0.5))
+end
 
 -- What a game-drawn group can show: Blizzard's aura filters for the player.
 function ns.NewGroupLike(g, x, y)

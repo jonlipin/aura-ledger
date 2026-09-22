@@ -1496,6 +1496,10 @@ local function BuildGroupPanel(width)
 	b:AppliesWhen(IsBars)
 	b:Slider("Bar height", { min = 12, max = 48, step = 1, get = Num("barH", 22), set = SetNum("barH") })
 	b:AppliesWhen(IsBars)
+	b:Slider("Icon scale", { min = 0.5, max = 2, step = 0.05, get = Num("barIconScale", 1), set = SetNum("barIconScale"),
+		format = function(v) return ("%d%%"):format(floor(v * 100 + 0.5)) end },
+		"How big the icon beside the bar is, against the bar's own height. Above 100% it stands proud of the bar, above and below.")
+	b:AppliesWhen(IsBars)
 	b:Slider("Spacing", { min = 0, max = 30, step = 1, get = Num("spacing", 4), set = SetNum("spacing") })
 	b:Slider("Trackers per row before wrapping", { min = 1, max = 40, step = 1, get = Num("perRow", 8), set = SetNum("perRow") })
 	b:Slider("Scale", { min = 0.5, max = 2.5, step = 0.05, get = Num("scale", 1), set = SetNum("scale"),
