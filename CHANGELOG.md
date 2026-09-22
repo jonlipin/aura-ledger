@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.41.6
+
+- Turning the icon mask off now does something. A tracker only dresses itself again when the look it was dressed for changes, and the mask was not counted as part of that look, so the switch was thrown and nothing was redrawn. It counts now, and turning the mask off also takes the masks off the icons already on screen instead of waiting for them to be drawn again.
+
 ## 1.41.5
 
 - The icon mask can be nudged: /auraledger iconmask <out> <up>. The rounded shape does not sit in the middle of its own art on this client, so drawn centred on an icon it comes out rounded at the top and square at the bottom, where the game's own spellbook is rounded all round. The two numbers are how far past the icon the mask is drawn and how far up the shape is moved against it, both as a share of the icon's size. Trackers change as you type; the book follows after a reload. /auraledger debug icon reports the mask art's size and both numbers.

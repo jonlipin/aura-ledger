@@ -632,6 +632,7 @@ end
 local function ConfigureWidget(w, g)
 	local key = g.style .. ":" .. g.size .. ":" .. g.barW .. ":" .. g.barH .. ":" .. tostring(g.barIconScale or 1)
 		.. ":" .. tostring(g.border ~= false) .. tostring(g.background ~= false) .. tostring(g.iconFrame ~= false)
+		.. ":" .. tostring(ns.MASK_EPOCH)
 	local wantBar = function(d) if d.under then return g.background ~= false else return g.border ~= false end end
 	local wantIcon = function() return g.iconFrame ~= false end
 	if w.configured == key then return end

@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.41.5"
+ns.VERSION = "1.41.6"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1964,6 +1964,8 @@ ns.ICON_MASK = "UI-HUD-ActionBar-IconFrame-Mask"
 -- size. The shape fills about two thirds of the region, hence the first; it does not sit in the
 -- middle of it on this client, hence the second. /auraledger iconmask sets them.
 ns.MASK_OVER, ns.MASK_SHIFT = 0.26, 0
+-- Bumped whenever the mask changes, so every widget knows to dress itself again.
+ns.MASK_EPOCH = 0
 
 -- "size" is what the icon will be, which the caller knows: read off the texture instead, it can
 -- still be nothing at all, and a mask drawn to nothing sits on the icon and hides all but its
@@ -1981,6 +1983,21 @@ local function PointMask(m, tex, size)
 	m:SetPoint("TOPLEFT", tex, "TOPLEFT", -over * w, over * h + shift)
 	m:SetPoint("BOTTOMRIGHT", tex, "BOTTOMRIGHT", over * w, -over * h + shift)
 	m.alSize = size
+end
+
+-- Takes every mask off the icon it was clipping, for icons already on screen.
+function ns.ClearAllMasks()
+	local n = 0
+	for tex, m in pairs(masks) do
+		if tex.alMask == m then
+			if tex.RemoveMaskTexture then pcall(tex.RemoveMaskTexture, tex, m) end
+			pcall(m.Hide, m)
+			tex.alMask = nil
+			n = n + 1
+		end
+		masks[tex] = nil
+	end
+	return n
 end
 
 -- Puts every mask back where the current numbers say, for tuning them in game.
@@ -2322,9 +2339,11 @@ SlashCmdList.AURALEDGER = function(msg)
 		local word = strlower(rest or "")
 		if word == "off" or word == "on" then
 			ns.db.maskOff = (word == "off") or nil
-			Print("Icon mask: " .. (ns.db.maskOff and "off, icons keep their own corners" or "on")
-				.. ". Trackers follow at once" .. (ns.db.maskOff and "" or " once they are drawn again") .. "; the window follows after a /reload.")
+			ns.MASK_EPOCH = ns.MASK_EPOCH + 1
+			local off = ns.db.maskOff and ns.ClearAllMasks() or 0
 			if ns.Display then ns.Display:Rebuild() end
+			Print("Icon mask: " .. (ns.db.maskOff and ("off, icons keep their own corners; " .. off .. " taken off what is on screen") or "on")
+				.. ". The window follows after a /reload.")
 			return
 		end
 		local a, b = rest:match("^(%S*)%s*(%S*)$")
@@ -2334,6 +2353,7 @@ SlashCmdList.AURALEDGER = function(msg)
 		if over or shift then
 			ns.MASK_OVER = tonumber(ns.db.maskOver) or 0.26
 			ns.MASK_SHIFT = tonumber(ns.db.maskShift) or 0
+			ns.MASK_EPOCH = ns.MASK_EPOCH + 1
 			local n = ns.RepointMasks()
 			Print(("Icon mask: out %.3f, up %.3f. %d mask%s moved; the book follows after a /reload."):format(
 				ns.MASK_OVER, ns.MASK_SHIFT, n, n == 1 and "" or "s"))
