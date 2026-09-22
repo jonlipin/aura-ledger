@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.30.0
+
+- Trackers in a group the game draws now borrow the Cooldown Manager's own frame for that spell. The manager reads auras during a fight because it is the game's code, so the frame stays right, and whether the manager is showing it is the present or absent signal the client will not give an addon any other way. That means "show it when missing" works in combat again for any spell the manager knows.
+- The manager's layout is kept in step with your trackers by itself, out of combat, and is handed back when no group asks for it any more. Frames the addon did not ask for are parked out of sight, so the Cooldown Manager no longer draws rows of its own while the addon is using it.
+- A tracker the manager has no entry for, such as a spell your character has not learned, falls back to the addon's own drawing as before.
+
 ## 1.29.1
 
 - Fixed the spell to cooldown lookup. The Cooldown Manager files every rank of a spell separately and only builds a frame for one the character actually knows, so the addon was asking it to draw Demon Skin rank 1, which this character does not know, and the manager quietly drew nothing. A cooldown the character knows now always wins, a cooldown that stands for another spell is read under that spell, and ranks collapse to the base spell. /auraledger debug cdmapply says for each tracker whether the entry it found is one the character knows.

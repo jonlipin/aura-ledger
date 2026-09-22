@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.29.1"
+ns.VERSION = "1.30.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -1687,6 +1687,26 @@ function ns.CDM.Apply(bars)
 	return true
 end
 
+-- Puts the manager in step with the trackers that asked the game to draw them, and hands it back
+-- when none do. The signature stops it rewriting a layout that has not changed.
+function ns.CDM.Sync()
+	if not ns.CDM.Available() then return false end
+	if InCombatLockdown and InCombatLockdown() then return false end
+	local icons, bars = ns.CDM.Wanted()
+	local sig = table.concat(icons, ",") .. "|" .. table.concat(bars, ",")
+	if sig == "|" then
+		if ns.db.cdmSig then
+			ns.CDM.Restore()
+			ns.db.cdmSig = nil
+		end
+		return false
+	end
+	if ns.db.cdmSig == sig and ns.db.cdmLayout then return true end
+	local ok = ns.CDM.Apply(bars)
+	ns.db.cdmSig = ok and sig or nil
+	return ok
+end
+
 -- Reads the layout back and says what is actually in it, which category each cooldown belongs to,
 -- and what the enum values are. A write that lands somewhere unexpected shows up here.
 function ns.CDM.Verify(emit, icons, bars)
@@ -1994,6 +2014,11 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 				if ns.ResolveAllBookItems then ns.ResolveAllBookItems() end
 			end)
 			-- The Cooldown Manager builds its frames after login, so this waits a little longer.
+			C_Timer.After(6, function()
+				if ns.CDM and ns.CDM.Sync and ns.CDM.Sync() and ns.Display and ns.Display.CDMChanged then
+					ns.Display:CDMChanged()
+				end
+			end)
 			C_Timer.After(5, function()
 				if ns.db.cdmProbe == ns.VERSION or not ns.ProbeCDM then return end
 				ns.db.cdmProbe = ns.VERSION
