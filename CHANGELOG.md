@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.14.0
+
+- The aura reader now asks the client for every aura index even while it is marked secret, the way GODMODE_GTFO does on this client. The answer is a table whose fields are hidden, but the table itself and its aura instance id are not, so in combat the addon can see which aura instances are on you. A carried buff whose instance disappears is dropped at once (clicking it off, a dispel, or it running out), a spell you cast binds to the instance that appears, and instances nothing claims are kept as "Unknown buff" / "Unknown debuff" entries.
+- /auraledger probe now prints the raw index reads with each field marked plain or secret, and /auraledger debug has a "secret index reads" line.
+
 ## 1.13.0
 
 - In combat, Blizzard's Cooldown Manager buff viewers are now read as the present/absent signal. The Cooldown Manager shows an item only while that tracked buff is on you, and neither the item's shown state nor the spell behind it is hidden in combat. A shown item keeps or creates the aura (timer from the ledger), a hidden item drops it, so clicking a buff off or having it dispelled mid-fight now reaches your trackers, for every buff the Cooldown Manager tracks (Demon Skin, Demon Armor, Shadow Ward and the rest of its list). An item that answers as hidden data changes nothing.

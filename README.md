@@ -55,6 +55,7 @@ This client hides aura details from addons while addon restrictions are active (
 
 - whatever it knew going in keeps counting down on its own timer
 - removals still arrive and are applied straight away
+- secret aura indices are still read: their instance ids are plain, so a carried aura whose instance vanishes is dropped and your casts bind to the instance that appears
 - the Cooldown Manager's buff viewers are watched: an item shown there means that buff is on you, a hidden one means it is gone
 - your own successful casts are watched: casting a spell the ledger knows as an aura creates or refreshes an estimated aura (a buff on you, a debuff on your target) with the remembered duration
 - the icons on the default buff and debuff frames are watched while they stay readable: a carried buff whose icon vanishes is dropped, and an icon that appears is recognised from your trackers, the ledger or the book

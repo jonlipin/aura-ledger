@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.13.0"
+ns.VERSION = "1.14.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -522,14 +522,29 @@ local function MakeEntry(a, kind, key, unit)
 	}
 end
 
--- Reads one filter on one unit into "out". Returns how many auras could not be read.
-local function ReadFilter(unit, filter, kind, out)
+local shadowStats = { reads = 0, tables = 0, instances = 0, errors = 0, removed = 0, bound = 0, unknown = 0 }
+ns.shadowStats = shadowStats
+
+-- Reads one filter on one unit into "out". Returns how many auras could not be read. Secret
+-- indices are still asked for: the client hands back a table with secret fields, and what is
+-- plain in it (the instance id, so far) goes into "shadow".
+local function ReadFilter(unit, filter, kind, out, shadow)
 	local unreadable, secretRun = 0, 0
 	if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
 		for i = 1, MAX_INDEX do
 			if IndexSecret(unit, i, filter) then
 				unreadable = unreadable + 1
 				secretRun = secretRun + 1
+				local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, filter)
+				if ok and a == nil then break end
+				if ok and type(a) == "table" and not (issecretvalue and issecretvalue(a)) then
+					shadowStats.tables = shadowStats.tables + 1
+					local inst = Clean(a.auraInstanceID)
+					if type(inst) == "number" then shadowStats.instances = shadowStats.instances + 1 end
+					if shadow then shadow[#shadow + 1] = { inst = type(inst) == "number" and inst or nil, raw = a, kind = kind, index = i } end
+				elseif not ok then
+					shadowStats.errors = shadowStats.errors + 1
+				end
 				if secretRun > 40 then break end
 			else
 				local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, filter)
@@ -618,15 +633,68 @@ local firstScan = true
 
 -- One unit's scan: read what can be read, carry the rest forward. Returns the new table and whether
 -- anything was unreadable.
+-- What the secret indices still tell us: which instance ids are on the unit right now.
+local function ApplyShadow(unit, fresh, shadow, now)
+	local present, any = {}, false
+	for _, sh in ipairs(shadow) do
+		if sh.inst then present[sh.inst] = sh any = true end
+	end
+	if not any then return end
+	shadowStats.reads = shadowStats.reads + 1
+	local claimed = {}
+	-- Carried entries: still there, or gone.
+	for key, e in pairs(fresh) do
+		if e.inst then
+			if present[e.inst] then
+				claimed[e.inst] = true
+				e.probed = true -- confirmed by instance; the frame icons get no say
+			elseif e.stale or e.estimated then
+				fresh[key] = nil
+				shadowStats.removed = shadowStats.removed + 1
+			end
+		end
+	end
+	-- Your recent casts: bind each to the newest unclaimed instance of its kind.
+	local synths = {}
+	for _, e in pairs(fresh) do
+		if e.synth and not e.inst and not e.unknown and e.createdAt and now - e.createdAt < 3 then synths[#synths + 1] = e end
+	end
+	table.sort(synths, function(a, b) return a.createdAt > b.createdAt end)
+	for _, e in ipairs(synths) do
+		local best
+		for inst, sh in pairs(present) do
+			if not claimed[inst] and sh.kind == e.kind and (not best or inst > best) then best = inst end
+		end
+		if best then
+			e.inst = best
+			claimed[best] = true
+			shadowStats.bound = shadowStats.bound + 1
+		end
+	end
+	-- Instances nobody knows: kept as unknown entries so the count is right and a later cast can
+	-- still bind to them; their icon is secret but can be handed straight to a texture.
+	for inst, sh in pairs(present) do
+		if not claimed[inst] then
+			local key = "u:" .. unit .. ":" .. tostring(inst)
+			if not fresh[key] then
+				fresh[key] = { key = key, inst = inst, name = sh.kind == "buff" and "Unknown buff" or "Unknown debuff", icon = ns.QUESTION,
+					secretIcon = sh.raw.icon, count = 0, duration = 0, expires = 0, kind = sh.kind, unit = unit,
+					synth = true, estimated = true, stale = true, probed = true, unknown = true }
+				shadowStats.unknown = shadowStats.unknown + 1
+			end
+		end
+	end
+end
+
 local function ScanUnit(unit, old, quiet)
 	local now = GetTime()
-	local fresh, unreadable = {}, 0
+	local fresh, unreadable, shadow = {}, 0, {}
 	local stats = ns.stats
 	if AurasSecret() and not (C_Secrets and C_Secrets.ShouldUnitAuraIndexBeSecret) then
 		unreadable = 1
 		stats.blocked = stats.blocked + 1
 	else
-		unreadable = ReadFilter(unit, "HELPFUL", "buff", fresh) + ReadFilter(unit, "HARMFUL", "debuff", fresh)
+		unreadable = ReadFilter(unit, "HELPFUL", "buff", fresh, shadow) + ReadFilter(unit, "HARMFUL", "debuff", fresh, shadow)
 		if unreadable > 0 then stats.partial = stats.partial + 1 end
 	end
 	local historyChanged = false
@@ -649,6 +717,7 @@ local function ScanUnit(unit, old, quiet)
 				end
 			end
 		end
+		ApplyShadow(unit, fresh, shadow, now)
 	end
 	return fresh, unreadable > 0, historyChanged
 end
@@ -960,11 +1029,12 @@ local function HandleCast(unit, spellId)
 			if existing then
 				if duration > 0 then existing.duration, existing.expires = duration, now + duration end
 				existing.estimated, existing.stale, existing.probed = true, true, true
+				existing.synth, existing.inst, existing.createdAt = true, nil, now -- rebinds to the recast's instance
 			else
 				local key = "c:" .. unitTo .. ":" .. lname
 				auras[key] = { key = key, name = h.name or name, id = spellId, icon = h.icon, count = 0, duration = duration,
 					expires = duration > 0 and (now + duration) or 0, kind = kind, unit = unitTo, mine = true,
-					synth = true, estimated = true, stale = true, probed = true }
+					synth = true, estimated = true, stale = true, probed = true, createdAt = now }
 			end
 			used = true
 		end
@@ -1554,6 +1624,9 @@ local function Debug()
 	if #fi.sample > 0 then Print("    frame icons seen: " .. table.concat(fi.sample, "; ")) end
 	Print(("  your casts: %d seen, %d turned into auras while restricted (spell cast events %s)"):format(
 		s.casts, s.castsUsed, registered.UNIT_SPELLCAST_SUCCEEDED and "registered" or "not registered"))
+	local sh = ns.shadowStats
+	Print(("  secret index reads: scans %d, tables %d (plain instance %d, errors %d), removed by instance %d, casts bound %d, unknown auras %d"):format(
+		sh.reads, sh.tables, sh.instances, sh.errors, sh.removed, sh.bound, sh.unknown))
 	local vs = ns.viewerStats
 	Print(("  Cooldown Manager buff viewers while restricted: reads %d, items %d (plain %d, secret %d), buffs seen present %d, seen gone %d"):format(
 		vs.reads, vs.items, vs.plain, vs.secret, vs.present, vs.absent))
@@ -1700,6 +1773,27 @@ SlashCmdList.AURALEDGER = function(msg)
 			end
 		end
 		if n == 0 then Print("  no trackers") end
+		Print("raw index reads on you (GetAuraDuration " .. YesNo(C_UnitAuras and C_UnitAuras.GetAuraDuration) .. "):")
+		local function D(v) if issecretvalue and issecretvalue(v) then return "secret" end return tostring(v) end
+		for _, filter in ipairs({ "HELPFUL", "HARMFUL" }) do
+			local shownLines = 0
+			for i = 1, 40 do
+				local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, filter)
+				if ok and a == nil then break end
+				if shownLines < 8 then
+					if not ok then
+						Print(("  %s %d: error %s"):format(filter, i, tostring(a)))
+					elseif issecretvalue and issecretvalue(a) then
+						Print(("  %s %d: whole table secret"):format(filter, i))
+					else
+						Print(("  %s %d: name %s, id %s, icon %s, instance %s, duration %s, expires %s, stacks %s, harmful %s, source %s, fromMe %s"):format(
+							filter, i, D(a.name), D(a.spellId), D(a.icon), D(a.auraInstanceID), D(a.duration), D(a.expirationTime), D(a.applications), D(a.isHarmful), D(a.sourceUnit), D(a.isFromPlayerOrPlayerPet)))
+					end
+					shownLines = shownLines + 1
+				end
+				if not ok and i > 3 then break end
+			end
+		end
 	elseif cmd == "debug" then
 		Debug()
 	else
