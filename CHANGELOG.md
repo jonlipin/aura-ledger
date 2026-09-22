@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.42.3
+
+- Spell icons are trimmed again everywhere. A spell icon has a dark border baked into its outer edge, which is why every frame in the game cuts one off, and 1.42.0 kept the whole picture wherever the addon was masking: a mask rounds the corners of what it is given, border and all, so that border was on show underneath the addon's own frame.
+- An icon scaled up on a bar has room to be scaled. The row stayed the bar's height however large the icon was, so the icon was cut off and no longer lined up with its bar. A row is now as tall as the taller of the two, and the bar keeps its own height in the middle of it, so the two stay on each other's line at any scale.
+
 ## 1.42.1
 
 - /auraledger debug icon lists what is actually drawn on a tracker: the picture, the client's frame, any copied art, the dispel border and the mask, each with the art it wears, the size it is drawn at, how it is cropped and where its corners are pinned. Which layer shapes an icon has been inferred from screenshots several times over; this reads it off the frame instead.

@@ -282,10 +282,11 @@ end
 -- art inside a square icon stretched, so the tighter of the two is used on both.
 local TRIM = { 0.07, 0.93, 0.07, 0.93 }
 
--- The crop to draw an icon with. A donor that leans on a mask reports the whole picture, border and
--- all: taken at face value the icon's own baked border is drawn as well as ours.
-local function IconCrop(c, masked)
-	if masked then return c or { 0, 1, 0, 1 } end
+-- The crop to draw an icon with. A spell icon has a dark border baked into its outer edge, which is
+-- why every frame in the game trims one, and a mask does not take it off: it rounds the corners of
+-- whatever it is given, border and all. A donor that leans on a mask reports the whole picture, so
+-- that answer is not worth keeping.
+local function IconCrop(c)
 	if not c then return TRIM end
 	if c[1] <= 0.001 and c[2] >= 0.999 and c[3] <= 0.001 and c[4] >= 0.999 then return TRIM end
 	return c
@@ -744,14 +745,17 @@ local function ConfigureWidget(w, g)
 		-- is told the size it clips, because the icon has not been given one yet.
 		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false, IS)
 		local inset = (masked or ClientIconFrame()) and 0 or IconInset(s, true, IS, g.iconFrame ~= false)
-		w:SetSize(g.barW, H)
+		-- The widget is as tall as the taller of the two, and both the icon and the bar hold its
+		-- middle, so scaling the icon moves neither off the other's line.
+		local WH = max(H, IS)
+		w:SetSize(g.barW, WH)
 		w.icon:SetSize(IS - inset * 2, IS - inset * 2)
 		w.icon:SetPoint("LEFT", w, "LEFT", inset, 0)
-		local c = IconCrop(s.iconCoords, masked)
+		local c = IconCrop(s.iconCoords)
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		w.bar:ClearAllPoints()
-		w.bar:SetPoint("TOPLEFT", w, "TOPLEFT", IS + 2, 0)
-		w.bar:SetPoint("BOTTOMRIGHT")
+		w.bar:SetSize(max(8, g.barW - IS - 2), H)
+		w.bar:SetPoint("LEFT", w, "LEFT", IS + 2, 0)
 		w.bar:Show()
 		PlaceDecor(w, s.decor, "decor", w.bar, H, wantBar)
 		if PlaceClientFrame(w, w.icon, IS, g.iconFrame ~= false) then
@@ -792,7 +796,7 @@ local function ConfigureWidget(w, g)
 		w:SetSize(S, S)
 		w.icon:SetSize(S - inset * 2, S - inset * 2)
 		w.icon:SetPoint("CENTER")
-		local c = IconCrop(s.soloIconCoords or s.iconCoords, masked)
+		local c = IconCrop(s.soloIconCoords or s.iconCoords)
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		w.bar:Hide()
 		PlaceDecor(w, {}, "decor", w.bar, S)
@@ -1000,7 +1004,7 @@ local function InitSlotFrame(g, mode, filter, store)
 		pcall(button.SetSize, button, W, H)
 		local IS = bars and ns.BarIconSize(g) or H
 		local icon = button:CreateTexture(nil, "ARTWORK")
-		local c = IconCrop((bars and s.iconCoords) or s.soloIconCoords or s.iconCoords, masked)
+		local c = IconCrop((bars and s.iconCoords) or s.soloIconCoords or s.iconCoords)
 		icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		local masked = g.iconFrame ~= false and ns.SetIconMask(button, icon, true, IS)
 		local inset = (masked or ClientIconFrame()) and 0 or IconInset(s, bars, IS, g.iconFrame ~= false)
@@ -1322,7 +1326,8 @@ end
 local function LayoutGroup(f, g, visible, unlocked)
 	local n = #visible
 	local w, h
-	if g.style == "bars" then w, h = g.barW, g.barH else w, h = g.size, g.size end
+	-- An icon scaled past the bar's height needs the room, or it is cut off by the row above.
+	if g.style == "bars" then w, h = g.barW, max(g.barH, ns.BarIconSize(g)) else w, h = g.size, g.size end
 	local perRow = max(1, g.perRow or 8)
 	local stepX, stepY = w + g.spacing, h + g.spacing
 	local grow = g.grow or "RIGHT"
