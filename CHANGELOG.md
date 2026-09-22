@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.8
+
+- Tabs sit closer together, at the spellbook's spacing.
+
 ## 1.9.7
 
 - Tab icons are square and fill the tab's height, as in the spellbook, instead of being cropped short.
