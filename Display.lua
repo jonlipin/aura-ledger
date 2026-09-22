@@ -465,34 +465,35 @@ local function ApplyRect(tex, ref, rect, size)
 end
 
 -- The manager's own mask, on our icon. Returns whether it could.
-local function ShapeMask(w, icon, size, want)
+local function ShapeMask(w, icon, size, want, key)
+	key = key or "shapeMasks"
 	local s = skin
 	local shape = s and s.shape
 	if not want or not shape or #shape.masks == 0 or not icon.AddMaskTexture then
-		for _, m in ipairs(w.shapeMasks or {}) do
+		for _, m in ipairs(w[key] or {}) do
 			if icon.RemoveMaskTexture then pcall(icon.RemoveMaskTexture, icon, m) end
 			pcall(m.Hide, m)
 		end
-		w.shapeMasks = nil
+		w[key] = nil
 		return false
 	end
-	if not w.shapeMasks then
-		w.shapeMasks = {}
+	if not w[key] then
+		w[key] = {}
 		for i, def in ipairs(shape.masks) do
 			local ok, m = pcall(function() return (w.over or w):CreateMaskTexture() end)
 			if ok and m then
 				if def.art.atlas then pcall(m.SetAtlas, m, def.art.atlas)
 				else pcall(m.SetTexture, m, def.art.file) end
-				if pcall(icon.AddMaskTexture, icon, m) then w.shapeMasks[#w.shapeMasks + 1] = m
+				if pcall(icon.AddMaskTexture, icon, m) then w[key][#w[key] + 1] = m
 				else pcall(m.Hide, m) end
 			end
 		end
 	end
-	for i, m in ipairs(w.shapeMasks) do
+	for i, m in ipairs(w[key]) do
 		local def = shape.masks[i]
 		if def then ApplyRect(m, icon, def.rect, size) end
 	end
-	return #w.shapeMasks > 0
+	return #w[key] > 0
 end
 
 -- The manager's border art, which carries the state colour: white while the aura is there, red
@@ -1475,10 +1476,13 @@ local function InitSlotFrame(g, mode, filter, store)
 		pcall(button.SetMouseMotionEnabled, button, true)
 		pcall(button.SetTooltipAnchorPoint, button, "ANCHOR_RIGHT")
 		pcall(button.SetHideTooltipInCombat, button, false)
-		-- Opaque backing, created last so a failed setup never leaves a bare black box.
+		-- Opaque backing, created last so a failed setup never leaves a bare black box. It sits
+		-- behind the icon and takes the icon's shape, or it is the square that shows round it.
 		local back = button:CreateTexture(nil, "BACKGROUND", nil, -8)
-		back:SetAllPoints(button)
+		back:SetAllPoints(icon)
 		back:SetColorTexture(0, 0, 0, 1)
+		ShapeMask(w, back, IW, g.iconFrame ~= false, "backMasks")
+		button.alBack = back
 		end)
 		if not ok then
 			ns.report["game-drawn trackers"] = "slot setup failed: " .. tostring(err)

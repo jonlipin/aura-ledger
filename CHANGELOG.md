@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.45.3
+
+- The square behind a tracker the game draws is gone. Each slot carries an opaque black backing so that a setup which fails part way never leaves a bare box on screen, and that backing covered the whole slot while the icon on top of it had been pulled in and rounded off. It follows the icon now and wears the same mask, so the slot is the shape of its icon and nothing square shows round it.
+
 ## 1.45.2
 
 - The icon in a slot the game fills matches the cell underneath it. It was being left at full size with square corners while the cell was pulled in and rounded off, so it stood proud of its cell and the cell's corners showed round the outside of it. The slot's icon is pulled in by the same amount and wears the same mask, so a tracker the game draws is the same size and shape as one the addon draws.
