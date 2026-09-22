@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.17.0"
+ns.VERSION = "1.17.1"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -308,7 +308,7 @@ function ns.NewTracker(h)
 end
 
 -- The look of a group, copied when a tracker is pulled out into a group of its own.
-ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "watch", "live" }
+ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "watch", "live", "liveOnlyMine" }
 
 -- What a game-drawn group can show: Blizzard's aura filters for the player.
 ns.LIVE_FILTERS = {
@@ -2099,6 +2099,48 @@ SlashCmdList.AURALEDGER = function(msg)
 		end
 		Print("playing each file sound in turn (1.5 s apart); say which ones you heard:")
 		step()
+	elseif cmd == "mixin" then
+		local function funcs(t, label)
+			local names = {}
+			local ok = pcall(function() for k, v in pairs(t) do if type(v) == "function" then names[#names + 1] = tostring(k) end end end)
+			table.sort(names)
+			Print(("  %s (%d): %s"):format(label, #names, ok and table.concat(names, ", ") or "pairs refused"))
+		end
+		local function keys(t, label)
+			local names = {}
+			local ok = pcall(function() for k, v in pairs(t) do if type(v) ~= "function" then names[#names + 1] = tostring(k) .. "=" .. (type(v) == "table" and "{}" or type(v)) end end end)
+			table.sort(names)
+			Print(("  %s keys (%d): %s"):format(label, #names, ok and table.concat(names, ", ") or "pairs refused"))
+		end
+		Print("AuraContainer mixins:")
+		local ok, c = pcall(CreateFrame, "AuraContainer", nil, UIParent, "CustomAuraContainerTemplate")
+		if ok and c then
+			funcs(c, "container functions")
+			keys(c, "container")
+			local got
+			pcall(c.AddAuraGroup, c, "al_mixin", "HELPFUL", { maxFrameCount = 1, initializeFrame = function(b) got = b end })
+			keys(c, "container after AddAuraGroup")
+			if got then funcs(got, "button functions") keys(got, "button") end
+			c:Hide()
+		else
+			Print("  cannot create: " .. tostring(c))
+		end
+		if EnumerateFrames then
+			local n = 0
+			local f = EnumerateFrames()
+			while f and n < 12 do
+				local okT, t = pcall(f.GetObjectType, f)
+				if okT and t == "AuraContainer" then
+					n = n + 1
+					local okN, name = pcall(f.GetName, f)
+					local okP, parent = pcall(function() return f:GetParent() and f:GetParent():GetName() end)
+					Print(("  game container %d: %s (parent %s)"):format(n, okN and tostring(name) or "?", okP and tostring(parent) or "?"))
+					keys(f, "   ")
+				end
+				f = EnumerateFrames(f)
+			end
+			if n == 0 then Print("  no AuraContainer frames found on screen") end
+		end
 	elseif cmd == "container" then
 		ns.ProbeContainer()
 	elseif cmd == "probe" then

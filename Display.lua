@@ -685,7 +685,9 @@ end
 local liveMethodsLogged = false
 
 local function LiveKey(g)
-	return (g.live or "") .. ":" .. g.size .. ":" .. g.spacing .. ":" .. (g.perRow or 8) .. ":" .. tostring(g.iconFrame ~= false)
+	local ids = ""
+	if g.liveOnlyMine then for _, t in ipairs(g.trackers) do ids = ids .. tostring(t.id or t.name) .. "," end end
+	return (g.live or "") .. ":" .. g.size .. ":" .. g.spacing .. ":" .. (g.perRow or 8) .. ":" .. tostring(g.iconFrame ~= false) .. ":" .. ids
 end
 
 local function InitLiveButton(g)
@@ -755,6 +757,27 @@ local function EnsureLive(f, g)
 		initializeFrame = InitLiveButton(g),
 		layout = { elementWidth = S, elementHeight = S, elementSpacing = sp, lineSpacing = sp, maxElementsPerLine = perRow, elementsPerLine = perRow },
 	}
+	-- Limiting to the group's trackers: the ids go in under every name the game might read.
+	-- Whichever it honours narrows the group; the others are ignored.
+	if g.liveOnlyMine then
+		local ids, names = {}, {}
+		for _, t in ipairs(g.trackers) do
+			if t.id then ids[#ids + 1] = t.id end
+			if t.name then
+				names[#names + 1] = t.name
+				for _, kind in ipairs({ "buff", "debuff" }) do
+					local h = ns.db.history[kind .. ":" .. string.lower(t.name)]
+					if h and h.ids then for id in pairs(h.ids) do ids[#ids + 1] = id end end
+				end
+			end
+		end
+		settings.spellIDs = ids
+		settings.spellIDFilter = ids
+		settings.includeSpellIDs = ids
+		settings.allowedSpellIDs = ids
+		settings.spellNames = names
+		settings.candidateFilters = { spellIDs = ids }
+	end
 	local okG, err
 	if c.AddAuraGroup then
 		okG, err = pcall(c.AddAuraGroup, c, "al_" .. tostring(g.uid), g.live, settings)

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.17.1
+
+- Game-drawn groups gain an experimental "Only this group's trackers" switch that asks the game to limit the group to the spells its trackers name. Whether the game honours it is not yet known.
+- /auraledger mixin lists the AuraContainer's and its buttons' Lua functions and the keys of every aura container the game itself has on screen, to find the real spell filter if there is one.
+
 ## 1.17.0
 
 - Groups drawn by the game. A group's new "Contents" option can hand it to the game: "Debuffs on me", "Debuffs on me I could dispel", "Buffs on me" or "Buffs on me that I cast". The game then draws every aura of that kind on you through its AuraContainer and keeps it current in combat, where the addon cannot see auras; this is how GODMODE_GTFO shows debuffs mid-fight. Icon size, spacing, icons per row, icon frame art, opacity, scale, conditions and position stay yours; the icons, countdowns and stack counts are the game's. Bars, names and per-tracker settings do not apply to such a group. Trackers kept in it still play their sounds. The container is built out of combat; a group switched over during a fight fills in when the fight ends.
