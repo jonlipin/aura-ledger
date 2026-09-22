@@ -374,10 +374,9 @@ local function ClientIconFrame()
 end
 
 -- A thin dark line round the icon, the way the game edges an icon that has no frame of its own.
--- The edge is four thin bars, not a block behind the picture: a block shows only where it sticks
--- out, so anything drawn over the picture would have to pull it in to be seen. "inward" lays the
--- bars along the inside of the cell instead of just outside the picture, for a cell under a slot
--- the game fills, where anything past the cell is not covered by the game's icon.
+-- The edge is four thin bars laid along the inside of the picture, not a block behind it: a block
+-- shows only where it sticks out, and anything sticking out reaches into the gap between one cell
+-- and the next, and is not covered by the game's icon on a cell the game fills.
 local function EdgeBars(w)
 	if not w.edgeBars then
 		local owner = w.over or w
@@ -394,10 +393,12 @@ local function LayEdge(w, r, g, b, a, thicker)
 	local bars = w.edgeBars
 	local lead = bars and bars[1]
 	if not lead or not lead.alRef then return false end
-	local ref, inward = lead.alRef, lead.alInward
+	local ref = lead.alRef
 	local px = max(1, lead.alPx or 1)
 	if thicker then px = px + max(1, floor(px * 0.5)) end
-	local out = inward and 0 or px
+	-- Always inside the picture. Outside, the bars reach into the gap between one cell and the
+	-- next, so cells look joined up, and a cell under a slot the game fills cannot reach out at all.
+	local out = 0
 	local top, bottom, left, right = bars[1], bars[2], bars[3], bars[4]
 	top:ClearAllPoints()
 	top:SetPoint("TOPLEFT", ref, "TOPLEFT", -out, out)
@@ -876,7 +877,7 @@ local function ConfigureWidget(w, g)
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		w.bar:Hide()
 		PlaceDecor(w, {}, "decor", w.bar, S)
-		local edged = PlaceCleanEdge(w, w.underSlot and w or w.icon, S, g.iconFrame ~= false, w.underSlot)
+		local edged = PlaceCleanEdge(w, w.icon, S, g.iconFrame ~= false, w.underSlot)
 		local framed = PlaceClientFrame(w, w.icon, S, g.iconFrame ~= false)
 		if edged or framed then
 			PlaceDecor(w, {}, "iconArt", w.icon, S, wantIcon, true)

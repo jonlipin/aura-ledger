@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.43.4
+
+- A group is spaced the same whether the addon or the game is drawing its cells. The edge round an icon was drawn just outside the picture, which reached into the gap between one cell and the next and made a row look joined up, while a cell under a game-drawn slot had to keep its edge inside and so kept its gap. The bars lie along the inside of the picture now, in both cases, so a cell is exactly its own size and the gap between cells is the spacing that was asked for.
+
 ## 1.43.3
 
 - A group keeps its shape whether the window is open or not. The edge round an icon was a block drawn behind the picture, which can only be seen where it sticks out past it, so a cell sitting under a game-drawn slot had to pull its picture in to show one: that is the gap that appeared when the window was closed and the game took the cells over. The edge is four thin bars drawn over the picture now, so a cell under a slot keeps its picture whole and only the edge moves inside the cell.
