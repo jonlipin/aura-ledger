@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.41.2
+
+- An icon the addon draws comes out square. The art copied from the donor can sit unevenly around the donor's own icon, and carried over side by side those uneven overhangs made the frame taller than it was wide. Art drawn around an icon now reaches the same distance on all four sides.
+- The picture no longer shows past its border. It is inset under the frame art by as much as the art reaches out, up to a limit, so the art laps over the edge of the picture instead of meeting it exactly and letting the square corners show past a rounded border. Turning the icon frame off removes the inset with it.
+- /auraledger debug icon reads out what was actually copied: the donor, the crop, and how far each piece of art reaches past the icon, along with the inset each group ends up with.
+
 ## 1.41.1
 
 - The hint along the bottom of the window fits on its line. It was long enough to wrap onto a second line the bar has no room for, so the end of it was cut off. It now says the one thing worth saying, and is held to a single line.

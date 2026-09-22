@@ -83,7 +83,7 @@ What the addon itself cannot do in combat, on this client: notice a buff being c
 | `/auraledger plainbook` | switch the book between parchment and a plain dark page |
 | `/auraledger sound test` / `sound clear` | play each sound the game itself can make, or remove the ones registered with it |
 | `/auraledger debug` | self report: what this client let the addon read (send this with a bug report) |
-| `/auraledger debug <topic>` | a closer look: log, api, gd, cdm, cdm2, frames, probe, container, slot, mixin, atlases, combatlog |
+| `/auraledger debug <topic>` | a closer look: log, api, gd, cdm, cdm2, frames, probe, container, slot, mixin, atlases, icon, combatlog |
 
 ## Notes
 

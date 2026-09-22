@@ -185,11 +185,22 @@ local function IconBox(iconTex, iconFrame)
 	return { l = l, t = -t, w = r - l, h = t - b, region = iconTex }
 end
 
-local function ApplyGeometry(tex, geo, ref, H)
+-- How far a stretched piece of art reaches past the icon on every side. The donor's own overhangs
+-- can differ from side to side, and carried over literally they make a square icon's frame taller
+-- than it is wide, so art drawn around an icon takes the average of the four.
+local function EvenOverhang(geo)
+	return (geo.l + geo.r + geo.t + geo.b) / 4
+end
+
+local function ApplyGeometry(tex, geo, ref, H, even)
 	tex:ClearAllPoints()
 	if geo.fixed then
 		tex:SetSize(max(1, geo.w * H), max(1, geo.h * H))
 		tex:SetPoint(geo.p, ref, geo.rp, geo.x * H, geo.y * H)
+	elseif even then
+		local o = EvenOverhang(geo) * H
+		tex:SetPoint("TOPLEFT", ref, "TOPLEFT", -o, o)
+		tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", o, -o)
 	else
 		tex:SetPoint("TOPLEFT", ref, "TOPLEFT", -geo.l * H, geo.t * H)
 		tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", geo.r * H, -geo.b * H)
@@ -324,6 +335,26 @@ local function ViewerDonor(viewer)
 end
 
 local skin
+-- How far the picture is pulled in under its frame art, so the art laps over its edge instead of
+-- meeting it exactly. Without this the square corners of the picture show past a rounded border.
+local function IconInset(s, bars, size, frameOn)
+	if not frameOn then return 0 end
+	local art = nil
+	if bars then art = s.iconDecor end
+	if not art or #art == 0 then art = s.soloIconDecor end
+	if not art or #art == 0 then art = s.iconDecor end
+	if not art or #art == 0 then return 0 end
+	local o = 0
+	for _, dd in ipairs(art) do
+		if dd.geo and not dd.geo.fixed then
+			local v = EvenOverhang(dd.geo)
+			if v > o then o = v end
+		end
+	end
+	if o <= 0 then return 0 end
+	return min(floor(size * 0.12), max(1, floor(o * size + 0.5)))
+end
+
 -- The icon art to draw: a bar's icon keeps the art from the bar donor, a lone icon prefers the
 -- icon donor's, and either falls back to whichever was found.
 local function IconArt(s, bars)
@@ -395,6 +426,38 @@ local function BuildSkin()
 	return s
 end
 Display.BuildSkin = BuildSkin
+Display.EvenOverhang = EvenOverhang
+Display.IconInset = IconInset
+
+-- What the icon art came out as: the donor, the box it was measured in, and each piece's reach past
+-- the icon. Read by /auraledger debug icon.
+function Display:IconReport(emit)
+	local s = BuildSkin()
+	emit("icon art from: " .. tostring(s.iconSource or s.source))
+	emit(("crop: %s"):format(s.soloIconCoords and table.concat(s.soloIconCoords, ", ") or (s.iconCoords and table.concat(s.iconCoords, ", ") or "none")))
+	for _, which in ipairs({ { "bar donor", s.iconDecor }, { "icon donor", s.soloIconDecor } }) do
+		local list = which[2]
+		emit(("%s: %d piece%s"):format(which[1], list and #list or 0, (list and #list == 1) and "" or "s"))
+		for i, dd in ipairs(list or {}) do
+			local g = dd.geo
+			if not g then
+				emit(("  %d: no geometry"):format(i))
+			elseif g.fixed then
+				emit(("  %d: %s, held at %s, %.3f x %.3f"):format(i, tostring(dd.atlas or dd.file), tostring(g.p), g.w, g.h))
+			else
+				emit(("  %d: %s, reaches l %.3f r %.3f t %.3f b %.3f, evened to %.3f"):format(i,
+					tostring(dd.atlas or dd.file), g.l, g.r, g.t, g.b, EvenOverhang(g)))
+			end
+		end
+	end
+	for _, g in ipairs(ns.profile.groups) do
+		if g.style ~= "bars" then
+			emit(("group %s: icon %d, inset %d"):format(ns.GroupName(g), g.size or 40, IconInset(s, false, g.size or 40, g.iconFrame ~= false)))
+		else
+			emit(("group %s: bar icon %d, inset %d"):format(ns.GroupName(g), ns.BarIconSize(g), IconInset(s, true, ns.BarIconSize(g), g.iconFrame ~= false)))
+		end
+	end
+end
 
 -- ------------------------------------------------------------------
 -- Tracker widgets
@@ -418,7 +481,7 @@ end
 
 -- Draws a list of copied art pieces on the under / over frames, relative to ref at height H.
 -- want(d) says whether a piece is wanted; pieces "under" the fill are background, the rest border.
-local function PlaceDecor(w, list, key, ref, H, want)
+local function PlaceDecor(w, list, key, ref, H, want, even)
 	local pool = w[key]
 	for i, d in ipairs(list) do
 		local tex = pool[i]
@@ -427,7 +490,7 @@ local function PlaceDecor(w, list, key, ref, H, want)
 			pool[i] = tex
 			ApplyTexture(tex, d)
 		end
-		ApplyGeometry(tex, d.geo, ref, H)
+		ApplyGeometry(tex, d.geo, ref, H, even)
 		tex:SetShown(not want or want(d))
 	end
 	for i = #list + 1, #pool do pool[i]:Hide() end
@@ -580,9 +643,10 @@ local function ConfigureWidget(w, g)
 		-- The icon keeps the middle of the bar's height whatever its scale, so a large one stands
 		-- proud of the bar top and bottom rather than pushing the bar down.
 		local IS = ns.BarIconSize(g)
+		local inset = IconInset(s, true, IS, g.iconFrame ~= false)
 		w:SetSize(g.barW, H)
-		w.icon:SetPoint("LEFT")
-		w.icon:SetSize(IS, IS)
+		w.icon:SetPoint("LEFT", w, "LEFT", inset, 0)
+		w.icon:SetSize(IS - inset * 2, IS - inset * 2)
 		local c = s.iconCoords or { 0.07, 0.93, 0.07, 0.93 }
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		w.bar:ClearAllPoints()
@@ -590,7 +654,7 @@ local function ConfigureWidget(w, g)
 		w.bar:SetPoint("BOTTOMRIGHT")
 		w.bar:Show()
 		PlaceDecor(w, s.decor, "decor", w.bar, H, wantBar)
-		PlaceDecor(w, IconArt(s, true), "iconArt", w.icon, IS, wantIcon)
+		PlaceDecor(w, IconArt(s, true), "iconArt", w.icon, IS, wantIcon, true)
 		w.bar.bg:SetAlpha(g.background ~= false and 1 or 0)
 		if w.edge then
 			local edgeSize = max(8, min(16, floor(H * 0.6)))
@@ -619,14 +683,15 @@ local function ConfigureWidget(w, g)
 		w.count:SetPoint("BOTTOMRIGHT", w.icon, "BOTTOMRIGHT", -1, 1)
 	else
 		local S = g.size
+		local inset = IconInset(s, false, S, g.iconFrame ~= false)
 		w:SetSize(S, S)
-		w.icon:SetSize(S, S)
+		w.icon:SetSize(S - inset * 2, S - inset * 2)
 		w.icon:SetPoint("CENTER")
 		local c = s.soloIconCoords or s.iconCoords or { 0.07, 0.93, 0.07, 0.93 }
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		w.bar:Hide()
 		PlaceDecor(w, {}, "decor", w.bar, S)
-		PlaceDecor(w, IconArt(s, false), "iconArt", w.icon, S, wantIcon)
+		PlaceDecor(w, IconArt(s, false), "iconArt", w.icon, S, wantIcon, true)
 		if w.edge then w.edge:Hide() end
 		w.name:Hide()
 		w.duration:Hide()
@@ -825,11 +890,12 @@ local function InitSlotFrame(g, mode, filter, store)
 		local W, H = bars and g.barW or g.size, bars and g.barH or g.size
 		pcall(button.SetSize, button, W, H)
 		local IS = bars and ns.BarIconSize(g) or H
+		local inset = IconInset(s, bars, IS, g.iconFrame ~= false)
 		local icon = button:CreateTexture(nil, "ARTWORK")
 		local c = (bars and s.iconCoords) or s.soloIconCoords or s.iconCoords or { 0.07, 0.93, 0.07, 0.93 }
 		icon:SetTexCoord(c[1], c[2], c[3], c[4])
-		icon:SetSize(IS, IS)
-		if bars then icon:SetPoint("LEFT") else icon:SetPoint("CENTER") end
+		icon:SetSize(IS - inset * 2, IS - inset * 2)
+		if bars then icon:SetPoint("LEFT", button, "LEFT", inset, 0) else icon:SetPoint("CENTER") end
 		pcall(button.SetIcon, button, icon)
 		local count = button:CreateFontString(nil, "OVERLAY")
 		count:SetFont(FONT, max(7, floor(IS * (bars and 0.45 or 0.3))), "OUTLINE")
@@ -867,7 +933,7 @@ local function InitSlotFrame(g, mode, filter, store)
 			if not pcall(button.SetDurationBar, button, bar, dir ~= nil and { direction = dir } or nil) then pcall(button.SetDurationBar, button, bar) end
 			local w = { under = button, over = button, decor = {}, iconArt = {} }
 			PlaceDecor(w, s.decor, "decor", bar, H, function(dd) if dd.under then return g.background ~= false else return g.border ~= false end end)
-			if g.iconFrame ~= false then PlaceDecor(w, IconArt(s, true), "iconArt", icon, IS) end
+			if g.iconFrame ~= false then PlaceDecor(w, IconArt(s, true), "iconArt", icon, IS, nil, true) end
 			local px = max(8, min(14, floor(H * 0.52)))
 			local textHolder = CreateFrame("Frame", nil, button)
 			textHolder:SetAllPoints(bar)
@@ -901,7 +967,7 @@ local function InitSlotFrame(g, mode, filter, store)
 			end
 			if g.iconFrame ~= false then
 				local w = { under = button, over = button, decor = {}, iconArt = {} }
-				PlaceDecor(w, IconArt(s, false), "iconArt", icon, H)
+				PlaceDecor(w, IconArt(s, false), "iconArt", icon, H, nil, true)
 			end
 		end
 		pcall(button.SetMouseMotionEnabled, button, true)

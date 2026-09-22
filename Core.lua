@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.41.1"
+ns.VERSION = "1.41.2"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1954,7 +1954,7 @@ end
 -- has put itself right by then.
 -- ------------------------------------------------------------------
 -- The diagnostic topics, in the order the help lists them.
-ns.DIAG_ORDER = { "log", "api", "gd", "cdm2", "cdmapply", "cdmrestore", "probe", "atlases", "combatlog" }
+ns.DIAG_ORDER = { "log", "api", "gd", "cdm2", "cdmapply", "cdmrestore", "probe", "atlases", "icon", "combatlog" }
 ns.DIAG = {}
 for _, k in ipairs(ns.DIAG_ORDER) do ns.DIAG[k] = true end
 ns.DIAG.soundtest, ns.DIAG.soundclear = true, true
@@ -2212,6 +2212,11 @@ SlashCmdList.AURALEDGER = function(msg)
 		Print("Combat log source " .. (ns.db.combatLog and "on (if the client shows the blocked dialog, turn it off again)." or "off. Type /reload to finish turning it off."))
 	elseif cmd == "atlases" then
 		if ns.UI and ns.UI.PrintAtlases then ns.UI:PrintAtlases() end
+	elseif cmd == "icon" then
+		if ns.Display and ns.Display.IconReport then
+			ns.LogLine("=== icon art")
+			ns.Display:IconReport(function(line) Print("  " .. line) ns.LogLine(line) end)
+		end
 	elseif cmd == "plainbook" then
 		ns.db.plainBook = not ns.db.plainBook
 		Print("Book background: " .. (ns.db.plainBook and "plain" or "parchment when the client has it") .. ". Type /reload to apply.")
