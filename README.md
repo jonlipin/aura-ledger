@@ -25,7 +25,7 @@ The minimize button beside the close button shrinks the window to the Groups and
 - Drag a **lone tracker onto another group** to join it.
 - **Shift-drag** a tracker inside a group to reorder it, move it to another group, or pull it out into a group of its own.
 - Click any tracker or group plate to edit it.
-- In the **Groups and trackers** list, drag a tracker onto a group heading to move it there, onto another tracker to place it before or after it, or onto empty space for a group of its own. The red X on a row removes that tracker (click it twice).
+- In the **Groups and trackers** list, drag a tracker onto a group heading to move it there, onto another tracker to place it before or after it, or onto empty space for a group of its own. The red X on a row removes that tracker, or deletes that group (click it twice).
 
 ## Options
 

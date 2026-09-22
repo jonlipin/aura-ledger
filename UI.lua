@@ -1052,16 +1052,20 @@ local function CreateTreeRow(parent)
 	end
 	x:SetFrameLevel(row:GetFrameLevel() + 2)
 	x:Hide()
+	-- On a tracker row it removes the tracker; on a group row it deletes the group and everything in it.
 	x:SetScript("OnClick", function(self)
 		local item = row.item
-		if not item or not item.t then return end
-		if row.armed and GetTime() - row.armed < 3 and row.armedFor == item.t then
+		if not item then return end
+		local subject = item.t or item.g
+		if row.armed and GetTime() - row.armed < 3 and row.armedFor == subject then
 			row.armed = nil
 			UI:HideConfirmBubble()
-			ns.RemoveTracker(item.t)
+			if item.t then ns.RemoveTracker(item.t) else ns.DeleteGroup(item.g) end
 		else
-			row.armed, row.armedFor = GetTime(), item.t
-			UI:ShowConfirmBubble(self, "Remove " .. (item.t.name or "this tracker") .. "?", "Click the X again")
+			row.armed, row.armedFor = GetTime(), subject
+			local what = item.t and ("Remove " .. (item.t.name or "this tracker") .. "?")
+				or ("Delete group " .. ns.GroupName(item.g) .. " and its " .. #item.g.trackers .. " tracker" .. (#item.g.trackers == 1 and "" or "s") .. "?")
+			UI:ShowConfirmBubble(self, what, "Click the X again")
 			C_Timer.After(3.2, function()
 				if row.armed and GetTime() - row.armed >= 3 then row.armed = nil UI:HideConfirmBubble(self) end
 			end)
@@ -1069,7 +1073,11 @@ local function CreateTreeRow(parent)
 	end)
 	x:SetScript("OnEnter", function(self)
 		if row.plated then row.hl:SetAlpha(1) else row.hl:Show() end
-		TextTooltip(self, "Remove this tracker", "Click twice to remove it. The group is removed too if it was the last tracker in it.")
+		if row.item and row.item.t then
+			TextTooltip(self, "Remove this tracker", "Click twice to remove it. The group is removed too if it was the last tracker in it.")
+		else
+			TextTooltip(self, "Delete this group", "Click twice to delete the group and every tracker in it.")
+		end
 	end)
 	x:SetScript("OnLeave", function() if row.plated then row.hl:SetAlpha(0.3) else row.hl:Hide() end GameTooltip:Hide() end)
 	row.remove = x
@@ -1175,9 +1183,9 @@ local function UpdateTreeRow(row, item)
 		local g = item.g
 		row.icon:Hide()
 		if row.frame then row.frame:Hide() end
-		row.remove:Hide()
+		row.remove:Show()
 		row.text:SetPoint("LEFT", 6, 0)
-		row.text:SetPoint("RIGHT", -4, 0)
+		row.text:SetPoint("RIGHT", -24, 0)
 		local off = g.cond and g.cond.never
 		local groupC, dimC, offC = InkCodes()
 		row.text:SetText((off and offC or groupC) .. ns.GroupName(g) .. "|r  " .. dimC
@@ -1291,20 +1299,16 @@ local function BuildGroupPanel(width)
 	b:Conditions(function() local g = G() return g and g.cond end, TrackerChanged)
 
 	b.y = b.y - 8
-	local del = b:ConfirmButton("Delete group", 170, function()
-		local g = G()
-		if g then ns.DeleteGroup(g) end
-	end)
-	del:SetPoint("TOPLEFT", 8, b.y)
+	b:Note("To delete this group, click the X on its row in the Groups and trackers list twice.")
 	local exportG = MakeButton(groupPanel, "Export group", 130)
-	exportG:SetPoint("TOPLEFT", 8, b.y - 28)
+	exportG:SetPoint("TOPLEFT", 8, b.y)
 	exportG:SetScript("OnClick", function()
 		local g = G()
 		if g then UI:ShowExport(ns.Export(g, "group"), "group " .. ns.GroupName(g)) end
 	end)
 	exportG:SetScript("OnEnter", function(self) TextTooltip(self, "Export this group", "Gives you a string holding the whole group (its look, conditions and every tracker) to paste elsewhere.") end)
 	exportG:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	b.y = b.y - 62
+	b.y = b.y - 34
 	groupPanel.height = -b.y
 	groupPanel:SetHeight(groupPanel.height)
 end
