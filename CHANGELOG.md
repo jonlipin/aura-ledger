@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.28.1
+
+- /auraledger debug cdmapply now reads the layout back after writing it and reports what the game actually stored: the category enum values, which category each cooldown it was given belongs to, and the contents of our layout as the file holds it.
+
 ## 1.28.0
 
 - Group size is a number of players now, not three tick boxes. One slider, "Only with this many players": 1 is any group size, 2 upwards needs that many people, 5 reads as a party and 10 upwards as a raid. Existing conditions are carried over: "party" becomes 2 or more, "raid" becomes 6 or more, and anything that included "solo" becomes any size, since it already allowed every case.

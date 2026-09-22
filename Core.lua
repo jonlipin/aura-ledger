@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.28.0"
+ns.VERSION = "1.28.1"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -1652,6 +1652,53 @@ function ns.CDM.Apply(icons, bars)
 	return true
 end
 
+-- Reads the layout back and says what is actually in it, which category each cooldown belongs to,
+-- and what the enum values are. A write that lands somewhere unexpected shows up here.
+function ns.CDM.Verify(emit, icons, bars)
+	local E = Enum and Enum.CooldownViewerCategory
+	if E then
+		local parts = {}
+		for k, v in pairs(E) do parts[#parts + 1] = tostring(k) .. "=" .. tostring(v) end
+		table.sort(parts)
+		emit("  categories: " .. table.concat(parts, ", "))
+	end
+	-- Where each cooldown we asked for actually lives, according to the game.
+	local C = C_CooldownViewer
+	if C and C.GetCooldownViewerCategorySet and E then
+		local where = {}
+		for name, value in pairs(E) do
+			if type(value) == "number" then
+				for _, flag in ipairs({ true, false }) do
+					local ok, set = pcall(C.GetCooldownViewerCategorySet, value, flag)
+					for _, id in ipairs((ok and PlainList(set)) or {}) do
+						where[id] = where[id] or (tostring(name) .. (flag and "" or " (all)"))
+					end
+				end
+			end
+		end
+		local asked = {}
+		for _, id in ipairs(icons or {}) do asked[#asked + 1] = "icon " .. id .. " is in " .. tostring(where[id]) end
+		for _, id in ipairs(bars or {}) do asked[#asked + 1] = "bar " .. id .. " is in " .. tostring(where[id]) end
+		if #asked > 0 then emit("  " .. table.concat(asked, "; ")) end
+	end
+	local data = ns.CDM.Read()
+	if not data then emit("  the layout could not be read back") return end
+	local tag = CDMTag()
+	local id
+	for lid, lname in pairs(data[CDM_LAYOUT_IDS] or {}) do if lname == ns.CDM.LayoutName() then id = lid end end
+	emit(("  read back: format %s, our layout id %s, active id %s"):format(tostring(data[1]), tostring(id),
+		tostring((data[CDM_ACTIVE_NAMES] or {})[tag])))
+	local layout = id and data[CDM_LAYOUTS] and data[CDM_LAYOUTS][tag] and data[CDM_LAYOUTS][tag][id]
+	if not layout then emit("  our layout is not in the file under tag " .. tostring(tag)) return end
+	local overrides = layout[CDM_OVERRIDES]
+	if type(overrides) ~= "table" then emit("  it holds no category overrides") return end
+	for cat, list in pairs(overrides) do
+		local ids = {}
+		for _, v in ipairs(type(list) == "table" and list or {}) do ids[#ids + 1] = tostring(v) end
+		emit(("    category %s holds %d: %s"):format(tostring(cat), #ids, table.concat(ids, ", ")))
+	end
+end
+
 -- Hands the manager back to whatever was in charge before the addon took it over.
 function ns.CDM.Restore()
 	if not ns.CDM.Available() then return false, "this client does not offer the layout data" end
@@ -2494,7 +2541,8 @@ SlashCmdList.AURALEDGER = function(msg)
 		else
 			local ok, err = ns.CDM.Apply(icons, bars)
 			if ok then
-				Print("  Written as " .. ns.CDM.LayoutName() .. ". Run /auraledger debug cdm2 in a moment to see the frames it made.")
+				Print("  Written as " .. ns.CDM.LayoutName() .. ".")
+				ns.CDM.Verify(Print, icons, bars)
 			else
 				Print("  Not written: " .. tostring(err))
 			end
