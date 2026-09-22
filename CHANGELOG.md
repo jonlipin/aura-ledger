@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.38.0
+
+- Groups can grow out from the centre: "Out from the centre, sideways" spreads the trackers evenly left and right of where you put the group, and "Out from the centre, up and down" spreads them above and below. The group stays pinned to that point as trackers come and go, so a centred row stays centred. Switching a centred row to bars turns it into a centred column, since bars are too wide to march sideways.
+- The first row of spells in the book sits further below the divider under the heading, which was crowding it.
+
 ## 1.37.0
 
 - A Racials chapter in the book, between the classes and Items and food: Blood Fury, Berserking, Stoneform, Find Treasure, Shadowmeld, Perception, Will of the Forsaken, Cannibalize and Gift of the Naaru, each labelled with the race it belongs to. Racials this client does not have are withheld like any other row, so only the ones that exist are listed.

@@ -9,8 +9,15 @@ ns.Display = Display
 local QUESTION = ns.QUESTION
 local FONT = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
 local BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
-local ANCHOR = { RIGHT = "TOPLEFT", DOWN = "TOPLEFT", LEFT = "TOPRIGHT", UP = "BOTTOMLEFT" }
-ns.GROWS = { { "RIGHT", "Right" }, { "LEFT", "Left" }, { "DOWN", "Down" }, { "UP", "Up" } }
+-- Where a group is pinned. The two centre growths are pinned by an edge midpoint rather than a
+-- corner, so the trackers spread evenly either side of the place you put it.
+local ANCHOR = { RIGHT = "TOPLEFT", DOWN = "TOPLEFT", LEFT = "TOPRIGHT", UP = "BOTTOMLEFT",
+	CENTER_H = "TOP", CENTER_V = "LEFT" }
+-- Growing from the centre lays the trackers out the same way as its plain direction; only the
+-- pinning differs, which is what makes the group spread rather than march off one way.
+local FLOW = { CENTER_H = "RIGHT", CENTER_V = "DOWN" }
+ns.GROWS = { { "RIGHT", "Right" }, { "LEFT", "Left" }, { "DOWN", "Down" }, { "UP", "Up" },
+	{ "CENTER_H", "Out from the centre, sideways" }, { "CENTER_V", "Out from the centre, up and down" } }
 
 local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
 
@@ -1158,8 +1165,10 @@ end
 local function SavePosition(f, g)
 	local s = f:GetScale() or 1
 	local a = ANCHOR[g.grow] or "TOPLEFT"
-	local x = (a == "TOPRIGHT") and f:GetRight() or f:GetLeft()
-	local y = (a == "BOTTOMLEFT") and f:GetBottom() or f:GetTop()
+	local cx, cy = f:GetCenter()
+	local x, y
+	if a == "TOPRIGHT" then x = f:GetRight() elseif a == "TOP" then x = cx else x = f:GetLeft() end
+	if a == "BOTTOMLEFT" then y = f:GetBottom() elseif a == "LEFT" then y = cy else y = f:GetTop() end
 	if x and y then g.x, g.y = x * s, y * s end
 end
 
@@ -1170,6 +1179,7 @@ local function LayoutGroup(f, g, visible, unlocked)
 	local perRow = max(1, g.perRow or 8)
 	local stepX, stepY = w + g.spacing, h + g.spacing
 	local grow = g.grow or "RIGHT"
+	local flow = FLOW[grow] or grow
 	local slots = g.gameDrawn and not unlocked
 
 	-- Every slot starts the pass switched off; the ones with a cell are switched on below.
@@ -1225,9 +1235,9 @@ local function LayoutGroup(f, g, visible, unlocked)
 		end
 		local a, b = (k - 1) % perRow, floor((k - 1) / perRow)
 		widget:ClearAllPoints()
-		if grow == "RIGHT" then widget:SetPoint("TOPLEFT", f, "TOPLEFT", a * stepX, -b * stepY)
-		elseif grow == "LEFT" then widget:SetPoint("TOPRIGHT", f, "TOPRIGHT", -a * stepX, -b * stepY)
-		elseif grow == "DOWN" then widget:SetPoint("TOPLEFT", f, "TOPLEFT", b * stepX, -a * stepY)
+		if flow == "RIGHT" then widget:SetPoint("TOPLEFT", f, "TOPLEFT", a * stepX, -b * stepY)
+		elseif flow == "LEFT" then widget:SetPoint("TOPRIGHT", f, "TOPRIGHT", -a * stepX, -b * stepY)
+		elseif flow == "DOWN" then widget:SetPoint("TOPLEFT", f, "TOPLEFT", b * stepX, -a * stepY)
 		else widget:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", b * stepX, a * stepY) end
 		widget:EnableMouse(unlocked)
 		widget:Show()
@@ -1250,7 +1260,7 @@ local function LayoutGroup(f, g, visible, unlocked)
 	end
 
 	local p, q = min(n, perRow), ceil(n / perRow)
-	if grow == "DOWN" or grow == "UP" then p, q = q, p end
+	if flow == "DOWN" or flow == "UP" then p, q = q, p end
 	f:SetSize(max(1, p * stepX - g.spacing), max(1, q * stepY - g.spacing))
 	f:SetAlpha(g.alpha or 1)
 

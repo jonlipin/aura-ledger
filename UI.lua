@@ -1473,7 +1473,18 @@ local function BuildGroupPanel(width)
 	end
 	b:Cycle("Show as", { { "icons", "Icons with numbers" }, { "bars", "Bars with icons" } },
 		function() local g = G() return g and g.style or "icons" end,
-		function(v) local g = G() if g then g.style = v if v == "bars" and (g.grow == "RIGHT" or g.grow == "LEFT") then ns.Display:SetGrow(g, "DOWN") end GroupChanged() b:Sync() end end,
+		function(v)
+			local g = G()
+			if not g then return end
+			g.style = v
+			-- Bars are wide, so a group of them stacks rather than marching sideways.
+			if v == "bars" then
+				if g.grow == "RIGHT" or g.grow == "LEFT" then ns.Display:SetGrow(g, "DOWN")
+				elseif g.grow == "CENTER_H" then ns.Display:SetGrow(g, "CENTER_V") end
+			end
+			GroupChanged()
+			b:Sync()
+		end,
 		"Icons show the time left as a number on the icon. Bars show an icon, the name and a draining bar.")
 	b:Cycle("Grow towards", ns.GROWS,
 		function() local g = G() return g and g.grow or "RIGHT" end,
@@ -1922,7 +1933,8 @@ local function Build()
 	for i = 1, PER_PAGE do
 		local b = CreateBookButton(left, onParchment, art)
 		local col, row = (i - 1) % 2, floor((i - 1) / 2)
-		b:SetPoint("TOPLEFT", 22 + INDENT + col * colW, -122 - row * 64)
+		-- The first row clears the divider under the heading by a comfortable margin.
+		b:SetPoint("TOPLEFT", 22 + INDENT + col * colW, -140 - row * 64)
 		b:Hide()
 		book.buttons[i] = b
 	end
