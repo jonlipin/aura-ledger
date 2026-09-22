@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.45.4"
+ns.VERSION = "1.46.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -2362,6 +2362,16 @@ SlashCmdList.AURALEDGER = function(msg)
 		ns.db.combatLog = not ns.db.combatLog
 		if ns.db.combatLog and not registered.COMBAT_LOG_EVENT_UNFILTERED then SafeRegister("COMBAT_LOG_EVENT_UNFILTERED") end
 		Print("Combat log source " .. (ns.db.combatLog and "on (if the client shows the blocked dialog, turn it off again)." or "off. Type /reload to finish turning it off."))
+	elseif cmd == "missing" then
+		local word = strlower(rest or "")
+		if word == "grey" or word == "gray" or word == "red" then
+			ns.db.missingStyle = (word == "red") and "red" or nil
+			if ns.Display then ns.Display:Refresh() end
+			Print("A missing aura is shown " .. (ns.db.missingStyle == "red" and "in red" or "in grey") .. ".")
+		else
+			Print("A missing aura is shown " .. (ns.db.missingStyle == "red" and "in red" or "in grey")
+				.. ". |cffffd000/auraledger missing grey|r or |cffffd000red|r. An aura about to run out is red either way.")
+		end
 	elseif cmd == "iconborder" then
 		local word = strlower(rest or "")
 		local sizeA, sizeB = word:match("^size%s+(%S+)%s*(%S*)$")

@@ -1194,11 +1194,13 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 	local isActive = entry ~= nil
 	local flagMissing = (not isActive) and (t.show ~= "active")
 	if w.icon.SetDesaturated then w.icon:SetDesaturated(not isActive) end
+	local redMissing = ns.db and ns.db.missingStyle == "red"
 	if isActive then
 		w.icon:SetVertexColor(1, 1, 1)
 		w.icon:SetAlpha(1)
 	elseif flagMissing then
-		w.icon:SetVertexColor(1, 0.35, 0.35)
+		-- Drained of colour and dimmed a little: an aura you have not got, said quietly.
+		if redMissing then w.icon:SetVertexColor(1, 0.35, 0.35) else w.icon:SetVertexColor(0.75, 0.75, 0.75) end
 		w.icon:SetAlpha(1)
 	else
 		w.icon:SetVertexColor(0.7, 0.7, 0.7)
@@ -1211,8 +1213,11 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 	elseif isActive and entry.kind == "debuff" then
 		local c = DISPEL_COLORS[entry.dispel or "none"] or DISPEL_COLORS.none
 		br, bg, bb, strong = c[1], c[2], c[3], true
-	elseif flagMissing then
+	elseif flagMissing and redMissing then
 		br, bg, bb, strong = 1, 0.1, 0.1, true
+	elseif flagMissing then
+		-- A dark ring, so the tracker still has an outline without shouting.
+		br, bg, bb, strong = 0.1, 0.1, 0.1, false
 	end
 	if HaveShape() and not w.shapeBorder then
 		ShapeRing(w, w.ringRef or w.icon, (w.group and w.group.style == "bars") and ns.BarIconSize(w.group) or (w.group and w.group.size) or 40,
@@ -1244,7 +1249,9 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 
 	if g.style == "bars" then
 		if w.edge then
-			if flagMissing then w.edge:SetBackdropBorderColor(1, 0.25, 0.25) else w.edge:SetBackdropBorderColor(0.9, 0.8, 0.5) end
+			if flagMissing and redMissing then w.edge:SetBackdropBorderColor(1, 0.25, 0.25)
+			elseif flagMissing then w.edge:SetBackdropBorderColor(0.5, 0.5, 0.5)
+			else w.edge:SetBackdropBorderColor(0.9, 0.8, 0.5) end
 		end
 		local label = (t.label and t.label ~= "" and t.label) or (entry and entry.name) or t.name or ("Spell " .. tostring(t.id))
 		w.name:SetText(g.names ~= false and label or "")

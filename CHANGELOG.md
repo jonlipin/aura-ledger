@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.46.0
+
+- A missing aura is grey rather than red. The picture is already drained of colour the moment an aura goes; painting it red on top of that and ringing it in red reads as a warning when nothing is wrong, since it is only a buff you have not got. It is now drained and dimmed a little, with a dark ring rather than a red one. Red is kept for the thing worth warning about: an aura inside its warn window, about to run out.
+- /auraledger missing red puts the old colouring back, and /auraledger missing grey returns.
+
 ## 1.45.4
 
 - A tracker the game is drawing is no longer red while its aura is up. The ring that carries the missing colour is a band round the outside of a cell, with the picture pulled in off it so the band shows; the icon handed to a game-drawn slot was being pulled in by the same amount, so the band stayed on show underneath it. The slot's icon wears the same mask but keeps the cell's full size, so it covers the band while the game is drawing the aura and uncovers it the moment the aura goes.
