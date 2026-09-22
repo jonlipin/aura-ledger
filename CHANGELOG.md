@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.12
+
+- The spellbook record is taken when the book is seen open (its page contents exist only then), not just at login.
+
 ## 1.9.11
 
 - The chapter heading's highlight is a soft light bar behind the word, as in the spellbook, instead of a glow around the letters.

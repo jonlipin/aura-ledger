@@ -1663,6 +1663,8 @@ local function Build()
 	-- spellbook later (opening it), which is when the exact divider and icon frame names appear.
 	function UI:ApplyBookArt()
 		if UI.CopySpellbookMiniArt then UI:CopySpellbookMiniArt() end
+		-- The page's headers and entries only exist once the book has been opened: record them then.
+		if UI.DumpPlayerSpells then pcall(UI.DumpPlayerSpells) end
 		bookArt = nil
 		local a = SpellBookArt()
 		if not a then return false end
@@ -2122,6 +2124,7 @@ local function Build()
 			Walk(root, "PlayerSpellsFrame", 0)
 			ns.db.psDump = out
 		end
+		UI.DumpPlayerSpells = DumpPlayerSpells
 		function UI:CopySpellbookMiniArt()
 			if UI.miniArtCopied then return true end
 			pcall(DumpPlayerSpells)
