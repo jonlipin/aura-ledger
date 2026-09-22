@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.10.1
+
+- The heading backplate is positioned as in the spellbook: starting out toward the page margin and above the text, so the heading sits in its upper half and the divider crosses its lower half.
+
 ## 1.10.0
 
 - The heading highlight is now exactly what the spellbook does: its list backplate at 65% behind the heading, the heading in FRIZQT 24 in the spellbook's ink colour with no shadow, and the divider under it. Groups and trackers and Options headings get the same.

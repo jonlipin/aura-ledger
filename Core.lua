@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.10.0"
+ns.VERSION = "1.10.1"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0 }
 ns.auras = {}
