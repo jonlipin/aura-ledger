@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.37.0
+
+- A Racials chapter in the book, between the classes and Items and food: Blood Fury, Berserking, Stoneform, Find Treasure, Shadowmeld, Perception, Will of the Forsaken, Cannibalize and Gift of the Naaru, each labelled with the race it belongs to. Racials this client does not have are withheld like any other row, so only the ones that exist are listed.
+
 ## 1.36.0
 
 - The edit button now sits beside the search box at the top of the window and is called "Edit layout". Clicking it puts the window out of the way, since it covers the very things you are arranging, and clicking Done brings it back. If editing was turned on with the window already closed, Done leaves it closed.

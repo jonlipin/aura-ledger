@@ -662,6 +662,7 @@ end
 
 local function ClassLabel(token)
 	if token == "ITEMS" then return "Items and food" end
+	if token == "RACIAL" then return "Racials" end
 	if token == "HISTORY" then return "Ledger" end
 	if token == "COMMON" then return "Common" end
 	if token == "ITEMS" then return "Items" end
@@ -902,7 +903,7 @@ local function BookItems()
 		return list, "Search results"
 	end
 	if book.tab ~= "HISTORY" then
-		local titles = { ITEMS = "Items and food" }
+		local titles = { ITEMS = "Items and food", RACIAL = "Racials" }
 		local page = {}
 		for _, item in ipairs(ns.BookPages()[book.tab] or {}) do
 			if not item.unknown then page[#page + 1] = item end
@@ -1078,6 +1079,8 @@ local function CreateBookTab(holder, pane, token, index)
 		icon:SetTexture(ICON)
 	elseif token == "COMMON" then
 		icon:SetTexture("Interface\\Icons\\INV_Misc_Food_15")
+	elseif token == "RACIAL" then
+		icon:SetTexture("Interface\\Icons\\Racial_Orc_BerserkerStrength")
 	elseif token == "ITEMS" then
 		icon:SetTexture("Interface\\Icons\\INV_Potion_54")
 	elseif token == "PVE" then
@@ -1149,6 +1152,9 @@ local function CreateBookTab(holder, pane, token, index)
 		elseif token == "COMMON" then
 			GameTooltip:SetText("Common", 1, 1, 1)
 			GameTooltip:AddLine("Food, drink and the usual lockout debuffs.", nil, nil, nil, true)
+		elseif token == "RACIAL" then
+			GameTooltip:SetText("Racials", 1, 1, 1)
+			GameTooltip:AddLine("The buffs your race gives you, labelled by race.", nil, nil, nil, true)
 		elseif token == "ITEMS" then
 			GameTooltip:SetText("Items", 1, 1, 1)
 			GameTooltip:AddLine("Flasks, elixirs, potions, scrolls, world buffs and trinket effects.", nil, nil, nil, true)

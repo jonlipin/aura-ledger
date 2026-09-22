@@ -82,6 +82,20 @@ ns.BOOK = {
 	},
 }
 
+-- The buffs a race gives you. Anything this client does not have is withheld when the book is
+-- built, so the races that came later can sit here safely.
+ns.BOOK.RACIAL = {
+	{ "Blood Fury", 20572, "buff", "Orc" },
+	{ "Berserking", 26297, "buff", "Troll" },
+	{ "Stoneform", 20594, "buff", "Dwarf" },
+	{ "Find Treasure", 2481, "buff", "Dwarf" },
+	{ "Shadowmeld", 20580, "buff", "Night Elf" },
+	{ "Perception", 20600, "buff", "Human" },
+	{ "Will of the Forsaken", 7744, "buff", "Undead" },
+	{ "Cannibalize", 20577, "buff", "Undead" },
+	{ "Gift of the Naaru", 28880, "buff", "Draenei" },
+}
+
 -- Buffs from consumables, world buffs and equipment. The NAME is the buff's name, which is often
 -- not the item's name (Flask of Supreme Power gives "Supreme Power"). { name, spellID or nil, kind, note }
 ns.BOOK.ITEMS = {
@@ -198,7 +212,7 @@ ns.BOOK.PVE = {
 -- The Dungeons and raids chapter (mob debuffs on you) is kept in the data but not offered: on this
 -- client a debuff on you cannot be tracked by spell in combat. A group with Contents "Debuffs on me"
 -- shows them all instead.
-ns.BOOK_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID", "ITEMS" }
+ns.BOOK_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID", "RACIAL", "ITEMS" }
 
 -- Turn the raw rows into objects shaped like ledger rows, once.
 local built
