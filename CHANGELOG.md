@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.7.3
+
+- The entry backplate no longer draws over the text on hover; it sits beneath the entry, shows faintly at rest (as the spellbook's does) and brightens on hover, in both the book and the Groups list.
+
 ## 1.7.2
 
 - The tracker icon at the top of the Options panel wears the spellbook icon frame and mask, and its group tag is in ink.

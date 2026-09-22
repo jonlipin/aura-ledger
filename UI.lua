@@ -629,10 +629,14 @@ local function CreateBookButton(parent, onParchment, art)
 		hl:SetVertexColor(1, 0.85, 0.45, 0.35)
 		-- The spellbook lights a backplate behind the whole entry on hover.
 		if art.backplate then
-			local plate = b:CreateTexture(nil, "HIGHLIGHT", nil, -1)
+			-- Under everything (the HIGHLIGHT layer would draw over the text), faint at rest as in the
+			-- spellbook, full on hover.
+			local plate = b:CreateTexture(nil, "BACKGROUND", nil, 1)
 			plate:SetAtlas(art.backplate)
 			plate:SetPoint("TOPLEFT", b, "TOPLEFT", -6, 2)
 			plate:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -8, -2)
+			plate:SetAlpha(0.35)
+			b.plate = plate
 		end
 	else
 		hl:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
@@ -653,8 +657,8 @@ local function CreateBookButton(parent, onParchment, art)
 	end
 	b.typeBorder:Hide()
 
-	b:SetScript("OnEnter", BookTooltip)
-	b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	b:SetScript("OnEnter", function(self) if self.plate then self.plate:SetAlpha(1) end BookTooltip(self) end)
+	b:SetScript("OnLeave", function(self) if self.plate then self.plate:SetAlpha(0.35) end GameTooltip:Hide() end)
 	b:SetScript("OnDragStart", function(self)
 		if not self.item then return end
 		self.dragItem = self.item
@@ -1038,8 +1042,14 @@ local function CreateTreeRow(parent)
 	-- Kept under the text: a HIGHLIGHT-layer texture would draw over it and blank the row.
 	local hl = row:CreateTexture(nil, "BACKGROUND", nil, 2)
 	hl:SetAllPoints()
-	if PARCHMENT and HasAtlas("spellbook-item-backplate") then hl:SetAtlas("spellbook-item-backplate") else SetRowHighlight(hl) end
-	hl:Hide()
+	if PARCHMENT and HasAtlas("spellbook-item-backplate") then
+		hl:SetAtlas("spellbook-item-backplate")
+		hl:SetAlpha(0.3)
+		row.plated = true
+	else
+		SetRowHighlight(hl)
+		hl:Hide()
+	end
 	row.hl = hl
 	row:SetScript("OnClick", function(self)
 		local item = self.item
@@ -1048,7 +1058,7 @@ local function CreateTreeRow(parent)
 		UI:ShowSelection()
 	end)
 	row:SetScript("OnEnter", function(self)
-		self.hl:Show()
+		if self.plated then self.hl:SetAlpha(1) else self.hl:Show() end
 		local item = self.item
 		if not item then return end
 		local cond = ns.CondSummary(item.t and item.t.cond or item.g.cond)
@@ -1056,7 +1066,7 @@ local function CreateTreeRow(parent)
 			item.t and ("Shows when " .. (SHOW_TAG[item.t.show] or "active")) or (#item.g.trackers .. " tracker" .. (#item.g.trackers == 1 and "" or "s")),
 			cond ~= "" and ("Only: " .. cond) or nil)
 	end)
-	row:SetScript("OnLeave", function(self) self.hl:Hide() GameTooltip:Hide() end)
+	row:SetScript("OnLeave", function(self) if self.plated then self.hl:SetAlpha(0.3) else self.hl:Hide() end GameTooltip:Hide() end)
 	return row
 end
 
