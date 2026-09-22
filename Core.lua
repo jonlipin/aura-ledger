@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.29.0"
+ns.VERSION = "1.29.1"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -1475,23 +1475,36 @@ function ns.CombatCatalogue(force)
 				for _, cdmID in ipairs(list or {}) do
 					local okI, info = pcall(C.GetCooldownViewerCooldownInfo, cdmID)
 					if okI and type(info) == "table" then
-						local sid = Clean(info.spellID)
+						-- A cooldown can stand for a different spell than the one it is filed under,
+						-- and every rank has its own entry. The manager only ever builds a frame for
+						-- one the character knows, so a known entry always wins over an unknown one.
+						local sid = Clean(info.overrideTooltipSpellID) or Clean(info.overrideSpellID) or Clean(info.spellID)
+						local known = Clean(info.isKnown) and true or false
 						if type(sid) == "number" then
 							if not cat.ids[sid] then cat.count = cat.count + 1 end
 							cat.ids[sid] = true
-							cat.cooldownById[sid] = cat.cooldownById[sid] or cdmID
+							local function Claim(key, into, seen)
+								if key == nil then return end
+								if into[key] == nil or (known and not seen[key]) then
+									into[key] = cdmID
+									seen[key] = known
+								end
+							end
+							cat.knownById = cat.knownById or {}
+							cat.knownByName = cat.knownByName or {}
+							Claim(sid, cat.cooldownById, cat.knownById)
 							if C_Spell and C_Spell.GetBaseSpell then
 								local okB, base = pcall(C_Spell.GetBaseSpell, sid)
 								if okB and type(base) == "number" then
 									cat.ids[base] = true
-									cat.cooldownById[base] = cat.cooldownById[base] or cdmID
+									Claim(base, cat.cooldownById, cat.knownById)
 								end
 							end
 							local name = ns.SpellName and ns.SpellName(sid)
 							if name then
 								local l = strlower(name)
 								cat.names[l] = true
-								cat.cooldownByName[l] = cat.cooldownByName[l] or cdmID
+								Claim(l, cat.cooldownByName, cat.knownByName)
 							end
 						end
 					end
@@ -1730,6 +1743,14 @@ function ns.CDM.Restore()
 	if not data then return false, "the layout could not be read" end
 	data[CDM_ACTIVE_NAMES] = data[CDM_ACTIVE_NAMES] or {}
 	data[CDM_ACTIVE_NAMES][prev.tag] = prev.id or nil
+	-- Our layout goes with it, so the manager is left exactly as it was found.
+	local name = ns.CDM.LayoutName()
+	for lid, lname in pairs(data[CDM_LAYOUT_IDS] or {}) do
+		if lname == name then
+			data[CDM_LAYOUT_IDS][lid] = nil
+			if data[CDM_LAYOUTS] and data[CDM_LAYOUTS][prev.tag] then data[CDM_LAYOUTS][prev.tag][lid] = nil end
+		end
+	end
 	local okS, encoded = pcall(function()
 		return C_EncodingUtil.EncodeBase64(C_EncodingUtil.CompressString(C_EncodingUtil.SerializeCBOR(data), Enum.CompressionMethod.Deflate))
 	end)
@@ -2552,8 +2573,11 @@ SlashCmdList.AURALEDGER = function(msg)
 					local belongs
 					if cd and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
 						local okI, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cd)
-						local sid = okI and type(info) == "table" and Clean(info.spellID) or nil
-						belongs = sid and ((ns.SpellName and ns.SpellName(sid) or "?") .. " (" .. sid .. ")") or "?"
+						if okI and type(info) == "table" then
+							local sid = Clean(info.overrideTooltipSpellID) or Clean(info.overrideSpellID) or Clean(info.spellID)
+							belongs = sid and ((ns.SpellName and ns.SpellName(sid) or "?") .. " (" .. sid .. ")") or "?"
+							belongs = belongs .. (Clean(info.isKnown) and ", known" or ", NOT known so the manager will not draw it")
+						end
 					end
 					Print(("  %s [id %s] -> cooldown %s = %s"):format(t.name or "?", tostring(t.id), tostring(cd), tostring(belongs)))
 				end

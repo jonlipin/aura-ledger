@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.29.1
+
+- Fixed the spell to cooldown lookup. The Cooldown Manager files every rank of a spell separately and only builds a frame for one the character actually knows, so the addon was asking it to draw Demon Skin rank 1, which this character does not know, and the manager quietly drew nothing. A cooldown the character knows now always wins, a cooldown that stands for another spell is read under that spell, and ranks collapse to the base spell. /auraledger debug cdmapply says for each tracker whether the entry it found is one the character knows.
+
 ## 1.29.0
 
 - The Cooldown Manager layout is written the way the manager reads it. Its category lists are the whole tracked set in display order, not a filter, so writing a single spell did not pick that spell out, it only reordered things and the manager carried on showing its own. The layout now keeps every cooldown the manager tracks and moves the ones a bar group wants into the bar row. Picking out the frames that belong to your trackers is the addon's job, by cooldown id, and that is the next piece.
