@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.9
+
+- Tab spacing tightened by another 2px.
+
 ## 1.9.8
 
 - Tabs sit closer together, at the spellbook's spacing.
