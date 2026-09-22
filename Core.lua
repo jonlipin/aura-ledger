@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.26.0"
+ns.VERSION = "1.26.1"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -1705,6 +1705,14 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 				ns.CombatCatalogue(true)
 				if ns.ResolveAllBookItems then ns.ResolveAllBookItems() end
 			end)
+			-- The Cooldown Manager builds its frames after login, so this waits a little longer.
+			C_Timer.After(5, function()
+				if ns.db.cdmProbe == ns.VERSION or not ns.ProbeCDM then return end
+				ns.db.cdmProbe = ns.VERSION
+				ns.LogLine("=== automatic Cooldown Manager probe")
+				local summary = ns.ProbeCDM(ns.LogLine)
+				Print("Cooldown Manager: " .. tostring(summary) .. ". The full reading is in the log (/auraledger debug cdm2 to see it here).")
+			end)
 		end
 		if C_Timer and C_Timer.After then C_Timer.After(1, function() if ns.SyncAuraSounds then ns.SyncAuraSounds() end end) end
 		ns.UpdateEnv()
@@ -2041,6 +2049,86 @@ end
 
 local function YesNo(v) return v and "|cff40ff40yes|r" or "|cffff5050no|r" end
 
+-- Everything the Coolinator addon relies on to make Blizzard's Cooldown Manager draw the spells
+-- you choose: the viewers' item frame pools, each item's cooldown id and shown state, and the
+-- layout data APIs. "emit" is Print for the command, or the log writer for the quiet run.
+function ns.ProbeCDM(emit)
+	local function S(v) if issecretvalue and issecretvalue(v) then return "secret" end return tostring(v) end
+	local function Has(t, k) return t and t[k] ~= nil and YesNo(true) or YesNo(false) end
+	emit("Cooldown Manager, the way Coolinator uses it (secret right now: " .. YesNo(AurasSecret()) .. "):")
+	emit("  C_CooldownViewer: GetLayoutData " .. Has(C_CooldownViewer, "GetLayoutData") .. ", SetLayoutData " .. Has(C_CooldownViewer, "SetLayoutData")
+		.. ", GetCooldownViewerCategorySet " .. Has(C_CooldownViewer, "GetCooldownViewerCategorySet") .. ", GetCooldownViewerCooldownInfo " .. Has(C_CooldownViewer, "GetCooldownViewerCooldownInfo"))
+	emit("  C_EncodingUtil: " .. YesNo(C_EncodingUtil) .. " (SerializeCBOR " .. Has(C_EncodingUtil, "SerializeCBOR") .. ", CompressString " .. Has(C_EncodingUtil, "CompressString")
+		.. ", EncodeBase64 " .. Has(C_EncodingUtil, "EncodeBase64") .. "), CooldownViewerSettings " .. YesNo(CooldownViewerSettings)
+		.. ", CooldownViewerUtil " .. YesNo(CooldownViewerUtil) .. ", cooldownViewerEnabled cvar " .. tostring(C_CVar and C_CVar.GetCVar and select(2, pcall(C_CVar.GetCVar, "cooldownViewerEnabled"))))
+	if CooldownViewerUtil and CooldownViewerUtil.GetCurrentClassAndSpecTag then
+		emit("  class/spec tag: " .. S(select(2, pcall(CooldownViewerUtil.GetCurrentClassAndSpecTag))))
+	end
+	if C_CooldownViewer and C_CooldownViewer.GetLayoutData then
+		local ok, raw = pcall(C_CooldownViewer.GetLayoutData)
+		if ok and type(raw) == "string" then
+			emit(("  layout data: %d characters, starts %s"):format(#raw, raw:sub(1, 12)))
+			local body = raw:match("^%d%|(.*)$")
+			if body and C_EncodingUtil and C_EncodingUtil.DecodeBase64 then
+				local okD, data = pcall(function()
+					return C_EncodingUtil.DeserializeCBOR(C_EncodingUtil.DecompressString(C_EncodingUtil.DecodeBase64(body), Enum.CompressionMethod.Deflate))
+				end)
+				if okD and type(data) == "table" then
+					local keys = {}
+					for k, v in pairs(data) do keys[#keys + 1] = tostring(k) .. "=" .. (type(v) == "table" and "{}" or tostring(v)) end
+					table.sort(keys)
+					emit("    decoded, format version " .. tostring(data[1]) .. ", fields " .. table.concat(keys, ", "))
+				else
+					emit("    could not decode: " .. tostring(data))
+				end
+			end
+		else
+			emit("  layout data: " .. (ok and S(raw) or ("error " .. tostring(raw))))
+		end
+	end
+	for _, vname in ipairs({ "BuffIconCooldownViewer", "BuffBarCooldownViewer", "EssentialCooldownViewer", "UtilityCooldownViewer" }) do
+		local v = _G[vname]
+		if not v then
+			emit("  " .. vname .. ": missing")
+		else
+			local pool = v.itemFramePool
+			local okShown, shown = pcall(v.IsShown, v)
+			emit(("  %s: shown %s, itemFramePool %s, RefreshData %s, OnUnitAura %s, OnUnitTarget %s"):format(
+				vname, okShown and S(shown) or "error", YesNo(pool), Has(v, "RefreshData"), Has(v, "OnUnitAura"), Has(v, "OnUnitTarget") ))
+			if pool and pool.EnumerateActive then
+				local n = 0
+				local okE = pcall(function()
+					for item in pool:EnumerateActive() do
+						n = n + 1
+						if n <= 8 then
+							local cid = item.cooldownID
+							local info = cid and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo and select(2, pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cid))
+							local sid = type(info) == "table" and Clean(info.spellID) or nil
+							local okS2, sh = pcall(item.IsShown, item)
+							emit(("    item %d: cooldownID %s (%s), layoutIndex %s, shown %s, Icon %s, Cooldown %s, Applications %s, DebuffBorder %s"):format(
+								n, S(cid), sid and (ns.SpellName and ns.SpellName(sid) or tostring(sid)) or "?", S(item.layoutIndex),
+								okS2 and S(sh) or "error", Has(item, "Icon"), Has(item, "Cooldown"), Has(item, "Applications"), Has(item, "DebuffBorder")))
+						end
+					end
+				end)
+				emit(("    %d active item frames%s"):format(n, okE and "" or " (enumeration failed)"))
+			end
+		end
+	end
+	local pool = BuffIconCooldownViewer and BuffIconCooldownViewer.itemFramePool
+	local items = 0
+	if pool and pool.EnumerateActive then
+		pcall(function() for _ in pool:EnumerateActive() do items = items + 1 end end)
+	end
+	local summary = ("pool %s, items %d, layout %s, encoding %s, settings %s"):format(
+		pool and "yes" or "no", items,
+		(C_CooldownViewer and C_CooldownViewer.SetLayoutData) and "yes" or "no",
+		(C_EncodingUtil and C_EncodingUtil.SerializeCBOR) and "yes" or "no",
+		CooldownViewerSettings and "yes" or "no")
+	ns.report["cooldown manager"] = summary
+	return summary
+end
+
 local function Debug()
 	Print("v" .. ns.VERSION .. " debug for " .. tostring(ns.charKey))
 	Print("  APIs: GetAuraDataByIndex " .. YesNo(C_UnitAuras and C_UnitAuras.GetAuraDataByIndex)
@@ -2186,68 +2274,7 @@ SlashCmdList.AURALEDGER = function(msg)
 			Print(("  %s icon %s -> %s"):format(e.name or "?", tostring(e.icon), shown[ik] and "on the frame" or "NOT on the frame"))
 		end
 	elseif cmd == "cdm2" then
-		local function S(v) if issecretvalue and issecretvalue(v) then return "secret" end return tostring(v) end
-		local function Has(t, k) return t and t[k] ~= nil and YesNo(true) or YesNo(false) end
-		Print("Cooldown Manager, the way Coolinator uses it (secret right now: " .. YesNo(AurasSecret()) .. "):")
-		Print("  C_CooldownViewer: GetLayoutData " .. Has(C_CooldownViewer, "GetLayoutData") .. ", SetLayoutData " .. Has(C_CooldownViewer, "SetLayoutData")
-			.. ", GetCooldownViewerCategorySet " .. Has(C_CooldownViewer, "GetCooldownViewerCategorySet") .. ", GetCooldownViewerCooldownInfo " .. Has(C_CooldownViewer, "GetCooldownViewerCooldownInfo"))
-		Print("  C_EncodingUtil: " .. YesNo(C_EncodingUtil) .. " (SerializeCBOR " .. Has(C_EncodingUtil, "SerializeCBOR") .. ", CompressString " .. Has(C_EncodingUtil, "CompressString")
-			.. ", EncodeBase64 " .. Has(C_EncodingUtil, "EncodeBase64") .. "), CooldownViewerSettings " .. YesNo(CooldownViewerSettings)
-			.. ", CooldownViewerUtil " .. YesNo(CooldownViewerUtil) .. ", cooldownViewerEnabled cvar " .. tostring(C_CVar and C_CVar.GetCVar and select(2, pcall(C_CVar.GetCVar, "cooldownViewerEnabled"))))
-		if CooldownViewerUtil and CooldownViewerUtil.GetCurrentClassAndSpecTag then
-			Print("  class/spec tag: " .. S(select(2, pcall(CooldownViewerUtil.GetCurrentClassAndSpecTag))))
-		end
-		if C_CooldownViewer and C_CooldownViewer.GetLayoutData then
-			local ok, raw = pcall(C_CooldownViewer.GetLayoutData)
-			if ok and type(raw) == "string" then
-				Print(("  layout data: %d characters, starts %s"):format(#raw, raw:sub(1, 12)))
-				local body = raw:match("^%d%|(.*)$")
-				if body and C_EncodingUtil and C_EncodingUtil.DecodeBase64 then
-					local okD, data = pcall(function()
-						return C_EncodingUtil.DeserializeCBOR(C_EncodingUtil.DecompressString(C_EncodingUtil.DecodeBase64(body), Enum.CompressionMethod.Deflate))
-					end)
-					if okD and type(data) == "table" then
-						local keys = {}
-						for k, v in pairs(data) do keys[#keys + 1] = tostring(k) .. "=" .. (type(v) == "table" and "{}" or tostring(v)) end
-						table.sort(keys)
-						Print("    decoded, format version " .. tostring(data[1]) .. ", fields " .. table.concat(keys, ", "))
-					else
-						Print("    could not decode: " .. tostring(data))
-					end
-				end
-			else
-				Print("  layout data: " .. (ok and S(raw) or ("error " .. tostring(raw))))
-			end
-		end
-		for _, vname in ipairs({ "BuffIconCooldownViewer", "BuffBarCooldownViewer", "EssentialCooldownViewer", "UtilityCooldownViewer" }) do
-			local v = _G[vname]
-			if not v then
-				Print("  " .. vname .. ": missing")
-			else
-				local pool = v.itemFramePool
-				local okShown, shown = pcall(v.IsShown, v)
-				Print(("  %s: shown %s, itemFramePool %s, RefreshData %s, OnUnitAura %s, OnUnitTarget %s"):format(
-					vname, okShown and S(shown) or "error", YesNo(pool), Has(v, "RefreshData"), Has(v, "OnUnitAura"), Has(v, "OnUnitTarget") ))
-				if pool and pool.EnumerateActive then
-					local n = 0
-					local okE = pcall(function()
-						for item in pool:EnumerateActive() do
-							n = n + 1
-							if n <= 8 then
-								local cid = item.cooldownID
-								local info = cid and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo and select(2, pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cid))
-								local sid = type(info) == "table" and Clean(info.spellID) or nil
-								local okS2, sh = pcall(item.IsShown, item)
-								Print(("    item %d: cooldownID %s (%s), layoutIndex %s, shown %s, Icon %s, Cooldown %s, Applications %s, DebuffBorder %s"):format(
-									n, S(cid), sid and (ns.SpellName and ns.SpellName(sid) or tostring(sid)) or "?", S(item.layoutIndex),
-									okS2 and S(sh) or "error", Has(item, "Icon"), Has(item, "Cooldown"), Has(item, "Applications"), Has(item, "DebuffBorder")))
-							end
-						end
-					end)
-					Print(("    %d active item frames%s"):format(n, okE and "" or " (enumeration failed)"))
-				end
-			end
-		end
+		ns.ProbeCDM(Print)
 	elseif cmd == "cdm" then
 		local C = C_CooldownViewer
 		Print("Cooldown Manager data (secret: " .. YesNo(AurasSecret()) .. "; API " .. YesNo(C) .. (C and (", available " .. YesNo(C.IsCooldownViewerAvailable and select(2, pcall(C.IsCooldownViewerAvailable)))) or "") .. "):")

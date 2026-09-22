@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.26.1
+
+- The Cooldown Manager probe now runs itself once a few seconds after login and writes the full reading to the log, with a one-line summary in chat. It reports whether this client exposes the pieces an addon needs to make the game's own Cooldown Manager draw the spells you choose: the viewers' item frame pools, each item's cooldown id and shown state, and the layout data APIs. /auraledger debug cdm2 still prints it on demand.
+
 ## 1.26.0
 
 - Contents offers only what is worth having: the trackers you put there, your debuffs on your target, or every debuff on your target. The other five repeated what the default buff, debuff and target frames already show, so they are gone.
