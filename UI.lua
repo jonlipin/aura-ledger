@@ -1410,29 +1410,38 @@ local function BuildGroupPanel(width)
 	b:Note("The addon cannot see auras in combat on this client, so a group either updates between fights or is drawn by the game.")
 	b:Edit("Name", function() local g = G() return g and g.name or "" end,
 		function(text) local g = G() if g then g.name = (text ~= "" and text) or nil GroupChanged() end end)
-	local showsChoices = {
-		{ "", "My trackers, between fights" },
-		{ "combat", "My trackers, kept right in combat" },
-	}
-	for _, lf in ipairs(ns.LIVE_FILTERS) do showsChoices[#showsChoices + 1] = { lf[1], lf[2] .. " (the game fills it)" } end
-	b:Cycle("Shows", showsChoices,
-		function()
-			local g = G()
-			if not g then return "" end
-			if g.live and g.live ~= "" then return g.live end
-			return g.gameDrawn and "combat" or ""
-		end,
+	-- Two plain questions: what is in the group, and who draws it. The second only comes up for a
+	-- group of your own trackers, because a group the game fills is always drawn by the game.
+	local contentChoices = { { "", "The trackers I put here" } }
+	for _, lf in ipairs(ns.LIVE_FILTERS) do contentChoices[#contentChoices + 1] = { lf[1], lf[2] } end
+	b:Cycle("Contents", contentChoices,
+		function() local g = G() return g and g.live or "" end,
 		function(v)
 			local g = G()
 			if not g then return end
-			if v == "" then g.live, g.gameDrawn = nil, nil
-			elseif v == "combat" then g.live, g.gameDrawn = nil, true
-			else g.live, g.gameDrawn = v, nil end
+			g.live = (v ~= "" and v) or nil
+			if g.live then g.gameDrawn = nil end
 			GroupChanged()
 			b:Sync()
 		end,
-		"My trackers, between fights: the addon draws the trackers in this group, and on this client they only update out of combat. My trackers, kept right in combat: the game draws each tracker and keeps it right during a fight, but it shows the aura whenever it is active, so 'It is missing' behaves like 'Always' and the warn window does not apply; it works for buffs on you and debuffs on your target, not for a debuff on you. The rest hand the whole group to the game, which fills it with every aura of that kind and keeps it right in combat; the trackers in such a group are then only there for their sounds.",
+		"The trackers I put here: the group holds the auras you drag into it. Any other choice hands the whole group to the game, which fills it with every aura of that kind and keeps it right in a fight; the trackers in such a group are then only there for their sounds.",
 		210)
+	local whoNote = b:Note("The game fills this group and keeps it right in a fight. Its own trackers are only there for their sounds.")
+	b.syncers[#b.syncers + 1] = function()
+		local g = G()
+		if not g then return end
+		if g.live and g.live ~= "" then
+			whoNote:SetText("The game fills this group and keeps it right in a fight. Its own trackers are only there for their sounds.")
+		elseif g.gameDrawn then
+			whoNote:SetText("The game draws these trackers, so they stay right in a fight. It shows an aura whenever it is active.")
+		else
+			whoNote:SetText("The addon draws these trackers, so they only update between fights on this client.")
+		end
+	end
+	b:Check("Keep these right in combat (the game draws them)", function() local g = G() return g and g.gameDrawn or false end,
+		function(v) local g = G() if g then g.gameDrawn = v or nil GroupChanged() b:Sync() end end,
+		"On this client the addon cannot see auras during a fight. Ticked, the game draws each tracker in this group and keeps it right, at the cost of always showing an aura while it is active: 'Missing' then behaves like 'Either', and the warn window does not apply. It works for buffs on you and for debuffs on your target; a debuff on you cannot be drawn this way, so use Contents: Every debuff on me for those.")
+	b:AppliesWhen(function() return not IsCategory() end)
 	b:Cycle("Show as", { { "icons", "Icons with numbers" }, { "bars", "Bars with icons" } },
 		function() local g = G() return g and g.style or "icons" end,
 		function(v) local g = G() if g then g.style = v if v == "bars" and (g.grow == "RIGHT" or g.grow == "LEFT") then ns.Display:SetGrow(g, "DOWN") end GroupChanged() b:Sync() end end,
@@ -1475,7 +1484,7 @@ local function BuildGroupPanel(width)
 		function(v) local g = G() if g then g.iconFrame = v GroupChanged() end end,
 		"The decorative frame around each icon, when the client has one.")
 
-	b:Header("Show this group when")
+	b:Header("Only show this group when")
 	b:Conditions(function() local g = G() return g and g.cond end, TrackerChanged)
 
 	b.y = b.y - 8
@@ -1547,10 +1556,10 @@ local function BuildTrackerPanel(width)
 		return not (g and (g.gameDrawn or (g.live and g.live ~= "")))
 	end
 	b:Header("Tracker")
-	b:Cycle("Show when", { { "active", "It is active" }, { "missing", "It is missing" }, { "always", "Always (red when missing)" } },
+	b:Cycle("Show the aura when it is", { { "active", "Active" }, { "missing", "Missing" }, { "always", "Either (red when missing)" } },
 		function() local t = T() return t and t.show or "active" end,
-		function(v) local t = T() if t then t.show = v TrackerChanged() end end,
-		"Active: shows while you have it. Missing: shows only while you do not. Always: shows both ways and turns red while missing. In a group with 'Track in combat', Missing behaves like Always.")
+		function(v) local t = T() if t then t.show = v TrackerChanged() b:Sync() end end,
+		"Active: on screen while you have it. Missing: on screen only while you do not. Either: on screen both ways, red while missing. In a group the game draws, Missing behaves like Either.")
 	b:Slider("Warn before it runs out (seconds, 0 = off)", { min = 0, max = 300, step = 1,
 		get = function() local t = T() return t and (t.warn or 0) end,
 		set = function(v) local t = T() if t then t.warn = (v > 0) and v or nil TrackerChanged() end end,
@@ -1631,7 +1640,7 @@ local function BuildTrackerPanel(width)
 	SoundCycle("When it runs out", "removed", "Plays when the aura wears off or is removed.")
 	SoundCycle("When the tracker appears", "shown", "Plays when this tracker comes on screen, for whatever reason: the aura landing, going missing, or entering its warn window.")
 
-	b:Header("Show this tracker when")
+	b:Header("Only show this tracker when")
 	b:Note("These add to the group's own conditions.")
 	b:Conditions(function() local t = T() return t and t.cond end, TrackerChanged)
 

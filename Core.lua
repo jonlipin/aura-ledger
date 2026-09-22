@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.24.2"
+ns.VERSION = "1.25.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -317,12 +317,12 @@ ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "spacing", "perRow", "s
 
 -- What a game-drawn group can show: Blizzard's aura filters for the player.
 ns.LIVE_FILTERS = {
-	{ "HARMFUL",                "Debuffs on me" },
-	{ "HARMFUL|DISPELLABLE",    "Debuffs on me I could dispel" },
-	{ "HELPFUL",                "Buffs on me" },
-	{ "HELPFUL|PLAYER",         "Buffs on me that I cast" },
 	{ "target:HARMFUL|PLAYER",  "My debuffs on my target" },
-	{ "target:HARMFUL",         "All debuffs on my target" },
+	{ "HARMFUL",                "Every debuff on me" },
+	{ "HELPFUL",                "Every buff on me" },
+	{ "HARMFUL|DISPELLABLE",    "Debuffs on me I can dispel" },
+	{ "HELPFUL|PLAYER",         "Buffs on me that I cast" },
+	{ "target:HARMFUL",         "Every debuff on my target" },
 	{ "target:HELPFUL",         "Buffs on my target" },
 }
 

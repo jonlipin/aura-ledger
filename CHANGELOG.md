@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.25.0
+
+- The group options ask two plain questions instead of one muddled one. "Contents" says what is in the group: the trackers you put there, or one of the kinds of aura the game fills a group with. "Keep these right in combat" says who draws your trackers, and only appears for a group of your own trackers, since a group the game fills is always drawn by the game. A line under Contents says in plain words what the current pair means.
+- Nothing is called "show" in two senses any more. The condition headings are now "Only show this group when" and "Only show this tracker when", and a tracker's own rule reads "Show the aura when it is: Active / Missing / Either".
+- The Contents choices are worded plainly and ordered by how often they are wanted, with "My debuffs on my target" first.
+
 ## 1.24.2
 
 - Fixed: re-stacking the options rows ran them over the tracker name and icon at the top of the panel. The rows now start where the panel left off, below the title block.
