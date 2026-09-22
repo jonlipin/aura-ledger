@@ -551,6 +551,22 @@ local function ShapeRing(w, icon, size, want, r, g, b)
 	return true
 end
 
+-- A cooldown draws with textures of its own on a frame laid over the picture. They are made when
+-- the cooldown first runs, so this is asked again whenever one is set going.
+local function ShapeCooldown(w, cd, size, want)
+	if not cd or not cd.GetRegions then return false end
+	local ok, regions = pcall(function() return { cd:GetRegions() } end)
+	if not ok then return false end
+	local n = 0
+	for _, r in ipairs(regions) do
+		if IsA(r, "Texture") then
+			n = n + 1
+			ShapeMask(w, r, size, want, "cdMasks" .. n)
+		end
+	end
+	return n > 0
+end
+
 -- Just the colour, for a border already in place.
 local function ShapeBorderColor(w, r, g, b)
 	local tex = w.shapeBorder
@@ -1098,6 +1114,7 @@ local function ConfigureWidget(w, g)
 		-- Both are asked every time: the one that is not wanted takes itself off screen.
 		w.ringRef = w.ringHolder
 		ShapeMask(w, w.icon, IS, g.iconFrame ~= false)
+		ShapeCooldown(w, w.cd, IS, g.iconFrame ~= false)
 		local shaped = ShapeBorder(w, w.icon, IS, g.iconFrame ~= false) or (HaveShape() and g.iconFrame ~= false)
 		local edged = PlaceCleanEdge(w, w.icon, IS, g.iconFrame ~= false)
 		local framed = PlaceClientFrame(w, w.icon, IS, g.iconFrame ~= false)
@@ -1149,6 +1166,7 @@ local function ConfigureWidget(w, g)
 		PlaceDecor(w, {}, "decor", w.bar, S)
 		w.ringRef = w.ringHolder
 		ShapeMask(w, w.icon, S, g.iconFrame ~= false)
+		ShapeCooldown(w, w.cd, S, g.iconFrame ~= false)
 		local shaped = ShapeBorder(w, w.icon, S, g.iconFrame ~= false) or (HaveShape() and g.iconFrame ~= false)
 		local edged = PlaceCleanEdge(w, w.icon, S, g.iconFrame ~= false, w.underSlot)
 		local framed = PlaceClientFrame(w, w.icon, S, g.iconFrame ~= false)
@@ -1255,6 +1273,7 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 	if w.cd then
 		if timed and g.style ~= "bars" then
 			w.cd:SetCooldown(entry.expires - entry.duration, entry.duration)
+			ShapeCooldown(w, w.cd, w.cellSize or g.size or 40, g.iconFrame ~= false)
 			w.cd:Show()
 		else
 			if w.cd.Clear then w.cd:Clear() end
@@ -1489,6 +1508,8 @@ local function InitSlotFrame(g, mode, filter, store)
 				if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
 				cd.noCooldownCount = true
 				pcall(button.SetDurationCooldown, button, cd)
+				ShapeCooldown(w, cd, IW, g.iconFrame ~= false)
+				if cd.HookScript then pcall(cd.HookScript, cd, "OnShow", function() ShapeCooldown(w, cd, IW, g.iconFrame ~= false) end) end
 			end
 			if g.iconFrame ~= false then
 				local e1 = PlaceCleanEdge(w, icon, H, true)

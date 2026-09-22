@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.46.3
+
+- The cooldown swipe keeps inside the icon. The swipe is drawn with textures on a frame of its own laid over the picture, and none of them were masked, so its square corners sat outside a rounded icon. They take the same mask the picture does, on the addon's own cells and on the slots the game fills, and again whenever a cooldown is set going, since those textures are only made when one first runs.
+
 ## 1.46.2
 
 - A tracker the game draws is framed like the ones the addon draws. Since 1.45.0 a picture was kept whole wherever the manager's mask was in hand, on the reading that the dark line round the manager's icons is the picture's own baked border. The game trims that border off when it fills a slot, so the game's icon looked zoomed in beside the addon's. Every picture is trimmed now, the way the game trims one.
