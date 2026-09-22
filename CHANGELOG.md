@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.12.0
+
+- In combat, each tracker is now asked about directly by spell (C_UnitAuras.GetAuraDataBySpellName, or GetPlayerAuraBySpellID when matching by id). When the client answers "nothing" the aura is treated as gone; when it answers with an aura (even one whose fields are hidden) the aura is treated as present, with the timer taken from the ledger when the real one is hidden. This runs on every scan while the aura list is unreadable.
+- Fixed: the buff frame's icons turn hidden once Blizzard's frame refreshes in combat, and that was being read as "no buffs at all", dropping every carried buff and never picking up a new one. A frame read now only counts when every shown icon could be read.
+- New: /auraledger probe shows how the client answers the by-spell question for each tracker right now, in or out of combat. /auraledger debug reports the by-spell counts and the last frame read.
+
 ## 1.11.3
 
 - Fixed: icons read from the default buff frame are now compared by file id even when the frame answers with a texture path, so carried buffs are no longer dropped in combat just because the two were written differently.

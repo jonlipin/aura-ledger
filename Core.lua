@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.11.3"
+ns.VERSION = "1.12.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0 }
 ns.auras = {}
@@ -566,6 +566,99 @@ local function ReadFilter(unit, filter, kind, out)
 	return unreadable
 end
 
+-- ------------------------------------------------------------------
+-- Asking by spell. While the aura list is secret, a lookup by spell name or id may still answer
+-- "nothing" or "a table" in the open, even when the table's fields are secret. That is enough to
+-- know a tracked aura is present or absent. The debug report shows how the client answers.
+-- ------------------------------------------------------------------
+local probeStats = { calls = 0, present = 0, absent = 0, unknown = 0, errors = 0 }
+ns.probeStats = probeStats
+
+local function SameAura(t, e)
+	if t.id and e.id == t.id then return true end
+	return t.name and e.name and strlower(e.name) == strlower(t.name)
+end
+
+-- Returns "present", data, kind | "absent" | "unknown"
+local function ProbeOne(unit, t)
+	local C = C_UnitAuras
+	if not C then return "unknown" end
+	local filters = t.kind == "buff" and { "HELPFUL" } or t.kind == "debuff" and { "HARMFUL" } or { "HELPFUL", "HARMFUL" }
+	local sawAbsent = false
+	for _, filter in ipairs(filters) do
+		local kind = filter == "HELPFUL" and "buff" or "debuff"
+		local ok, a
+		if t.name and not t.matchId and C.GetAuraDataBySpellName then
+			ok, a = pcall(C.GetAuraDataBySpellName, unit, t.name, filter)
+		elseif unit == "player" and t.id and C.GetPlayerAuraBySpellID then
+			ok, a = pcall(C.GetPlayerAuraBySpellID, t.id)
+			if ok and type(a) == "table" and not (issecretvalue and issecretvalue(a)) then
+				local harmful = Clean(a.isHarmful)
+				if harmful ~= nil and harmful ~= (filter == "HARMFUL") then a = nil end
+			end
+		elseif t.name and C.GetAuraDataBySpellName then
+			ok, a = pcall(C.GetAuraDataBySpellName, unit, t.name, filter)
+		else
+			return "unknown"
+		end
+		probeStats.calls = probeStats.calls + 1
+		if not ok then probeStats.errors = probeStats.errors + 1 return "unknown" end
+		if issecretvalue and issecretvalue(a) then return "unknown" end
+		if a == nil then
+			sawAbsent = true
+		elseif type(a) == "table" then
+			return "present", a, kind
+		end
+	end
+	if sawAbsent then return "absent" end
+	return "unknown"
+end
+ns.ProbeOne = ProbeOne
+
+local function ProbeTrackers(unit, fresh, now)
+	if not ns.profile then return end
+	for _, g in ipairs(ns.profile.groups) do
+		for _, t in ipairs(g.trackers) do
+			if (t.unit or "player") == unit and (t.name or t.id) then
+				local state, a, kind = ProbeOne(unit, t)
+				if state == "present" then
+					probeStats.present = probeStats.present + 1
+					local existing
+					for _, e in pairs(fresh) do if SameAura(t, e) then existing = e break end end
+					local name = Clean(a.name) or t.name or ("spell " .. tostring(t.id))
+					local e = existing
+					if not e then
+						local key = "p:" .. unit .. ":" .. tostring(t.id or strlower(name))
+						e = { key = key, name = name, id = Clean(a.spellId) or t.id, icon = Clean(a.icon) or t.icon, count = 0,
+							duration = 0, expires = 0, kind = kind, unit = unit, synth = true, estimated = true, stale = true }
+						local h = ns.db.history[kind .. ":" .. strlower(name)]
+						if h and h.duration and h.duration > 0 then e.duration, e.expires = h.duration, now + h.duration end
+						if not e.icon and h and h.icon then e.icon = h.icon end
+					end
+					-- Whatever the client lets through refreshes the entry.
+					local dur, exp = Clean(a.duration), Clean(a.expirationTime)
+					if dur and exp then e.duration, e.expires, e.estimated = dur, exp, false end
+					local cnt = Clean(a.applications)
+					if cnt then e.count = cnt end
+					local src = Clean(a.sourceUnit)
+					if src then e.mine = (src == "player" or src == "pet") end
+					local dispel = Clean(a.dispelName)
+					if dispel then e.dispel = dispel end
+					e.probed = true -- the frame icons no longer get a say over this one
+					fresh[e.key] = e
+				elseif state == "absent" then
+					probeStats.absent = probeStats.absent + 1
+					for k, e in pairs(fresh) do
+						if (e.stale or e.estimated) and SameAura(t, e) and (t.kind == "any" or not t.kind or e.kind == t.kind) then fresh[k] = nil end
+					end
+				else
+					probeStats.unknown = probeStats.unknown + 1
+				end
+			end
+		end
+	end
+end
+
 local firstScan = true
 
 -- One unit's scan: read what can be read, carry the rest forward. Returns the new table and whether
@@ -601,6 +694,8 @@ local function ScanUnit(unit, old, quiet)
 				end
 			end
 		end
+		-- Then ask about each tracked aura by spell: present ones are kept or added, absent ones dropped.
+		ProbeTrackers(unit, fresh, now)
 	end
 	return fresh, unreadable > 0, historyChanged
 end
@@ -685,7 +780,7 @@ end
 -- (so "missing" trackers fire mid-fight), and an icon that appears with no aura behind it is
 -- looked up in the ledger and shown as an estimated aura. The debug report says whether this works.
 -- ------------------------------------------------------------------
-local frameIconStats = { reads = 0, readable = false, removed = 0, added = 0, sample = {}, drops = {} }
+local frameIconStats = { reads = 0, readable = false, proven = false, removed = 0, added = 0, sample = {}, drops = {}, shown = 0, unreadable = 0 }
 ns.frameIconStats = frameIconStats
 
 -- Aura data gives icons as file ids; a frame's texture may answer with the id or with a path.
@@ -720,8 +815,9 @@ local function CollectFrameIcons(frame, prefix, kind, into)
 				local tex = FrameIconRegion(b)
 				local ok, raw = pcall(function() return tex and tex:GetTexture() end)
 				local file = ok and IconKey(raw) or nil
-				if #frameIconStats.sample < 12 then frameIconStats.sample[#frameIconStats.sample + 1] = ("%s %s->%s"):format(kind, ok and (type(Clean(raw)) .. ":" .. tostring(Clean(raw))) or "error", tostring(file)) end
-				if file then into[file] = kind frameIconStats.readable = true end
+				if #frameIconStats.sample < 12 then frameIconStats.sample[#frameIconStats.sample + 1] = ("%s %s->%s"):format(kind, ok and ((issecretvalue and issecretvalue(raw)) and "secret" or (type(raw) .. ":" .. tostring(raw))) or "error", tostring(file)) end
+				frameIconStats.shown = frameIconStats.shown + 1
+				if file then into[file] = kind else frameIconStats.unreadable = frameIconStats.unreadable + 1 end
 			end
 		end
 	elseif prefix then
@@ -733,8 +829,9 @@ local function CollectFrameIcons(frame, prefix, kind, into)
 				local tex = _G[prefix .. i .. "Icon"] or b.Icon
 				local ok, raw = pcall(function() return tex and tex:GetTexture() end)
 				local file = ok and IconKey(raw) or nil
-				if #frameIconStats.sample < 12 then frameIconStats.sample[#frameIconStats.sample + 1] = ("%s %s->%s"):format(kind, ok and (type(Clean(raw)) .. ":" .. tostring(Clean(raw))) or "error", tostring(file)) end
-				if file then into[file] = kind frameIconStats.readable = true end
+				if #frameIconStats.sample < 12 then frameIconStats.sample[#frameIconStats.sample + 1] = ("%s %s->%s"):format(kind, ok and ((issecretvalue and issecretvalue(raw)) and "secret" or (type(raw) .. ":" .. tostring(raw))) or "error", tostring(file)) end
+				frameIconStats.shown = frameIconStats.shown + 1
+				if file then into[file] = kind else frameIconStats.unreadable = frameIconStats.unreadable + 1 end
 			end
 		end
 	end
@@ -745,17 +842,21 @@ end
 local function ReconcileWithFrames()
 	local shown = {}
 	frameIconStats.reads = frameIconStats.reads + 1
+	frameIconStats.sample, frameIconStats.shown, frameIconStats.unreadable = {}, 0, 0
 	CollectFrameIcons(BuffFrame, "BuffButton", "buff", shown)
 	CollectFrameIcons(DebuffFrame, "DebuffButton", "debuff", shown)
-	-- Readable sticks once an icon has been read; from then on an empty frame means no auras.
-	if not frameIconStats.readable then return false end
+	-- Only a read where every shown icon could be read says anything. Once one such read has
+	-- happened, an empty frame means no auras.
+	frameIconStats.readable = frameIconStats.shown > 0 and frameIconStats.unreadable == 0
+	if frameIconStats.readable then frameIconStats.proven = true end
+	if frameIconStats.unreadable > 0 or not frameIconStats.proven then return false end
 	local changed = false
 	local now = GetTime()
 	local auras = ns.auras
 	-- Carried auras whose icon is gone from the frames are gone.
 	for key, e in pairs(auras) do
 		local ik = e.icon and IconKey(e.icon)
-		if (e.stale or e.estimated) and ik and not shown[ik] then
+		if (e.stale or e.estimated) and not e.probed and ik and not shown[ik] then
 			auras[key] = nil
 			frameIconStats.removed = frameIconStats.removed + 1
 			if #frameIconStats.drops < 8 then
@@ -1285,7 +1386,11 @@ local function Debug()
 	local fi = ns.frameIconStats
 	Print(("  buff frame icons while restricted: readable %s, reads %d, carried auras dropped %d, auras recognised from icons %d"):format(
 		YesNo(fi.readable), fi.reads, fi.removed, fi.added))
+	Print(("    last read: %d shown, %d unreadable, trusted before: %s"):format(fi.shown, fi.unreadable, YesNo(fi.proven)))
 	if #fi.sample > 0 then Print("    frame icons seen: " .. table.concat(fi.sample, "; ")) end
+	local ps = ns.probeStats
+	Print(("  asked by spell while restricted: calls %d, present %d, absent %d, unknown %d, errors %d (APIs: BySpellName %s, PlayerBySpellID %s)"):format(
+		ps.calls, ps.present, ps.absent, ps.unknown, ps.errors, YesNo(C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName), YesNo(C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID)))
 	for _, d in ipairs(fi.drops) do Print("    dropped: " .. d) end
 	local live, carried = 0, 0
 	for _, e in pairs(ns.auras) do live = live + 1 if e.stale or e.estimated then carried = carried + 1 end end
@@ -1360,8 +1465,7 @@ SlashCmdList.AURALEDGER = function(msg)
 		Print("Book background: " .. (ns.db.plainBook and "plain" or "parchment when the client has it") .. ". Type /reload to apply.")
 	elseif cmd == "frames" then
 		local shown = {}
-		local before = #ns.frameIconStats.sample
-		ns.frameIconStats.sample = {}
+		ns.frameIconStats.sample, ns.frameIconStats.shown, ns.frameIconStats.unreadable = {}, 0, 0
 		ns.CollectFrameIcons(BuffFrame, "BuffButton", "buff", shown)
 		ns.CollectFrameIcons(DebuffFrame, "DebuffButton", "debuff", shown)
 		Print("frame icons right now (secret: " .. YesNo(AurasSecret()) .. "):")
@@ -1372,7 +1476,23 @@ SlashCmdList.AURALEDGER = function(msg)
 			local ik = e.icon and ns.IconKey(e.icon)
 			Print(("  %s icon %s -> %s"):format(e.name or "?", tostring(e.icon), shown[ik] and "on the frame" or "NOT on the frame"))
 		end
-		if before > 0 then ns.frameIconStats.sample = {} end
+	elseif cmd == "probe" then
+		Print("asking by spell right now (secret: " .. YesNo(AurasSecret()) .. "; APIs: BySpellName " .. YesNo(C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName)
+			.. ", PlayerBySpellID " .. YesNo(C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID) .. "):")
+		local n = 0
+		for _, g in ipairs(ns.profile.groups) do
+			for _, t in ipairs(g.trackers) do
+				n = n + 1
+				local state, a = ns.ProbeOne(t.unit or "player", t)
+				local detail = ""
+				if state == "present" and type(a) == "table" then
+					local function f(k) local v = a[k] if issecretvalue and issecretvalue(v) then return "secret" end return tostring(v) end
+					detail = (" (name %s, duration %s, expires %s, source %s)"):format(f("name"), f("duration"), f("expirationTime"), f("sourceUnit"))
+				end
+				Print(("  %s on %s: %s%s"):format(t.name or tostring(t.id), t.unit or "player", state, detail))
+			end
+		end
+		if n == 0 then Print("  no trackers") end
 	elseif cmd == "debug" then
 		Debug()
 	else
