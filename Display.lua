@@ -1585,17 +1585,20 @@ local function GetGhost()
 		local g, f
 		if not overWindow then g, f = Display:GroupAt(cx, cy, self.except) end
 		Highlight(f)
-		if overWindow then self.text:SetText(self.windowText or "|cffff6060Cancel|r")
+		if overWindow then
+			-- Over the window, the list knows best what a drop would do.
+			local label = ns.UI and ns.UI.TreeDropLabel and ns.UI:TreeDropLabel(cy, self.dragTracker)
+			self.text:SetText(label or self.windowText or "|cffff6060Cancel|r")
 		elseif g then self.text:SetText("|cff40ff60Add to " .. ns.GroupName(g) .. "|r")
 		else self.text:SetText(self.freeText or "Place here") end
 	end)
 	return ghost
 end
 
-function Display:BeginGhost(icon, freeText, except, windowText)
+function Display:BeginGhost(icon, freeText, except, windowText, dragTracker)
 	local gh = GetGhost()
 	gh.icon:SetTexture(icon or QUESTION)
-	gh.freeText, gh.except, gh.windowText = freeText, except, windowText
+	gh.freeText, gh.except, gh.windowText, gh.dragTracker = freeText, except, windowText, dragTracker
 	gh:Show()
 end
 

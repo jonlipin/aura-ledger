@@ -680,15 +680,23 @@ local function CreateBookButton(parent, onParchment, art)
 		if not self.item then return end
 		self.dragItem = self.item
 		GameTooltip:Hide()
-		ns.Display:BeginGhost(self.item.icon, "Track here")
+		ns.Display:BeginGhost(self.item.icon, "Track here", nil, "|cffff6060Drop on the screen, or on the Groups and trackers list|r")
 	end)
 	b:SetScript("OnDragStop", function(self)
 		local h = self.dragItem
 		self.dragItem = nil
 		if not h then return end
+		-- The list is checked before the ghost goes away, while the cursor is still over the row.
+		local _, cursorY = ns.Display.CursorUI()
+		local listGroup, listIndex, kind = UI:TreeDropAt(cursorY)
 		local cancelled, cx, cy, target, index = ns.Display:EndGhost()
-		if cancelled then return end
-		ns.TrackHistory(h, target, index, cx - 20, cy + 20)
+		if kind then
+			ns.TrackHistory(h, listGroup, listIndex)
+		elseif cancelled then
+			return
+		else
+			ns.TrackHistory(h, target, index, cx - 20, cy + 20)
+		end
 		UI:ShowSelection()
 		UI:RefreshHistory()
 	end)
@@ -1144,7 +1152,7 @@ local function CreateTreeRow(parent)
 		if not item or not item.t then return end
 		self.dragging = item
 		GameTooltip:Hide()
-		ns.Display:BeginGhost(item.t.icon, "New group here", nil, "|cff40ff60Drop on a group or tracker, or on empty space for a new group|r")
+		ns.Display:BeginGhost(item.t.icon, "New group here", nil, "|cff40ff60Drop on a group or tracker, or on empty space for a new group|r", item.t)
 	end)
 	row:SetScript("OnDragStop", function(self)
 		local item = self.dragging
@@ -1153,25 +1161,14 @@ local function CreateTreeRow(parent)
 		local t = item.t
 		local from = ns.FindGroupOf(t)
 		if not from then ns.Display:EndGhost() return end
-		local target
-		for _, r in ipairs(treeList.rows) do
-			if r:IsShown() and r.item and r:IsMouseOver() then target = r break end
-		end
-		local overList = treeList.scroll:IsMouseOver()
+		local _, cursorY = ns.Display.CursorUI()
+		local listGroup, listIndex, kind, overT = UI:TreeDropAt(cursorY)
 		local cancelled, cx, cy, screenGroup, index = ns.Display:EndGhost()
-		if target and target.item.t then
-			if target.item.t ~= t then
-				local g = target.item.g
-				local at = 1
-				for i, other in ipairs(g.trackers) do if other == target.item.t then at = i break end end
-				local _, rowCy = target:GetCenter()
-				local s = target:GetEffectiveScale() / UIParent:GetEffectiveScale()
-				if rowCy and cy < rowCy * s then at = at + 1 end
-				ns.MoveTracker(t, g, at)
-			end
-		elseif target then
-			if target.item.g ~= from or #from.trackers > 1 then ns.MoveTracker(t, target.item.g) end
-		elseif overList or cancelled then
+		if kind == "before" or kind == "after" then
+			if overT ~= t then ns.MoveTracker(t, listGroup, listIndex) end
+		elseif kind == "group" then
+			if listGroup ~= from or #from.trackers > 1 then ns.MoveTracker(t, listGroup) end
+		elseif kind == "new" or cancelled then
 			if #from.trackers > 1 then ns.MoveTracker(t, ns.NewGroupLike(from)) end
 		elseif screenGroup then
 			ns.MoveTracker(t, screenGroup, index)
@@ -1183,6 +1180,45 @@ local function CreateTreeRow(parent)
 		UI:ShowSelection()
 	end)
 	return row
+end
+
+-- Where a drop into the Groups and trackers list would land. Returns the group, the position in
+-- it, what kind of drop it is ("group", "before", "after", "new") and the tracker under the
+-- cursor. Nil when the cursor is not over the list at all.
+function UI:TreeDropAt(cy)
+	if not (frame and frame:IsShown() and treeList and treeList.scroll) then return nil end
+	if not treeList.scroll:IsShown() then return nil end
+	for _, r in ipairs(treeList.rows) do
+		if r:IsShown() and r.item and r:IsMouseOver() then
+			if r.item.t then
+				local g = r.item.g
+				local at = 1
+				for i, other in ipairs(g.trackers) do if other == r.item.t then at = i break end end
+				local _, rowCy = r:GetCenter()
+				local s = r:GetEffectiveScale() / UIParent:GetEffectiveScale()
+				local after = rowCy and cy and cy < rowCy * s
+				return g, after and (at + 1) or at, after and "after" or "before", r.item.t
+			end
+			return r.item.g, nil, "group"
+		end
+	end
+	if treeList.scroll:IsMouseOver() then return nil, nil, "new" end
+	return nil
+end
+
+-- What the drag label should say while the cursor is over the window.
+function UI:TreeDropLabel(cy, dragT)
+	local g, _, kind, overT = UI:TreeDropAt(cy)
+	if kind == "group" then
+		return "|cff40ff60Add to " .. ns.GroupName(g) .. "|r"
+	elseif kind == "before" or kind == "after" then
+		if overT == dragT then return "|cffaaaaaaLeave it where it is|r" end
+		local name = overT and (overT.label or overT.name) or "that tracker"
+		return "|cff40ff60" .. (kind == "after" and "After " or "Before ") .. name .. "|r"
+	elseif kind == "new" then
+		return "|cff40ff60Drop here for a new group|r"
+	end
+	return nil
 end
 
 local function UpdateTreeRow(row, item)
@@ -1576,7 +1612,7 @@ local function Build()
 	hint:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 9)
 	hint:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 9)
 	hint:SetJustifyH("LEFT")
-	hint:SetText("Drag an aura out of the book onto the screen to track it. Drop it on another tracker to group them. Shift-drag a tracker to pull it out of a group or reorder it.")
+	hint:SetText("Drag an aura out of the book onto the screen to track it, or into the Groups and trackers list: onto a group to join it, onto a tracker to sit beside it, onto empty space for a group of its own. Drop one tracker on another to group them. Drag a row in the list to move it about.")
 
 	-- ---- Book pane (laid out like the Forever spellbook) ----
 	local left = CreateFrame("Frame", nil, body)

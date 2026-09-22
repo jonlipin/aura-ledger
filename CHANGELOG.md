@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.23.0
+
+- An aura can now be dragged out of the book straight into the Groups and trackers list: onto a group to join it, onto a tracker to sit before or after it, or onto empty space in the list for a group of its own. Dropping it on the screen still works as before.
+- While dragging, the label under the cursor says exactly what the drop will do ("Add to Warlock Buffs", "Before Demon Skin", "Drop here for a new group"), for auras from the book and for rows dragged about inside the list. Dragging a row back onto itself says so rather than pretending something will happen.
+- The note along the bottom of the window describes both ways of placing an aura.
+
 ## 1.22.0
 
 - The book marks what the game can follow. Any aura the Cooldown Manager knows how to track carries a small "combat" mark in the book and the ledger, and its tooltip says what that means: a group set to track in combat keeps those right during a fight, while everything else is drawn by the addon and updates between fights. The mark is on the row, so the choice is made with that in view instead of discovered afterwards.
