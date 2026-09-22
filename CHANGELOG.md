@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.4
+
+- The mask behind game-drawn "show when missing" trackers no longer depends on a texture file: it is a one-pixel opaque mask placed just outside the cell with clamp-to-black wrapping, which blanks the cell the same way. If the missing icon still never appears, the client applies masks on hidden frames too; /auraledger nomask then restores the covering behaviour.
+
 ## 1.18.3
 
 - Game-drawn "show when missing" trackers no longer show the aura while it is active. The game's slot is now invisible and carries a transparent mask over the tracker's missing art: while the game shows the slot (aura present) the art is blanked, and when the game hides it (aura gone) the missing icon or bar appears. "Show when active" and "always" keep drawing the aura. On game-drawn bars set to "missing", the name and "Missing" text are left blank (text cannot be masked). /auraledger nomask switches back to covering the cell with the aura, should the mask misbehave on this client.
