@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.31.0
+
+- Removed the in-combat guesswork that the Cooldown Manager route made pointless. Four ways in were tried before it and each was refused by the client: polling the default buff frames' icons, which turn hidden the moment the frame refreshes; asking for aura instance ids, which is refused while an addon is involved; asking by spell, which answers nothing; and reading the Cooldown Manager through its children, whose item frames actually live in a frame pool. All four had been proven inert in game, so they were only costing reading. The debug report and the diagnostic commands lose the lines that went with them.
+
 ## 1.30.0
 
 - Trackers in a group the game draws now borrow the Cooldown Manager's own frame for that spell. The manager reads auras during a fight because it is the game's code, so the frame stays right, and whether the manager is showing it is the present or absent signal the client will not give an addon any other way. That means "show it when missing" works in combat again for any spell the manager knows.

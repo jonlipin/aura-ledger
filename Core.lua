@@ -8,9 +8,11 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.30.0"
+ns.VERSION = "1.31.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
+-- Kept so anything still reading them finds a table rather than nothing.
+ns.frameIconStats, ns.viewerStats, ns.shadowStats = {}, {}, {}
 ns.auras = {}
 ns.env = {}
 ns.QUESTION = "Interface\\Icons\\INV_Misc_QuestionMark"
@@ -710,12 +712,6 @@ local firstScan = true
 
 -- One unit's scan: read what can be read, carry the rest forward. Returns the new table and whether
 -- anything was unreadable.
--- ------------------------------------------------------------------
--- Instance ids while secret. The aura list cannot be read, but GetUnitAuraInstanceIDs may still
--- say which instances are on the unit. That is enough for presence: a carried aura whose instance
--- is gone has ended, a spell you just cast is the newest instance that appeared, and instances
--- nobody claims are kept as unknown entries so a later cast can still bind to them.
--- ------------------------------------------------------------------
 -- UNIT_AURA payload: removals and refreshes arrive by instance id even while contents are secret.
 -- The lists inside the payload can themselves be secret in combat: they look like tables to
 -- type() but ipairs refuses them. Returns a plain array or nil.
@@ -728,75 +724,6 @@ local function PlainList(v)
 		return list
 	end)
 	return ok and out or nil
-end
-
-local shadowStats = { calls = 0, plain = 0, secret = 0, errors = 0, reads = 0, removed = 0, bound = 0, unknown = 0 }
-ns.shadowStats = shadowStats
-
-local function InstanceList(unit, filter, kind, into)
-	local C = C_UnitAuras
-	if not (C and C.GetUnitAuraInstanceIDs) then return false end
-	shadowStats.calls = shadowStats.calls + 1
-	local ok, ids = pcall(C.GetUnitAuraInstanceIDs, unit, filter)
-	if not ok then shadowStats.errors = shadowStats.errors + 1 return false end
-	local list = PlainList(ids)
-	if not list then
-		if ids ~= nil then shadowStats.secret = shadowStats.secret + 1 end
-		return false
-	end
-	shadowStats.plain = shadowStats.plain + 1
-	for _, inst in ipairs(list) do
-		if type(inst) == "number" then into[#into + 1] = { inst = inst, kind = kind } end
-	end
-	return true
-end
-
-local function ApplyShadow(unit, fresh, shadow, now)
-	local present = {}
-	for _, sh in ipairs(shadow) do present[sh.inst] = sh end
-	shadowStats.reads = shadowStats.reads + 1
-	local claimed = {}
-	-- Carried entries: still there, or gone.
-	for key, e in pairs(fresh) do
-		if e.inst then
-			if present[e.inst] then
-				claimed[e.inst] = true
-				e.probed = true -- confirmed by instance; the frame icons get no say
-			elseif e.stale or e.estimated then
-				fresh[key] = nil
-				shadowStats.removed = shadowStats.removed + 1
-			end
-		end
-	end
-	-- Your recent casts: bind each to the newest unclaimed instance of its kind.
-	local synths = {}
-	for _, e in pairs(fresh) do
-		if e.synth and not e.inst and not e.unknown and e.createdAt and now - e.createdAt < 3 then synths[#synths + 1] = e end
-	end
-	table.sort(synths, function(a, b) return a.createdAt > b.createdAt end)
-	for _, e in ipairs(synths) do
-		local best
-		for inst, sh in pairs(present) do
-			if not claimed[inst] and sh.kind == e.kind and (not best or inst > best) then best = inst end
-		end
-		if best then
-			e.inst = best
-			claimed[best] = true
-			shadowStats.bound = shadowStats.bound + 1
-		end
-	end
-	-- Instances nobody knows.
-	for inst, sh in pairs(present) do
-		if not claimed[inst] then
-			local key = "u:" .. unit .. ":" .. tostring(inst)
-			if not fresh[key] then
-				fresh[key] = { key = key, inst = inst, name = sh.kind == "buff" and "Unknown buff" or "Unknown debuff", icon = ns.QUESTION,
-					count = 0, duration = 0, expires = 0, kind = sh.kind, unit = unit,
-					synth = true, estimated = true, stale = true, probed = true, unknown = true }
-				shadowStats.unknown = shadowStats.unknown + 1
-			end
-		end
-	end
 end
 
 local function ScanUnit(unit, old, quiet)
@@ -830,11 +757,6 @@ local function ScanUnit(unit, old, quiet)
 				end
 			end
 		end
-		-- Instance ids may still be readable: presence per instance.
-		local shadow = {}
-		local okB = InstanceList(unit, "HELPFUL", "buff", shadow)
-		local okD = InstanceList(unit, "HARMFUL", "debuff", shadow)
-		if okB and okD then ApplyShadow(unit, fresh, shadow, now) end
 	end
 	return fresh, unreadable > 0, historyChanged
 end
@@ -946,148 +868,6 @@ local function HandleAuraInfo(unit, info)
 end
 
 -- ------------------------------------------------------------------
--- The default buff and debuff frames in combat. Aura data is secret then, but Blizzard's own
--- frames still draw, and their icon textures may be readable. While restricted, the icons they
--- show are compared with what we carry: a carried aura whose icon is no longer shown is dropped
--- (so "missing" trackers fire mid-fight), and an icon that appears with no aura behind it is
--- looked up in the ledger and shown as an estimated aura. The debug report says whether this works.
--- ------------------------------------------------------------------
-local frameIconStats = { reads = 0, readable = false, proven = false, removed = 0, added = 0, sample = {}, drops = {}, shown = 0, unreadable = 0 }
-ns.frameIconStats = frameIconStats
-
--- Aura data gives icons as file ids; a frame's texture may answer with the id or with a path.
--- Both are reduced to one key so they compare.
-local function IconKey(v)
-	v = Clean(v)
-	if type(v) == "number" then return v end
-	if type(v) == "string" then
-		if GetFileIDFromPath then
-			local ok, id = pcall(GetFileIDFromPath, v)
-			if ok and type(id) == "number" and id > 0 then return id end
-		end
-		local n = tonumber(v)
-		if n then return n end
-		return strlower((v:gsub("\\", "/")))
-	end
-	return nil
-end
-ns.IconKey = IconKey
-
-local function FrameIconRegion(b)
-	return b.Icon or b.icon or (b.GetName and b:GetName() and _G[b:GetName() .. "Icon"])
-end
-
-local function CollectFrameIcons(frame, prefix, kind, into)
-	local any = false
-	local buttons = frame and type(frame.auraFrames) == "table" and frame.auraFrames
-	if buttons then
-		for _, b in pairs(buttons) do
-			if type(b) == "table" and b.IsShown and b:IsShown() then
-				any = true
-				local tex = FrameIconRegion(b)
-				local ok, raw = pcall(function() return tex and tex:GetTexture() end)
-				local file = ok and IconKey(raw) or nil
-				if #frameIconStats.sample < 12 then frameIconStats.sample[#frameIconStats.sample + 1] = ("%s %s->%s"):format(kind, ok and ((issecretvalue and issecretvalue(raw)) and "secret" or (type(raw) .. ":" .. tostring(raw))) or "error", tostring(file)) end
-				frameIconStats.shown = frameIconStats.shown + 1
-				if file then into[file] = kind else frameIconStats.unreadable = frameIconStats.unreadable + 1 end
-			end
-		end
-	elseif prefix then
-		for i = 1, 40 do
-			local b = _G[prefix .. i]
-			if not b then break end
-			if b:IsShown() then
-				any = true
-				local tex = _G[prefix .. i .. "Icon"] or b.Icon
-				local ok, raw = pcall(function() return tex and tex:GetTexture() end)
-				local file = ok and IconKey(raw) or nil
-				if #frameIconStats.sample < 12 then frameIconStats.sample[#frameIconStats.sample + 1] = ("%s %s->%s"):format(kind, ok and ((issecretvalue and issecretvalue(raw)) and "secret" or (type(raw) .. ":" .. tostring(raw))) or "error", tostring(file)) end
-				frameIconStats.shown = frameIconStats.shown + 1
-				if file then into[file] = kind else frameIconStats.unreadable = frameIconStats.unreadable + 1 end
-			end
-		end
-	end
-	return any
-end
-
--- Returns true when something changed.
-local function ReconcileWithFrames()
-	local shown = {}
-	frameIconStats.reads = frameIconStats.reads + 1
-	frameIconStats.sample, frameIconStats.shown, frameIconStats.unreadable = {}, 0, 0
-	CollectFrameIcons(BuffFrame, "BuffButton", "buff", shown)
-	CollectFrameIcons(DebuffFrame, "DebuffButton", "debuff", shown)
-	-- Only a read where every shown icon could be read says anything. Once one such read has
-	-- happened, an empty frame means no auras.
-	frameIconStats.readable = frameIconStats.shown > 0 and frameIconStats.unreadable == 0
-	if frameIconStats.readable then frameIconStats.proven = true end
-	if frameIconStats.unreadable > 0 or not frameIconStats.proven then return false end
-	local changed = false
-	local now = GetTime()
-	local auras = ns.auras
-	-- Carried auras whose icon is gone from the frames are gone.
-	for key, e in pairs(auras) do
-		local ik = e.icon and IconKey(e.icon)
-		if (e.stale or e.estimated) and not e.probed and ik and not shown[ik] then
-			auras[key] = nil
-			frameIconStats.removed = frameIconStats.removed + 1
-			if #frameIconStats.drops < 8 then
-				local list = {}
-				for f in pairs(shown) do list[#list + 1] = tostring(f) end
-				frameIconStats.drops[#frameIconStats.drops + 1] = ("%s (icon %s) not among frame icons {%s}"):format(e.name or key, tostring(ik), table.concat(list, ","))
-			end
-			changed = true
-		end
-	end
-	-- Icons shown with nothing behind them: your trackers, the ledger and the pre-built book know what
-	-- they are (in that order, so what you track is recognised the first time it lands).
-	local have = {}
-	for _, e in pairs(auras) do if e.icon then have[IconKey(e.icon)] = true end end
-	for file, kind in pairs(shown) do
-		if not have[file] then
-			local best
-			for _, g in ipairs(ns.profile.groups) do
-				for _, t in ipairs(g.trackers) do
-					if t.icon and IconKey(t.icon) == file and t.name and (t.unit or "player") == "player" and (t.kind == kind or t.kind == "any" or not t.kind) then
-						best = { name = t.name, id = t.id, duration = 0 }
-						local h = ns.db.history[kind .. ":" .. strlower(t.name)]
-						if h and h.duration then best.duration = h.duration end
-					end
-				end
-			end
-			if not best then
-				for _, h in pairs(ns.db.history) do
-					if h.icon and IconKey(h.icon) == file and h.name and (h.kind == kind or h.kind == "any") then
-						if not best or (h.last or 0) > (best.last or 0) then best = h end
-					end
-				end
-			end
-			if not best and ns.BookPages then
-				for _, list in pairs(ns.BookPages()) do
-					for _, item in ipairs(list) do
-						if item.icon and IconKey(item.icon) == file and (item.kind == kind or item.kind == "any") then best = { name = item.name, id = item.id, duration = 0 } end
-					end
-				end
-			end
-			if best then
-				local duration = best.duration or 0
-				local key = "f:" .. kind .. ":" .. tostring(best.id or best.name)
-				auras[key] = {
-					key = key, name = best.name, id = best.id, icon = file, count = 0,
-					duration = duration, expires = duration > 0 and (now + duration) or 0, kind = kind, unit = "player",
-					mine = nil, synth = true, estimated = true, stale = true, -- caster unknown
-				}
-				frameIconStats.added = frameIconStats.added + 1
-				changed = true
-			end
-		end
-	end
-	return changed
-end
-ns.ReconcileWithFrames = ReconcileWithFrames
-ns.CollectFrameIcons = CollectFrameIcons
-
--- ------------------------------------------------------------------
 -- Your own casts are not secret. While auras are, a successful cast of a spell the ledger knows as
 -- an aura creates or refreshes an estimated aura: a buff on you, a debuff on your target, with the
 -- ledger's duration. That is how a buff reapplied mid-fight clears a "missing" tracker.
@@ -1151,104 +931,6 @@ local function HandleCast(unit, spellId)
 end
 ns.HandleCast = HandleCast
 ns.SpellName = SpellName
-
--- ------------------------------------------------------------------
--- The Cooldown Manager's buff viewers. Blizzard shows an item there only while that tracked buff is
--- on you, and neither the item's shown state nor its cooldown id is hidden in combat. So while auras
--- are secret, a shown item means the buff is present and a hidden item means it is gone, for every
--- buff the Cooldown Manager tracks. Anything that answers as secret or missing changes nothing.
--- ------------------------------------------------------------------
-local viewerStats = { reads = 0, items = 0, plain = 0, secret = 0, present = 0, absent = 0, sample = nil }
-ns.viewerStats = viewerStats
-local VIEWERS = { "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
-
-local function ItemCooldownID(child)
-	local cid = Clean(child.cooldownID)
-	if type(cid) ~= "number" and child.GetCooldownID then
-		local ok, v = pcall(child.GetCooldownID, child)
-		if ok then cid = Clean(v) end
-	end
-	return type(cid) == "number" and cid or nil
-end
-
--- One pass over the viewers: name (lower) -> shown or hidden. Shown wins when ranks repeat.
--- Returns the table, how many items had a plain answer, and a sample line for the report.
-local function ReadViewers(collect)
-	local C = C_CooldownViewer
-	if not (C and C.GetCooldownViewerCooldownInfo) then return nil end
-	local state, plain, secret, items = {}, 0, 0, 0
-	local lines = collect and {} or nil
-	for _, vname in ipairs(VIEWERS) do
-		local v = _G[vname]
-		if v and v.GetChildren then
-			local okV, vShown = pcall(v.IsShown, v)
-			if okV and Clean(vShown) then
-				for _, child in ipairs({ v:GetChildren() }) do
-					local cid = ItemCooldownID(child)
-					if cid then
-						items = items + 1
-						local okI, info = pcall(C.GetCooldownViewerCooldownInfo, cid)
-						local sid = okI and type(info) == "table" and not (issecretvalue and issecretvalue(info)) and Clean(info.spellID) or nil
-						local name = sid and SpellName(sid) or nil
-						local okS, shown = pcall(child.IsShown, child)
-						local hidden = not okS or (issecretvalue and issecretvalue(shown))
-						if lines then
-							lines[#lines + 1] = ("%s #%s %s: shown %s, instance %s"):format(vname:gsub("CooldownViewer", ""), tostring(cid), name or "?",
-								okS and ((issecretvalue and issecretvalue(shown)) and "secret" or tostring(shown)) or "error",
-								okI and type(info) == "table" and ((issecretvalue and issecretvalue(info.auraInstanceID)) and "secret" or tostring(info.auraInstanceID)) or "?")
-						end
-						if name and not hidden then
-							plain = plain + 1
-							local l = strlower(name)
-							if shown then state[l] = true elseif state[l] == nil then state[l] = false end
-						elseif name then
-							secret = secret + 1
-						end
-					end
-				end
-			end
-		end
-	end
-	return state, plain, secret, items, lines
-end
-ns.ReadViewers = ReadViewers
-
--- Returns true when something changed.
-local function ReconcileWithViewers()
-	local state, plain, secret, items = ReadViewers(false)
-	if not state then return false end
-	viewerStats.reads = viewerStats.reads + 1
-	viewerStats.items, viewerStats.plain, viewerStats.secret = items, plain, secret
-	if plain == 0 then return false end
-	local now = GetTime()
-	local auras = ns.auras
-	local changed = false
-	for l, shown in pairs(state) do
-		local existing
-		for _, e in pairs(auras) do
-			if e.kind == "buff" and e.name and strlower(e.name) == l then existing = e break end
-		end
-		if shown and not existing then
-			local h = ns.db.history["buff:" .. l]
-			if h then
-				local duration = h.duration or 0
-				local key = "v:player:" .. l
-				auras[key] = { key = key, name = h.name or l, id = h.id, icon = h.icon, count = 0, duration = duration,
-					expires = duration > 0 and (now + duration) or 0, kind = "buff", unit = "player",
-					synth = true, estimated = true, stale = true, probed = true }
-				viewerStats.present = viewerStats.present + 1
-				changed = true
-			end
-		elseif not shown and existing and (existing.stale or existing.estimated) then
-			auras[existing.key] = nil
-			viewerStats.absent = viewerStats.absent + 1
-			changed = true
-		end
-	end
-	if changed then Reindex() end
-	return changed
-end
-ns.ReconcileWithViewers = ReconcileWithViewers
 
 -- ------------------------------------------------------------------
 -- Blizzard's AuraContainer widget: the sanctioned way to show auras while they are secret.
@@ -2083,8 +1765,6 @@ function ns.OnUpdate(elapsed)
 			end
 		end
 		-- While auras are secret, the default buff frames' icons are the only live word we get.
-		if ns.restricted and ReconcileWithFrames() then ns.dirty = true end
-		if ns.restricted and ReconcileWithViewers() then ns.dirty = true end
 	end
 end
 events:SetScript("OnUpdate", function(_, elapsed) ns.OnUpdate(elapsed) end)
@@ -2303,7 +1983,7 @@ end
 -- has put itself right by then.
 -- ------------------------------------------------------------------
 -- The diagnostic topics, in the order the help lists them.
-ns.DIAG_ORDER = { "log", "api", "gd", "cdm", "cdm2", "cdmapply", "cdmrestore", "frames", "probe", "container", "slot", "mixin", "atlases", "combatlog" }
+ns.DIAG_ORDER = { "log", "api", "gd", "cdm2", "cdmapply", "cdmrestore", "probe", "atlases", "combatlog" }
 ns.DIAG = {}
 for _, k in ipairs(ns.DIAG_ORDER) do ns.DIAG[k] = true end
 ns.DIAG.soundtest, ns.DIAG.soundclear = true, true
@@ -2456,16 +2136,8 @@ local function Debug()
 		s.scans, s.partial, s.blocked, s.removedById, s.estimated))
 	Print(("  combat log: %s, aura events %d, used while restricted %d"):format(
 		registered.COMBAT_LOG_EVENT_UNFILTERED and "registered" or "not registered (forbidden on this client; /auraledger combatlog to try)", s.cleu, s.cleuUsed))
-	local fi = ns.frameIconStats
-	Print(("  buff frame icons while restricted: readable %s, reads %d, carried auras dropped %d, auras recognised from icons %d"):format(
-		YesNo(fi.readable), fi.reads, fi.removed, fi.added))
-	Print(("    last read: %d shown, %d unreadable, trusted before: %s"):format(fi.shown, fi.unreadable, YesNo(fi.proven)))
-	if #fi.sample > 0 then Print("    frame icons seen: " .. table.concat(fi.sample, "; ")) end
 	Print(("  your casts: %d seen, %d turned into auras while restricted (spell cast events %s)"):format(
 		s.casts, s.castsUsed, registered.UNIT_SPELLCAST_SUCCEEDED and "registered" or "not registered"))
-	local sh = ns.shadowStats
-	Print(("  instance ids while restricted: calls %d (plain %d, secret %d, errors %d), applied %d, removed by instance %d, casts bound %d, unknown auras %d"):format(
-		sh.calls, sh.plain, sh.secret, sh.errors, sh.reads, sh.removed, sh.bound, sh.unknown))
 	local as = ns.auraSoundStats
 	Print(("  Blizzard aura sounds: %d registered, %d failed, %d stale ones cleared at load%s (API %s)"):format(as.registered, as.failed, as.cleared, as.lastError and (", last error " .. as.lastError) or "", YesNo(C_UnitAuras and C_UnitAuras.AddAuraSound)))
 	for key, id in pairs(ns.db.auraSoundIds or {}) do
@@ -2475,14 +2147,10 @@ local function Debug()
 		Print(("    %s spell %s (%s) on %s: %s [file %s], registration %s"):format(
 			trigger == "2" and "removed" or trigger == "1" and "stacks" or "added", tostring(spell), ns.SpellName and ns.SpellName(tonumber(spell)) or "?", tostring(unit), cname or "?", tostring(file), tostring(id)))
 	end
-	local vs = ns.viewerStats
-	Print(("  Cooldown Manager buff viewers while restricted: reads %d, items %d (plain %d, secret %d), buffs seen present %d, seen gone %d"):format(
-		vs.reads, vs.items, vs.plain, vs.secret, vs.present, vs.absent))
 	local p = ns.payloadStats
 	Print(("  aura events while restricted: %d; removed lists plain %d / secret %d, updated plain %d / secret %d, added plain %d / secret %d, full updates %d"):format(
 		p.events, p.plainRemoved, p.secretRemoved, p.plainUpdated, p.secretUpdated, p.plainAdded, p.secretAdded, p.full))
 	if p.sample then Print("    last payload: " .. p.sample) end
-	for _, d in ipairs(fi.drops) do Print("    dropped: " .. d) end
 	local live, carried = 0, 0
 	for _, e in pairs(ns.auras) do live = live + 1 if e.stale or e.estimated then carried = carried + 1 end end
 	local onTarget = 0
@@ -2573,19 +2241,6 @@ SlashCmdList.AURALEDGER = function(msg)
 	elseif cmd == "plainbook" then
 		ns.db.plainBook = not ns.db.plainBook
 		Print("Book background: " .. (ns.db.plainBook and "plain" or "parchment when the client has it") .. ". Type /reload to apply.")
-	elseif cmd == "frames" then
-		local shown = {}
-		ns.frameIconStats.sample, ns.frameIconStats.shown, ns.frameIconStats.unreadable = {}, 0, 0
-		ns.CollectFrameIcons(BuffFrame, "BuffButton", "buff", shown)
-		ns.CollectFrameIcons(DebuffFrame, "DebuffButton", "debuff", shown)
-		Print("frame icons right now (secret: " .. YesNo(AurasSecret()) .. "):")
-		for _, line in ipairs(ns.frameIconStats.sample) do Print("  " .. line) end
-		if #ns.frameIconStats.sample == 0 then Print("  none (BuffFrame " .. YesNo(BuffFrame) .. ", auraFrames " .. YesNo(BuffFrame and BuffFrame.auraFrames) .. ", BuffButton1 " .. YesNo(_G.BuffButton1) .. ")") end
-		Print("auras carried right now:")
-		for _, e in pairs(ns.auras) do
-			local ik = e.icon and ns.IconKey(e.icon)
-			Print(("  %s icon %s -> %s"):format(e.name or "?", tostring(e.icon), shown[ik] and "on the frame" or "NOT on the frame"))
-		end
 	elseif cmd == "cdmapply" then
 		local icons, bars, missing = ns.CDM.Wanted()
 		Print(("Cooldown Manager: %d spell%s for icons, %d for bars, out of %d it tracks%s"):format(#icons, #icons == 1 and "" or "s", #bars,
@@ -2625,43 +2280,6 @@ SlashCmdList.AURALEDGER = function(msg)
 		Print(ok and "The Cooldown Manager is back to what it was before." or ("Not restored: " .. tostring(err)))
 	elseif cmd == "cdm2" then
 		ns.ProbeCDM(Print)
-	elseif cmd == "cdm" then
-		local C = C_CooldownViewer
-		Print("Cooldown Manager data (secret: " .. YesNo(AurasSecret()) .. "; API " .. YesNo(C) .. (C and (", available " .. YesNo(C.IsCooldownViewerAvailable and select(2, pcall(C.IsCooldownViewerAvailable)))) or "") .. "):")
-		local state, plain, secret, items, lines = ns.ReadViewers(true)
-		if lines then
-			Print(("  viewer items: %d (plain %d, secret %d)"):format(items, plain, secret))
-			for _, line in ipairs(lines) do Print("    " .. line) end
-			for _, vname in ipairs({ "BuffIconCooldownViewer", "BuffBarCooldownViewer" }) do
-				local v = _G[vname]
-				Print(("    %s: %s"):format(vname, v and ("exists, shown " .. tostring(select(2, pcall(v.IsShown, v)))) or "missing"))
-			end
-		end
-		local wanted = {}
-		for _, g in ipairs(ns.profile.groups) do for _, t in ipairs(g.trackers) do if t.name then wanted[strlower(t.name)] = true end end end
-		if C and C.GetCooldownViewerCategorySet and C.GetCooldownViewerCooldownInfo then
-			local cats = (Enum and Enum.CooldownViewerCategory) or { Essential = 0, Utility = 1, TrackedBuff = 2, TrackedBar = 3 }
-			local names = {}
-			for k, v in pairs(cats) do if type(v) == "number" then names[v] = k end end
-			for cat = 0, 3 do
-				local ok, ids = pcall(C.GetCooldownViewerCategorySet, cat, true)
-				local list = ok and PlainList(ids)
-				Print(("  %s: %s"):format(names[cat] or tostring(cat), ok and (list and (#list .. " entries") or ("set is " .. Describe(ids))) or "error"))
-				for _, id in ipairs(list or {}) do
-					local ok2, info = pcall(C.GetCooldownViewerCooldownInfo, id)
-					if ok2 and type(info) == "table" and not (issecretvalue and issecretvalue(info)) then
-						local sid = Clean(info.spellID)
-						local name = sid and ns.SpellName and ns.SpellName(sid) or "?"
-						if wanted[strlower(name)] then
-							Print(("    #%s spell %s %s: hasAura %s, auraInstanceID %s, selfAura %s, isKnown %s, auraSpellID %s"):format(
-								tostring(id), tostring(sid), name, Describe(info.hasAura), Describe(info.auraInstanceID), Describe(info.selfAura), Describe(info.isKnown), Describe(info.auraSpellID)))
-						end
-					else
-						Print(("    #%s: %s"):format(tostring(id), ok2 and Describe(info) or "error"))
-					end
-				end
-			end
-		end
 	elseif cmd == "log" then
 		if rest == "clear" then
 			if ns.db then ns.db.log = {} ns.db.chat = {} end
@@ -2747,121 +2365,6 @@ SlashCmdList.AURALEDGER = function(msg)
 		end
 		Print("playing each file sound in turn (1.5 s apart); say which ones you heard:")
 		step()
-	elseif cmd == "slot" then
-		Print("AuraContainer slot and filter functions, called with wrong arguments to read what they expect:")
-		local ok, c = pcall(CreateFrame, "AuraContainer", nil, UIParent, "CustomAuraContainerTemplate")
-		if not (ok and c) then Print("  cannot create: " .. tostring(c)) return end
-		local function try(label, fn, ...)
-			local okF, a, b = pcall(fn, c, ...)
-			Print(("  %s -> %s"):format(label, okF and ("ok " .. tostring(a) .. " " .. tostring(b)) or ("error " .. tostring(a))))
-		end
-		try("AddAuraSlot()", c.AddAuraSlot)
-		try("AddAuraSlot(1)", c.AddAuraSlot, 1)
-		try("AddAuraSlot('s', 'HARMFUL')", c.AddAuraSlot, "s", "HARMFUL")
-		try("AddAuraSlot('s2', 'HARMFUL', {})", c.AddAuraSlot, "s2", "HARMFUL", {})
-		try("AddAuraSlot('s3', 'HARMFUL', {initializeFrame=f})", c.AddAuraSlot, "s3", "HARMFUL", { initializeFrame = function() end })
-		try("AddAuraSlot('s4', {})", c.AddAuraSlot, "s4", {})
-		try("AddAuraGroup()", c.AddAuraGroup)
-		try("AddAuraGroup('g', 'HARMFUL', 5)", c.AddAuraGroup, "g", "HARMFUL", 5)
-		try("AddAuraGroup('g2', 'HARMFUL', {bogus=1})", c.AddAuraGroup, "g2", "HARMFUL", { bogus = 1 })
-		try("AddAuraGroup('g3', 'HARMFUL', {layout=5})", c.AddAuraGroup, "g3", "HARMFUL", { layout = 5 })
-		try("AddAuraGroup('g4', 'HARMFUL', {layout={bogus=1}})", c.AddAuraGroup, "g4", "HARMFUL", { layout = { bogus = 1 } })
-		try("AddAuraGroup('g5', 'BOGUS', {})", c.AddAuraGroup, "g5", "BOGUS", {})
-		try("AddAuraGroup('g6', 'HARMFUL', {candidateFilters=5})", c.AddAuraGroup, "g6", "HARMFUL", { candidateFilters = 5 })
-		try("AddAuraGroup('g7', 'HARMFUL', {candidateFilters={5}})", c.AddAuraGroup, "g7", "HARMFUL", { candidateFilters = { 5 } })
-		try("AddAuraGroup('g8', 'HARMFUL', {candidateFilters={{}}})", c.AddAuraGroup, "g8", "HARMFUL", { candidateFilters = { {} } })
-		try("AddAuraGroup('g9', 'HARMFUL', {candidateFilters={{bogus=1}}})", c.AddAuraGroup, "g9", "HARMFUL", { candidateFilters = { { bogus = 1 } } })
-		try("AddAuraGroup('g10', 'HARMFUL', {sortMethod=5})", c.AddAuraGroup, "g10", "HARMFUL", { sortMethod = 5 })
-		try("SetAuraGroupCandidateFilters()", c.SetAuraGroupCandidateFilters)
-		try("SetAuraGroupCandidateFilters('g2')", c.SetAuraGroupCandidateFilters, "g2")
-		try("SetAuraGroupCandidateFilters('g2', 5)", c.SetAuraGroupCandidateFilters, "g2", 5)
-		try("SetAuraGroupCandidateFilters('g2', {5})", c.SetAuraGroupCandidateFilters, "g2", { 5 })
-		try("SetAuraGroupCandidateFilters('g2', {{}})", c.SetAuraGroupCandidateFilters, "g2", { {} })
-		try("SetAuraGroupCandidateFilters('g2', {{bogus=1}})", c.SetAuraGroupCandidateFilters, "g2", { { bogus = 1 } })
-		try("SetAuraGroupCandidateFilters('g2', {{spellID='x'}})", c.SetAuraGroupCandidateFilters, "g2", { { spellID = "x" } })
-		try("SetAuraGroupCandidateFilters('g2', {{spellID=172}})", c.SetAuraGroupCandidateFilters, "g2", { { spellID = 172 } })
-		try("SetAuraGroupCandidateFilters('g2', {172})", c.SetAuraGroupCandidateFilters, "g2", { 172 })
-		try("SetAuraGroupFilterString('g2', 5)", c.SetAuraGroupFilterString, "g2", 5)
-		try("SetAuraGroupFilterString('g2', 'HARMFUL|BOGUS')", c.SetAuraGroupFilterString, "g2", "HARMFUL|BOGUS")
-		try("SetAuraGroupSortMethod('g2', 'x')", c.SetAuraGroupSortMethod, "g2", "x")
-		try("SetAuraGroupSortMethod('g2', 99)", c.SetAuraGroupSortMethod, "g2", 99)
-		try("SetAuraGroupLayout('g2', 5)", c.SetAuraGroupLayout, "g2", 5)
-		try("SetAuraGroupLayout('g2', {bogus=1})", c.SetAuraGroupLayout, "g2", { bogus = 1 })
-		try("SetAuraProcessingPolicy('x')", c.SetAuraProcessingPolicy, "x")
-		try("SetAuraProcessingPolicy(99)", c.SetAuraProcessingPolicy, 99)
-		try("GetAuraProcessingPolicy()", c.GetAuraProcessingPolicy)
-		try("SetFlowLayoutGrowthDirection('x')", c.SetFlowLayoutGrowthDirection, "x")
-		try("SetFlowLayoutAxis('x')", c.SetFlowLayoutAxis, "x")
-		try("SetFlowLayoutAnchorPoint('x')", c.SetFlowLayoutAnchorPoint, "x")
-		try("GetFlowLayoutGrowthDirection()", c.GetFlowLayoutGrowthDirection)
-		try("GetFlowLayoutAxis()", c.GetFlowLayoutAxis)
-		try("GetFlowLayoutMaximumLineSize()", c.GetFlowLayoutMaximumLineSize)
-		try("GetFlowLayoutPadding()", c.GetFlowLayoutPadding)
-		try("SetAuraSlotCandidateFilters()", c.SetAuraSlotCandidateFilters)
-		try("SetAuraSlotCandidateFilters('s2', 5)", c.SetAuraSlotCandidateFilters, "s2", 5)
-		try("SetAuraSlotCandidateFilters('s2', {{spellID=172}})", c.SetAuraSlotCandidateFilters, "s2", { { spellID = 172 } })
-		try("SetAuraSlotFilterString('s2', 5)", c.SetAuraSlotFilterString, "s2", 5)
-		try("GetAuraSlotFrame('s2')", c.GetAuraSlotFrame, "s2")
-		try("GetAuraGroupFrame('g2', 1)", c.GetAuraGroupFrame, "g2", 1)
-		try("GetAuraGroupFrameCount('g2')", c.GetAuraGroupFrameCount, "g2")
-		try("HasAuraGroup('g2')", c.HasAuraGroup, "g2")
-		try("IsAuraSlotEnabled('s2')", c.IsAuraSlotEnabled, "s2")
-		c:Hide()
-		for _, en in ipairs({ "AuraProcessingPolicy", "AuraSortMethod", "FlowLayoutGrowthDirection", "FlowLayoutAxis", "AuraFilter", "AuraCandidateFilterType", "UnitAuraCandidateFilterType" }) do
-			local e = Enum and Enum[en]
-			if e then
-				local keys = {}
-				for k, v in pairs(e) do keys[#keys + 1] = tostring(k) .. "=" .. tostring(v) end
-				table.sort(keys)
-				Print("  Enum." .. en .. ": " .. table.concat(keys, ", "))
-			else
-				Print("  Enum." .. en .. ": missing")
-			end
-		end
-	elseif cmd == "mixin" then
-		local function funcs(t, label)
-			local names = {}
-			local ok = pcall(function() for k, v in pairs(t) do if type(v) == "function" then names[#names + 1] = tostring(k) end end end)
-			table.sort(names)
-			Print(("  %s (%d): %s"):format(label, #names, ok and table.concat(names, ", ") or "pairs refused"))
-		end
-		local function keys(t, label)
-			local names = {}
-			local ok = pcall(function() for k, v in pairs(t) do if type(v) ~= "function" then names[#names + 1] = tostring(k) .. "=" .. (type(v) == "table" and "{}" or type(v)) end end end)
-			table.sort(names)
-			Print(("  %s keys (%d): %s"):format(label, #names, ok and table.concat(names, ", ") or "pairs refused"))
-		end
-		Print("AuraContainer mixins:")
-		local ok, c = pcall(CreateFrame, "AuraContainer", nil, UIParent, "CustomAuraContainerTemplate")
-		if ok and c then
-			funcs(c, "container functions")
-			keys(c, "container")
-			local got
-			pcall(c.AddAuraGroup, c, "al_mixin", "HELPFUL", { maxFrameCount = 1, initializeFrame = function(b) got = b end })
-			keys(c, "container after AddAuraGroup")
-			if got then funcs(got, "button functions") keys(got, "button") end
-			c:Hide()
-		else
-			Print("  cannot create: " .. tostring(c))
-		end
-		if EnumerateFrames then
-			local n = 0
-			local f = EnumerateFrames()
-			while f and n < 12 do
-				local okT, t = pcall(f.GetObjectType, f)
-				if okT and t == "AuraContainer" then
-					n = n + 1
-					local okN, name = pcall(f.GetName, f)
-					local okP, parent = pcall(function() return f:GetParent() and f:GetParent():GetName() end)
-					Print(("  game container %d: %s (parent %s)"):format(n, okN and tostring(name) or "?", okP and tostring(parent) or "?"))
-					keys(f, "   ")
-				end
-				f = EnumerateFrames(f)
-			end
-			if n == 0 then Print("  no AuraContainer frames found on screen") end
-		end
-	elseif cmd == "container" then
-		ns.ProbeContainer()
 	elseif cmd == "probe" then
 		Print("asking by spell right now (secret: " .. YesNo(AurasSecret()) .. "; APIs: BySpellName " .. YesNo(C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName)
 			.. ", PlayerBySpellID " .. YesNo(C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID) .. "):")
