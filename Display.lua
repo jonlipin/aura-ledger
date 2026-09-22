@@ -386,6 +386,7 @@ local function PlaceCleanEdge(w, ref, size, want)
 		w.cleanEdge = tex
 	end
 	local px = max(1, floor(size / 24 + 0.5))
+	tex.alPx = px
 	tex:SetColorTexture(0, 0, 0, 0.9)
 	tex:ClearAllPoints()
 	tex:SetPoint("TOPLEFT", ref, "TOPLEFT", -px, px)
@@ -853,6 +854,22 @@ local function ConfigureWidget(w, g)
 	end
 end
 
+-- The edge round an icon says what the old debuff border used to: red while an aura is missing or
+-- nearly gone, the dispel colour on a debuff, and a plain dark line otherwise. A thicker line is
+-- drawn for the coloured states so they read at a glance.
+local function TintEdge(w, r, g, b, strong)
+	local tex = w.cleanEdge
+	if not tex or tex:IsShown() == false then return false end
+	tex:SetColorTexture(r, g, b, strong and 1 or 0.9)
+	local px = max(1, tex.alPx or 1)
+	if strong then px = px + max(1, floor(px * 0.5)) end
+	local ref = w.icon
+	tex:ClearAllPoints()
+	tex:SetPoint("TOPLEFT", ref, "TOPLEFT", -px, px)
+	tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", px, -px)
+	return true
+end
+
 local function TintFill(w, kind, missing)
 	if missing then
 		w.fill:SetVertexColor(0.55, 0.2, 0.2)
@@ -883,15 +900,20 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 		w.icon:SetAlpha(preview and 0.75 or 1)
 	end
 
+	local br, bg, bb, strong
 	if expiring then
-		w.border:SetVertexColor(1, 0.1, 0.1)
-		w.border:Show()
+		br, bg, bb, strong = 1, 0.1, 0.1, true
 	elseif isActive and entry.kind == "debuff" then
 		local c = DISPEL_COLORS[entry.dispel or "none"] or DISPEL_COLORS.none
-		w.border:SetVertexColor(c[1], c[2], c[3])
-		w.border:Show()
+		br, bg, bb, strong = c[1], c[2], c[3], true
 	elseif flagMissing then
-		w.border:SetVertexColor(1, 0.1, 0.1)
+		br, bg, bb, strong = 1, 0.1, 0.1, true
+	end
+	if TintEdge(w, br or 0, bg or 0, bb or 0, strong) then
+		-- The edge said it; the old debuff sheet is not wanted on top of it.
+		w.border:Hide()
+	elseif br then
+		w.border:SetVertexColor(br, bg, bb)
 		w.border:Show()
 	else
 		w.border:Hide()

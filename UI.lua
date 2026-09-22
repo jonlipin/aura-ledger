@@ -509,7 +509,7 @@ function Builder:Conditions(getCond, onChange, draw)
 			onChange()
 			self:Sync()
 		end,
-		"On this client the addon cannot see auras during a fight. The game can: each tracker borrows the frame the game's own Cooldown Manager draws for that spell, which stays right through a fight, and whether the game is showing it is what tells the addon the aura has gone. The manager only knows spells you have learned; anything it does not know falls back to the addon's own drawing, where the warn window does not apply and Missing behaves like Either.",
+		"On this client the addon cannot see auras during a fight. The game can: each tracker is handed to the game as an aura slot, which the game fills and keeps right through a fight, and whether it is filled is what tells the addon the aura has gone. The game draws these itself, so they wear its own look rather than this group's, the warn window does not apply, and Missing behaves like Either.",
 		210)
 	self:Cycle("Out of combat", { { "show", "Shown" }, { "hide", "Hidden" } },
 		function() return Cond().combat == "yes" and "hide" or "show" end,
