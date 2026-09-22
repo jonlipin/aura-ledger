@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.10.3
+
+- Heading backplates lowered 7px (half way back).
+
 ## 1.10.2
 
 - Heading backplates raised 14px.

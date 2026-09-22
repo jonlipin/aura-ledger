@@ -497,7 +497,7 @@ local function Pane(parent, title, left, right, top, height)
 			plate:SetAtlas("spellbook-list-backplate")
 			plate:SetSize(360, 92)
 			plate:SetAlpha(0.65)
-			plate:SetPoint("TOPLEFT", p.title, "TOPLEFT", -52, 38)
+			plate:SetPoint("TOPLEFT", p.title, "TOPLEFT", -52, 32)
 		end
 		local div = p:CreateTexture(nil, "ARTWORK")
 		div:SetPoint("TOPLEFT", 4, -22)
@@ -1621,7 +1621,7 @@ local function Build()
 			plate:SetAtlas(art.listPlate)
 			plate:SetSize(415, 106)
 			plate:SetAlpha(0.65)
-			plate:SetPoint("TOPLEFT", book.header, "TOPLEFT", -78, 44)
+			plate:SetPoint("TOPLEFT", book.header, "TOPLEFT", -78, 37)
 			book.headerPlate = plate
 		end
 	else
