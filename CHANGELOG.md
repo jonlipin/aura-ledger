@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.41.3
+
+- The trackers' icons are masked the way the window's tabs have been all along. The window has had a working icon mask since the book was built: the rounded shape fills about two thirds of that atlas region, so the mask has to be drawn a quarter larger than the icon it clips. The attempt in 1.39.3 sized it to the icon and so showed only the middle of the picture. That helper now lives in one place and both the window and the trackers use it, so the corners come off the same way in both.
+- With a mask in place the picture fills its square again, and the inset added in 1.41.2 only applies where the client has no mask to give.
+
 ## 1.41.2
 
 - An icon the addon draws comes out square. The art copied from the donor can sit unevenly around the donor's own icon, and carried over side by side those uneven overhangs made the frame taller than it was wide. Art drawn around an icon now reaches the same distance on all four sides.

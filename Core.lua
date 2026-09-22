@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.41.2"
+ns.VERSION = "1.41.3"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1954,6 +1954,59 @@ end
 -- has put itself right by then.
 -- ------------------------------------------------------------------
 -- The diagnostic topics, in the order the help lists them.
+-- Clips a texture to the rounded-square shape of the client's icon frames (the action bar's own
+-- icon mask), so an icon sits inside the frame art without its square corners showing past it.
+-- The shape covers about two thirds of the mask region, so the region is drawn larger than the
+-- texture: sized to the texture it would show only the middle of the picture.
+ns.ICON_MASK = "UI-HUD-ActionBar-IconFrame-Mask"
+local MASK_OVER = 0.26
+
+local function PointMask(m, tex)
+	local w = (tex.GetWidth and tex:GetWidth()) or 40
+	local h = (tex.GetHeight and tex:GetHeight()) or 40
+	m:ClearAllPoints()
+	m:SetPoint("TOPLEFT", tex, "TOPLEFT", -MASK_OVER * w, MASK_OVER * h)
+	m:SetPoint("BOTTOMRIGHT", tex, "BOTTOMRIGHT", MASK_OVER * w, -MASK_OVER * h)
+end
+
+function ns.MaskIcon(frame, ...)
+	if not (frame.CreateMaskTexture and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(ns.ICON_MASK)) then
+		ns.report["icon mask"] = "none"
+		return false
+	end
+	for i = 1, select("#", ...) do
+		local tex = select(i, ...)
+		if tex and not tex.alMask then
+			local ok, m = pcall(frame.CreateMaskTexture, frame)
+			if ok and m and pcall(m.SetAtlas, m, ns.ICON_MASK) then
+				PointMask(m, tex)
+				if tex.AddMaskTexture and pcall(tex.AddMaskTexture, tex, m) then
+					tex.alMask = m
+				else
+					pcall(m.Hide, m)
+				end
+			end
+		elseif tex then
+			PointMask(tex.alMask, tex)
+		end
+	end
+	ns.report["icon mask"] = ns.ICON_MASK
+	return true
+end
+
+-- The same, switchable, for the trackers: a group can turn its icon frame off, and a bare icon
+-- should keep its own corners.
+function ns.SetIconMask(frame, tex, on)
+	if not tex then return false end
+	if on then return ns.MaskIcon(frame, tex) and tex.alMask ~= nil end
+	if tex.alMask then
+		if tex.RemoveMaskTexture then pcall(tex.RemoveMaskTexture, tex, tex.alMask) end
+		pcall(tex.alMask.Hide, tex.alMask)
+		tex.alMask = nil
+	end
+	return false
+end
+
 ns.DIAG_ORDER = { "log", "api", "gd", "cdm2", "cdmapply", "cdmrestore", "probe", "atlases", "icon", "combatlog" }
 ns.DIAG = {}
 for _, k in ipairs(ns.DIAG_ORDER) do ns.DIAG[k] = true end

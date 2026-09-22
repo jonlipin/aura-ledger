@@ -43,26 +43,9 @@ local function TryCreateFrame(ftype, name, parent, candidates)
 	return CreateFrame(ftype, name, parent), nil
 end
 
--- Clips a texture to the rounded-square shape of the client's icon frames (the action bar's own
--- icon mask), so icons sit inside the art without black corners. Returns whether it could.
-local ICON_MASK = "UI-HUD-ActionBar-IconFrame-Mask"
-local function MaskIcon(frame, ...)
-	if not (frame.CreateMaskTexture and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(ICON_MASK)) then
-		ns.report["icon mask"] = "none"
-		return false
-	end
-	for i = 1, select("#", ...) do
-		local tex = select(i, ...)
-		local m = frame:CreateMaskTexture()
-		m:SetAtlas(ICON_MASK)
-		-- The shape covers about two thirds of the mask region, so the region is drawn larger.
-		m:SetPoint("TOPLEFT", tex, "TOPLEFT", -0.26 * (tex:GetWidth() or 40), 0.26 * (tex:GetHeight() or 40))
-		m:SetPoint("BOTTOMRIGHT", tex, "BOTTOMRIGHT", 0.26 * (tex:GetWidth() or 40), -0.26 * (tex:GetHeight() or 40))
-		tex:AddMaskTexture(m)
-	end
-	ns.report["icon mask"] = ICON_MASK
-	return true
-end
+-- The window's icons are clipped to the client's rounded icon-frame shape, as the trackers' are.
+local ICON_MASK = ns.ICON_MASK
+local MaskIcon = ns.MaskIcon
 
 -- On parchment everything is written in ink: dark text, no shadow. PARCHMENT is set once the art is known.
 local PARCHMENT = false

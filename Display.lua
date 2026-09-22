@@ -434,6 +434,7 @@ Display.IconInset = IconInset
 function Display:IconReport(emit)
 	local s = BuildSkin()
 	emit("icon art from: " .. tostring(s.iconSource or s.source))
+	emit("icon mask: " .. tostring(ns.report["icon mask"] or "not tried yet"))
 	emit(("crop: %s"):format(s.soloIconCoords and table.concat(s.soloIconCoords, ", ") or (s.iconCoords and table.concat(s.iconCoords, ", ") or "none")))
 	for _, which in ipairs({ { "bar donor", s.iconDecor }, { "icon donor", s.soloIconDecor } }) do
 		local list = which[2]
@@ -643,7 +644,10 @@ local function ConfigureWidget(w, g)
 		-- The icon keeps the middle of the bar's height whatever its scale, so a large one stands
 		-- proud of the bar top and bottom rather than pushing the bar down.
 		local IS = ns.BarIconSize(g)
-		local inset = IconInset(s, true, IS, g.iconFrame ~= false)
+		-- Masked to the client's icon shape, the picture can fill its square: the mask takes the
+		-- corners off. Only where there is no mask is it pulled in under the art instead.
+		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false)
+		local inset = masked and 0 or IconInset(s, true, IS, g.iconFrame ~= false)
 		w:SetSize(g.barW, H)
 		w.icon:SetPoint("LEFT", w, "LEFT", inset, 0)
 		w.icon:SetSize(IS - inset * 2, IS - inset * 2)
@@ -683,7 +687,8 @@ local function ConfigureWidget(w, g)
 		w.count:SetPoint("BOTTOMRIGHT", w.icon, "BOTTOMRIGHT", -1, 1)
 	else
 		local S = g.size
-		local inset = IconInset(s, false, S, g.iconFrame ~= false)
+		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false)
+		local inset = masked and 0 or IconInset(s, false, S, g.iconFrame ~= false)
 		w:SetSize(S, S)
 		w.icon:SetSize(S - inset * 2, S - inset * 2)
 		w.icon:SetPoint("CENTER")
@@ -890,11 +895,14 @@ local function InitSlotFrame(g, mode, filter, store)
 		local W, H = bars and g.barW or g.size, bars and g.barH or g.size
 		pcall(button.SetSize, button, W, H)
 		local IS = bars and ns.BarIconSize(g) or H
-		local inset = IconInset(s, bars, IS, g.iconFrame ~= false)
 		local icon = button:CreateTexture(nil, "ARTWORK")
 		local c = (bars and s.iconCoords) or s.soloIconCoords or s.iconCoords or { 0.07, 0.93, 0.07, 0.93 }
 		icon:SetTexCoord(c[1], c[2], c[3], c[4])
-		icon:SetSize(IS - inset * 2, IS - inset * 2)
+		-- The size is set before the mask, which is drawn from it.
+		icon:SetSize(IS, IS)
+		local masked = g.iconFrame ~= false and ns.SetIconMask(button, icon, true)
+		local inset = masked and 0 or IconInset(s, bars, IS, g.iconFrame ~= false)
+		if inset > 0 then icon:SetSize(IS - inset * 2, IS - inset * 2) end
 		if bars then icon:SetPoint("LEFT", button, "LEFT", inset, 0) else icon:SetPoint("CENTER") end
 		pcall(button.SetIcon, button, icon)
 		local count = button:CreateFontString(nil, "OVERLAY")
