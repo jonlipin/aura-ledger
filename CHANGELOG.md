@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.12.2
+
+- Diagnostics only. /auraledger debug now describes the aura events received in combat (whether the removed, updated and added lists arrive plain or hidden, and what the last payload looked like), and /auraledger cdm prints what the Cooldown Manager's data reports for each of its spells (hasAura and the aura instance), in or out of combat.
+
 ## 1.12.1
 
 - Fixed: the by-spell question added in 1.12.0 answers "nothing" for every aura while the client hides them, so it was dropping buffs that were still up. It is no longer used to decide anything; /auraledger probe still shows what the client answers.

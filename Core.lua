@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.12.1"
+ns.VERSION = "1.12.2"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -690,8 +690,54 @@ local function PlainList(v)
 	return ok and out or nil
 end
 
+-- Shape of the UNIT_AURA payloads seen while restricted, for the debug report.
+local payloadStats = { events = 0, plainRemoved = 0, secretRemoved = 0, plainUpdated = 0, secretUpdated = 0, plainAdded = 0, secretAdded = 0, full = 0, sample = nil }
+ns.payloadStats = payloadStats
+
+local function Describe(v)
+	if v == nil then return "nil" end
+	if issecretvalue and issecretvalue(v) then return "secret" end
+	if type(v) == "table" then
+		local ok, n = pcall(function() return #v end)
+		return "table" .. (ok and ("[" .. tostring(n) .. "]") or "[?]")
+	end
+	return type(v) .. ":" .. tostring(v)
+end
+
+local function NotePayload(unit, info)
+	if not ns.restricted or unit ~= "player" then return end
+	payloadStats.events = payloadStats.events + 1
+	local function tally(v, plainKey, secretKey)
+		if v == nil then return end
+		if PlainList(v) then payloadStats[plainKey] = payloadStats[plainKey] + 1 else payloadStats[secretKey] = payloadStats[secretKey] + 1 end
+	end
+	tally(info.removedAuraInstanceIDs, "plainRemoved", "secretRemoved")
+	tally(info.updatedAuraInstanceIDs, "plainUpdated", "secretUpdated")
+	tally(info.addedAuras, "plainAdded", "secretAdded")
+	if Clean(info.isFullUpdate) then payloadStats.full = payloadStats.full + 1 end
+	if not payloadStats.sample or info.removedAuraInstanceIDs ~= nil then
+		local parts = {}
+		local ok = pcall(function()
+			for k, v in pairs(info) do parts[#parts + 1] = tostring(k) .. "=" .. Describe(v) end
+		end)
+		if not ok then parts = { "(payload table refuses pairs)" } end
+		local added = Clean(info.addedAuras)
+		if type(added) == "table" then
+			local okA = pcall(function()
+				local first = added[1]
+				if type(first) == "table" then
+					parts[#parts + 1] = "first added: name " .. Describe(first.name) .. ", spellId " .. Describe(first.spellId) .. ", icon " .. Describe(first.icon) .. ", instance " .. Describe(first.auraInstanceID)
+				end
+			end)
+			if not okA then parts[#parts + 1] = "first added: refuses" end
+		end
+		payloadStats.sample = table.concat(parts, ", ")
+	end
+end
+
 local function HandleAuraInfo(unit, info)
 	if type(info) ~= "table" or Clean(info) == nil then return end
+	NotePayload(unit, info)
 	local auras = AuraTable(unit)
 	local now = GetTime()
 	local removed = PlainList(info.removedAuraInstanceIDs)
@@ -930,6 +976,7 @@ local function HandleCast(unit, spellId)
 	end
 end
 ns.HandleCast = HandleCast
+ns.SpellName = SpellName
 
 -- Combat log: only consulted while auras are unreadable, to catch applications and removals on
 -- you or on your target.
@@ -1408,6 +1455,10 @@ local function Debug()
 	if #fi.sample > 0 then Print("    frame icons seen: " .. table.concat(fi.sample, "; ")) end
 	Print(("  your casts: %d seen, %d turned into auras while restricted (spell cast events %s)"):format(
 		s.casts, s.castsUsed, registered.UNIT_SPELLCAST_SUCCEEDED and "registered" or "not registered"))
+	local p = ns.payloadStats
+	Print(("  aura events while restricted: %d; removed lists plain %d / secret %d, updated plain %d / secret %d, added plain %d / secret %d, full updates %d"):format(
+		p.events, p.plainRemoved, p.secretRemoved, p.plainUpdated, p.secretUpdated, p.plainAdded, p.secretAdded, p.full))
+	if p.sample then Print("    last payload: " .. p.sample) end
 	for _, d in ipairs(fi.drops) do Print("    dropped: " .. d) end
 	local live, carried = 0, 0
 	for _, e in pairs(ns.auras) do live = live + 1 if e.stale or e.estimated then carried = carried + 1 end end
@@ -1492,6 +1543,30 @@ SlashCmdList.AURALEDGER = function(msg)
 		for _, e in pairs(ns.auras) do
 			local ik = e.icon and ns.IconKey(e.icon)
 			Print(("  %s icon %s -> %s"):format(e.name or "?", tostring(e.icon), shown[ik] and "on the frame" or "NOT on the frame"))
+		end
+	elseif cmd == "cdm" then
+		local C = C_CooldownViewer
+		Print("Cooldown Manager data (secret: " .. YesNo(AurasSecret()) .. "; API " .. YesNo(C) .. (C and (", available " .. YesNo(C.IsCooldownViewerAvailable and select(2, pcall(C.IsCooldownViewerAvailable)))) or "") .. "):")
+		if C and C.GetCooldownViewerCategorySet and C.GetCooldownViewerCooldownInfo then
+			local cats = (Enum and Enum.CooldownViewerCategory) or { Essential = 0, Utility = 1, TrackedBuff = 2, TrackedBar = 3 }
+			local names = {}
+			for k, v in pairs(cats) do if type(v) == "number" then names[v] = k end end
+			for cat = 0, 3 do
+				local ok, ids = pcall(C.GetCooldownViewerCategorySet, cat, true)
+				local list = ok and PlainList(ids)
+				Print(("  %s: %s"):format(names[cat] or tostring(cat), ok and (list and (#list .. " entries") or ("set is " .. Describe(ids))) or "error"))
+				for _, id in ipairs(list or {}) do
+					local ok2, info = pcall(C.GetCooldownViewerCooldownInfo, id)
+					if ok2 and type(info) == "table" and not (issecretvalue and issecretvalue(info)) then
+						local sid = Clean(info.spellID)
+						local name = sid and ns.SpellName and ns.SpellName(sid) or "?"
+						Print(("    #%s spell %s %s: hasAura %s, auraInstanceID %s, selfAura %s, isKnown %s, auraSpellID %s"):format(
+							tostring(id), tostring(sid), name, Describe(info.hasAura), Describe(info.auraInstanceID), Describe(info.selfAura), Describe(info.isKnown), Describe(info.auraSpellID)))
+					else
+						Print(("    #%s: %s"):format(tostring(id), ok2 and Describe(info) or "error"))
+					end
+				end
+			end
 		end
 	elseif cmd == "probe" then
 		Print("asking by spell right now (secret: " .. YesNo(AurasSecret()) .. "; APIs: BySpellName " .. YesNo(C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName)
