@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.9.11
+
+- The chapter heading's highlight is a soft light bar behind the word, as in the spellbook, instead of a glow around the letters.
+- The spellbook record in the saved settings now covers the page itself (headers and entries), with file textures and font settings, so the heading effect can be read exactly.
+
 ## 1.9.10
 
 - Tab spacing set to 2px.

@@ -787,7 +787,7 @@ function UI:RefreshHistory()
 	book.pages = max(1, ceil(#items / PER_PAGE))
 	book.page = max(1, min(book.page, book.pages))
 	book.header:SetText(title)
-	for _, g in ipairs(book.headerGlow or {}) do g:SetText(title) end
+	if book.headerGlowTex then book.headerGlowTex:SetSize((book.header:GetStringWidth() or 100) + 90, 46) end
 	local tracked = TrackedNames()
 	local first = (book.page - 1) * PER_PAGE
 	for i = 1, PER_PAGE do UpdateBookButton(book.buttons[i], items[first + i], tracked) end
@@ -1604,24 +1604,16 @@ local function Build()
 	local hf, hs, hflags = book.header:GetFont()
 	if hf then book.header:SetFont(hf, math.max(hs or 20, 24), hflags or "") end
 	if onParchment then
-		-- The spellbook's heading glow: light copies of the text a pixel out on each side.
+		-- The spellbook's heading highlight: a soft light bar behind the word (the classic quest log
+		-- title highlight, a translucent white strip with faded ends), sized to the heading.
 		book.header:SetShadowColor(0, 0, 0, 0)
-		book.headerGlow = {}
-		local offsets = {}
-		for _, r in ipairs({ 1.2, 2.4, 3.6 }) do
-			for k = 0, 7 do
-				local a = k * math.pi / 4
-				offsets[#offsets + 1] = { r * math.cos(a), r * math.sin(a), r }
-			end
-		end
-		for i, off in ipairs(offsets) do
-			local g = left:CreateFontString(nil, "ARTWORK")
-			g:SetFont(hf or STANDARD_TEXT_FONT, math.max(hs or 20, 24), hflags or "")
-			g:SetPoint("TOPLEFT", book.header, "TOPLEFT", off[1], off[2])
-			g:SetTextColor(1, 0.97, 0.86, 0.34 / off[3])
-			g:SetShadowColor(0, 0, 0, 0)
-			book.headerGlow[i] = g
-		end
+		local glow = left:CreateTexture(nil, "ARTWORK", nil, -1)
+		glow:SetTexture("Interface\\QuestFrame\\UI-QuestLogTitleHighlight")
+		glow:SetBlendMode("ADD")
+		glow:SetVertexColor(1, 0.96, 0.85, 0.55)
+		glow:SetPoint("CENTER", book.header, "CENTER", 0, 0)
+		glow:SetSize(160, 44)
+		book.headerGlowTex = glow
 	else
 		book.header:SetShadowColor(0, 0, 0, 1)
 	end
@@ -2082,7 +2074,7 @@ local function Build()
 				end
 			end
 			local function Walk(f, path, depth)
-				if depth > 3 then return end
+				if depth > 6 then return end
 				if f.GetRegions then
 					for _, r in ipairs({ f:GetRegions() }) do
 						local kind = r.GetObjectType and r:GetObjectType() or "?"
@@ -2090,6 +2082,19 @@ local function Build()
 						if kind == "Texture" or kind == "MaskTexture" then
 							local ok, atlas = pcall(r.GetAtlas, r)
 							if ok and atlas and atlas ~= "" then what = "atlas " .. atlas else what = "file " .. tostring(r:GetTexture()) end
+							local okb, blend = pcall(r.GetBlendMode, r)
+							local okv, vr, vg, vb, va = pcall(r.GetVertexColor, r)
+							local w, h = r:GetSize()
+							what = what .. (" blend %s rgba %.2f %.2f %.2f %.2f alpha %.2f size %dx%d shown %s"):format(
+								tostring(okb and blend), okv and vr or 1, okv and vg or 1, okv and vb or 1, okv and va or 1, r:GetAlpha() or 1, w or 0, h or 0, tostring(r:IsShown()))
+						elseif kind == "FontString" then
+							local okf, font, size, flags = pcall(r.GetFont, r)
+							local okc, cr, cg, cb = pcall(r.GetTextColor, r)
+							local oks, sr, sg, sb, sa = pcall(r.GetShadowColor, r)
+							local oko, ox, oy = pcall(r.GetShadowOffset, r)
+							what = ("font %s %s '%s' rgb %.2f %.2f %.2f shadow %.2f %.2f %.2f %.2f off %s,%s text '%s'"):format(
+								tostring(okf and font), tostring(okf and size), tostring(okf and flags or ""), okc and cr or 0, okc and cg or 0, okc and cb or 0,
+								oks and sr or 0, oks and sg or 0, oks and sb or 0, oks and sa or 0, tostring(oko and ox), tostring(oko and oy), tostring(r:GetText() or ""):sub(1, 30))
 						end
 						out[#out + 1] = path .. "." .. (KeyOf(f, r) or "?") .. " [" .. kind .. "] " .. what
 					end
@@ -2109,7 +2114,8 @@ local function Build()
 							end
 						end
 						out[#out + 1] = path .. "." .. key .. " [" .. ckind .. "]" .. extra
-						if key ~= "SpellBookFrame" then Walk(c, path .. "." .. key, depth + 1) end
+						-- The spellbook page (its headers and items) is walked; the talent tree is not.
+						if key ~= "TalentsFrame" then Walk(c, path .. "." .. key, depth + 1) end
 					end
 				end
 			end
