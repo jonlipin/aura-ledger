@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.47.0
+
+- Trackers get the shadow the game's own icons have. The manager's items carry art below and above their picture as well as the mask, and the art below is what gives them their slight drop shadow. It is measured where it sits against that icon, the same way the mask and the border already are, and drawn on a tracker at whatever size the tracker is. /auraledger debug icon lists each piece, which layer it belongs to and how far it reaches.
+
 ## 1.46.6
 
 - The square corner over a rounded icon is gone. A cooldown draws its swipe itself and need not hand out a texture for it, and on this client it does not, so there was never anything for a mask to hold: every attempt at masking that swipe was masking nothing. Where a cooldown gives up no texture, its swipe is turned off instead, which leaves the time in numbers and the icon its own shape. On a client whose cooldowns do hand one out, the swipe stays and is masked. /auraledger debug says which.

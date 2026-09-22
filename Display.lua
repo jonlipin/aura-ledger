@@ -367,7 +367,7 @@ local function ShapeFromDonor(item)
 		local region = holder[key]
 		if IsA(region, "Texture") then
 			local art, rect = ArtOf(region), RelRect(region, iconTex)
-			if art and rect then shape.border = { art = art, rect = rect, key = key } break end
+			if art and rect then shape.border = { art = art, rect = rect, key = key, region = region } break end
 		elseif region and region.GetRegions then
 			for _, r in ipairs({ region:GetRegions() }) do
 				if IsA(r, "Texture") then
@@ -380,7 +380,28 @@ local function ShapeFromDonor(item)
 	  end
 	  if shape.border then break end
 	end
-	if #shape.masks == 0 and not shape.border then return end
+	-- Everything else the item draws, kept with the layer it is drawn in: the art below the picture
+	-- is what gives the manager's icons their shadow.
+	shape.under, shape.over = {}, {}
+	local seen = { [iconTex] = true }
+	if shape.border then seen[shape.border.region] = true end
+	for _, holder in ipairs(holders) do
+		if holder.GetRegions then
+			for _, r in ipairs({ holder:GetRegions() }) do
+				if IsA(r, "Texture") and not seen[r] then
+					seen[r] = true
+					local okS, hidden = pcall(function() return not r:IsShown() end)
+					local layer = (r.GetDrawLayer and r:GetDrawLayer()) or "ARTWORK"
+					local art, rect = ArtOf(r), RelRect(r, iconTex)
+					if art and rect and not (okS and hidden) then
+						local into = (layer == "BACKGROUND" or layer == "BORDER") and shape.under or shape.over
+						into[#into + 1] = { art = art, rect = rect, layer = layer }
+					end
+				end
+			end
+		end
+	end
+	if #shape.masks == 0 and not shape.border and #shape.under == 0 and #shape.over == 0 then return end
 	return shape
 end
 
@@ -589,6 +610,38 @@ local function ShapeCooldown(w, cd, size, want)
 	return n > 0
 end
 
+-- The art the manager draws round its own icon, below the picture and above it, which is what
+-- gives its icons their shadow. Placed by the rectangles measured off that icon.
+local function ShapeArt(w, icon, size, want)
+	local s = skin
+	local shape = s and s.shape
+	local lists = { { shape and shape.under, "under" }, { shape and shape.over, "over" } }
+	local drew = false
+	for _, pair in ipairs(lists) do
+		local list, where = pair[1] or {}, pair[2]
+		local pool = w["shapeArt_" .. where] or {}
+		w["shapeArt_" .. where] = pool
+		for i, def in ipairs(want and list or {}) do
+			local tex = pool[i]
+			if not tex then
+				tex = (where == "under" and (w.under or w) or (w.over or w)):CreateTexture(nil, def.layer or "ARTWORK",
+					nil, where == "under" and -4 or 4)
+				if def.art.atlas then tex:SetAtlas(def.art.atlas)
+				else
+					tex:SetTexture(def.art.file)
+					if def.art.coords then tex:SetTexCoord(def.art.coords[1], def.art.coords[2], def.art.coords[3], def.art.coords[4]) end
+				end
+				pool[i] = tex
+			end
+			ApplyRect(tex, icon, def.rect, size)
+			tex:Show()
+			drew = true
+		end
+		for i = (want and #list or 0) + 1, #pool do pool[i]:Hide() end
+	end
+	return drew
+end
+
 -- Every cooldown on a frame: the one the addon gave it and any the game runs itself.
 local function ShapeCooldownsOn(w, frame, size, want)
 	if not frame then return end
@@ -794,7 +847,8 @@ local function BuildSkin()
 		do
 			ns.report["icon shape"] = s.shape
 				and ((#s.shape.masks .. " mask" .. (#s.shape.masks == 1 and "" or "s"))
-					.. ", border " .. (s.shape.border and (s.shape.border.art.atlas or tostring(s.shape.border.art.file)) or "none"))
+					.. ", border " .. (s.shape.border and (s.shape.border.art.atlas or tostring(s.shape.border.art.file)) or "none")
+					.. ", " .. #(s.shape.under or {}) .. " under and " .. #(s.shape.over or {}) .. " over")
 				or "not readable on this client"
 			if s.shape then ns.report["icon shape"] = ns.report["icon shape"] .. ", from " .. tostring(s.shapeFrom) end
 		end
@@ -861,6 +915,12 @@ function Display:IconReport(emit)
 	local sh = skin and skin.shape
 	for i, m in ipairs((sh and sh.masks) or {}) do
 		emit(("  mask %d: %s, reaches l %.3f r %.3f t %.3f b %.3f"):format(i, tostring(m.art.atlas or m.art.file), m.rect.l, m.rect.r, m.rect.t, m.rect.b))
+	end
+	for _, where in ipairs({ "under", "over" }) do
+		for i, a in ipairs((sh and sh[where]) or {}) do
+			emit(("  %s %d: %s (%s), reaches l %.3f r %.3f t %.3f b %.3f"):format(where, i,
+				tostring(a.art.atlas or a.art.file), tostring(a.layer), a.rect.l, a.rect.r, a.rect.t, a.rect.b))
+		end
 	end
 	if sh and sh.border then
 		emit(("  border: %s from %s, reaches l %.3f r %.3f t %.3f b %.3f"):format(
@@ -1151,6 +1211,7 @@ local function ConfigureWidget(w, g)
 		-- Both are asked every time: the one that is not wanted takes itself off screen.
 		w.ringRef = w.ringHolder
 		ShapeMask(w, w.icon, IS, g.iconFrame ~= false)
+		ShapeArt(w, w.icon, IS, g.iconFrame ~= false)
 		ShapeCooldown(w, w.cd, IS, g.iconFrame ~= false)
 		local shaped = ShapeBorder(w, w.icon, IS, g.iconFrame ~= false) or (HaveShape() and g.iconFrame ~= false)
 		local edged = PlaceCleanEdge(w, w.icon, IS, g.iconFrame ~= false)
@@ -1203,6 +1264,7 @@ local function ConfigureWidget(w, g)
 		PlaceDecor(w, {}, "decor", w.bar, S)
 		w.ringRef = w.ringHolder
 		ShapeMask(w, w.icon, S, g.iconFrame ~= false)
+		ShapeArt(w, w.icon, S, g.iconFrame ~= false)
 		ShapeCooldown(w, w.cd, S, g.iconFrame ~= false)
 		local shaped = ShapeBorder(w, w.icon, S, g.iconFrame ~= false) or (HaveShape() and g.iconFrame ~= false)
 		local edged = PlaceCleanEdge(w, w.icon, S, g.iconFrame ~= false, w.underSlot)
@@ -1471,6 +1533,7 @@ local function InitSlotFrame(g, mode, filter, store)
 		end
 		SquareUp()
 		ShapeMask(w, icon, IW, g.iconFrame ~= false)
+		ShapeArt(w, icon, IW, g.iconFrame ~= false)
 		button.alIcon = icon
 		pcall(button.SetIcon, button, icon)
 		SquareUp()
