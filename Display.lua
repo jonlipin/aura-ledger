@@ -374,34 +374,65 @@ local function ClientIconFrame()
 end
 
 -- A thin dark line round the icon, the way the game edges an icon that has no frame of its own.
--- "inward" draws the edge at the cell's own bounds rather than outside the picture, for a widget
--- that sits under a slot the game fills: anything outside the cell is not covered by the game's
--- icon and shows round the outside of it.
+-- The edge is four thin bars, not a block behind the picture: a block shows only where it sticks
+-- out, so anything drawn over the picture would have to pull it in to be seen. "inward" lays the
+-- bars along the inside of the cell instead of just outside the picture, for a cell under a slot
+-- the game fills, where anything past the cell is not covered by the game's icon.
+local function EdgeBars(w)
+	if not w.edgeBars then
+		local owner = w.over or w
+		w.edgeBars = {}
+		for i = 1, 4 do
+			w.edgeBars[i] = owner:CreateTexture(nil, "OVERLAY", nil, 6)
+		end
+		w.cleanEdge = w.edgeBars[1]
+	end
+	return w.edgeBars
+end
+
+local function LayEdge(w, r, g, b, a, thicker)
+	local bars = w.edgeBars
+	local lead = bars and bars[1]
+	if not lead or not lead.alRef then return false end
+	local ref, inward = lead.alRef, lead.alInward
+	local px = max(1, lead.alPx or 1)
+	if thicker then px = px + max(1, floor(px * 0.5)) end
+	local out = inward and 0 or px
+	local top, bottom, left, right = bars[1], bars[2], bars[3], bars[4]
+	top:ClearAllPoints()
+	top:SetPoint("TOPLEFT", ref, "TOPLEFT", -out, out)
+	top:SetPoint("TOPRIGHT", ref, "TOPRIGHT", out, out)
+	top:SetHeight(px)
+	bottom:ClearAllPoints()
+	bottom:SetPoint("BOTTOMLEFT", ref, "BOTTOMLEFT", -out, -out)
+	bottom:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", out, -out)
+	bottom:SetHeight(px)
+	left:ClearAllPoints()
+	left:SetPoint("TOPLEFT", ref, "TOPLEFT", -out, out)
+	left:SetPoint("BOTTOMLEFT", ref, "BOTTOMLEFT", -out, -out)
+	left:SetWidth(px)
+	right:ClearAllPoints()
+	right:SetPoint("TOPRIGHT", ref, "TOPRIGHT", out, out)
+	right:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", out, -out)
+	right:SetWidth(px)
+	for _, tex in ipairs(bars) do
+		tex:SetColorTexture(r, g, b, a)
+		tex:Show()
+	end
+	return true
+end
+
 local function PlaceCleanEdge(w, ref, size, want, inward)
 	local on = (want ~= false) and BorderMode() == "clean"
-	local tex = w.cleanEdge
 	if not on then
-		if tex then tex:Hide() end
+		for _, tex in ipairs(w.edgeBars or {}) do tex:Hide() end
 		return false
 	end
-	if not tex then
-		tex = (w.under or w):CreateTexture(nil, "BACKGROUND", nil, -6)
-		w.cleanEdge = tex
-	end
-	local px = max(1, floor(size / 24 + 0.5))
-	tex.alPx = px
-	tex.alInward = inward or nil
-	tex:SetColorTexture(0, 0, 0, 0.9)
-	tex:ClearAllPoints()
-	if inward then
-		tex:SetPoint("TOPLEFT", ref, "TOPLEFT", 0, 0)
-		tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", 0, 0)
-	else
-		tex:SetPoint("TOPLEFT", ref, "TOPLEFT", -px, px)
-		tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", px, -px)
-	end
-	tex:Show()
-	return true
+	local bars = EdgeBars(w)
+	bars[1].alPx = max(1, floor(size / 24 + 0.5))
+	bars[1].alRef = ref
+	bars[1].alInward = inward or nil
+	return LayEdge(w, 0, 0, 0, 0.9, false)
 end
 
 -- Draws it on "w" around "ref", at the size the mask is drawn at, and says whether it could.
@@ -838,10 +869,6 @@ local function ConfigureWidget(w, g)
 		local S = g.size
 		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false, S)
 		local inset = (masked or BorderMode() ~= "cdm") and 0 or IconInset(s, false, S, g.iconFrame ~= false)
-		-- Under a slot the game fills, the edge goes inside the cell and the picture behind it.
-		if w.underSlot and BorderMode() == "clean" and g.iconFrame ~= false then
-			inset = max(inset, max(1, floor(S / 24 + 0.5)))
-		end
 		w:SetSize(S, S)
 		w.icon:SetSize(S - inset * 2, S - inset * 2)
 		w.icon:SetPoint("CENTER")
@@ -873,15 +900,7 @@ end
 local function TintEdge(w, r, g, b, strong)
 	local tex = w.cleanEdge
 	if not tex or tex:IsShown() == false then return false end
-	tex:SetColorTexture(r, g, b, strong and 1 or 0.9)
-	if tex.alInward then return true end
-	local px = max(1, tex.alPx or 1)
-	if strong then px = px + max(1, floor(px * 0.5)) end
-	local ref = w.icon
-	tex:ClearAllPoints()
-	tex:SetPoint("TOPLEFT", ref, "TOPLEFT", -px, px)
-	tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", px, -px)
-	return true
+	return LayEdge(w, r, g, b, strong and 1 or 0.9, strong)
 end
 
 local function TintFill(w, kind, missing)

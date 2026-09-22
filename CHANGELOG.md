@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.43.3
+
+- A group keeps its shape whether the window is open or not. The edge round an icon was a block drawn behind the picture, which can only be seen where it sticks out past it, so a cell sitting under a game-drawn slot had to pull its picture in to show one: that is the gap that appeared when the window was closed and the game took the cells over. The edge is four thin bars drawn over the picture now, so a cell under a slot keeps its picture whole and only the edge moves inside the cell.
+
 ## 1.43.2
 
 - A tracker the game draws no longer shows the addon's edge round the outside of it. The addon paints its own widget under a game-drawn slot so the missing state can show through, and the slot is anchored flush to that widget, while the edge is drawn just outside the picture: the part that stuck out was not covered by the game's icon. A widget under a slot now keeps its edge at the cell's own bounds and pulls its picture in behind it, so the game's icon covers the lot while the aura is there, and the red shows only when it is not.
