@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.23.0"
+ns.VERSION = "1.24.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -153,6 +153,7 @@ function ns.InitDB()
 	for _, g in ipairs(profile.groups) do
 		g.trackers = type(g.trackers) == "table" and g.trackers or {}
 		g.cond = type(g.cond) == "table" and g.cond or {}
+		g.liveOnlyMine = nil -- retired: "my trackers, kept right in combat" does this properly
 		for _, t in ipairs(g.trackers) do t.cond = type(t.cond) == "table" and t.cond or {} end
 	end
 	ns.db, ns.profile, ns.charKey = db, profile, key

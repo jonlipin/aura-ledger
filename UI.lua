@@ -236,6 +236,36 @@ function Builder:Sync()
 	for _, fn in ipairs(self.syncers) do fn() end
 end
 
+-- Marks the row just built as only applying while fn() is true. It stays where it is, greyed and
+-- unclickable, with a tooltip saying why, so the panel never jumps about as choices change.
+function Builder:AppliesWhen(fn, why)
+	local items = self.last
+	if not items then return end
+	for _, w in ipairs(items) do
+		if w.SetScript and w.GetScript and why then
+			local prevEnter, prevLeave = w:GetScript("OnEnter"), w:GetScript("OnLeave")
+			w:SetScript("OnEnter", function(self2, ...)
+				if fn() then
+					if prevEnter then prevEnter(self2, ...) end
+				else
+					TextTooltip(self2, "Not used here", why)
+				end
+			end)
+			w:SetScript("OnLeave", function(self2, ...)
+				if prevLeave then prevLeave(self2, ...) else GameTooltip:Hide() end
+			end)
+		end
+	end
+	self.syncers[#self.syncers + 1] = function()
+		local on = fn() and true or false
+		for _, w in ipairs(items) do
+			if w.SetEnabled then pcall(w.SetEnabled, w, on) end
+			if w.SetAlpha then w:SetAlpha(on and 1 or 0.35) end
+		end
+	end
+	self.last = nil
+end
+
 function Builder:Header(text)
 	self.y = self.y - 8
 	local fs = Ink(self.panel:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "head")
@@ -288,10 +318,14 @@ function Builder:Slider(label, opts)
 		if current ~= nil and v ~= current then opts.set(v) end
 		ShowValue(v)
 	end)
+	-- The wheel belongs to the panel: rolling it over a slider used to drag the slider and change
+	-- the setting, which is not what anyone means by scrolling.
 	sl:EnableMouseWheel(true)
-	sl:SetScript("OnMouseWheel", function(self, delta)
-		local current = opts.get()
-		if current then self:SetValue(max(opts.min, min(opts.max, current + delta * opts.step))) end
+	local panelFrame = self.panel
+	sl:SetScript("OnMouseWheel", function(_, delta)
+		local scroll = panelFrame and panelFrame:GetParent()
+		local onWheel = scroll and scroll.GetScript and scroll:GetScript("OnMouseWheel")
+		if onWheel then onWheel(scroll, delta) end
 	end)
 	self.syncers[#self.syncers + 1] = function()
 		local current = opts.get()
@@ -301,6 +335,7 @@ function Builder:Slider(label, opts)
 		syncing = false
 		ShowValue(current)
 	end
+	self.last = { fs, value, sl }
 	self.y = y - 38
 	return sl
 end
@@ -315,6 +350,7 @@ function Builder:Check(label, get, set, tip)
 		cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	end
 	self.syncers[#self.syncers + 1] = function() cb:SetChecked(get() and true or false) end
+	self.last = { cb }
 	self.y = self.y - 24
 	return cb
 end
@@ -368,6 +404,7 @@ function Builder:Cycle(label, choices, get, set, tip, buttonWidth)
 		b:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	end
 	self.syncers[#self.syncers + 1] = Sync
+	self.last = { fs, b }
 	self.y = y - (narrow and 42 or 26)
 	return b
 end
@@ -1326,33 +1363,53 @@ local function BuildGroupPanel(width)
 	end)
 	exportG:SetScript("OnEnter", function(self) TextTooltip(self, "Export this group", "Gives you a string holding the whole group (its look, conditions and every tracker) to paste elsewhere.") end)
 	exportG:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	-- What the group is, in one question. The old Contents, "track in combat" and "only this
+	-- group's trackers" could be combined in ways that meant nothing; these cannot.
+	local function IsCategory() local g = G() return (g and g.live and g.live ~= "") and true or false end
+	local function IsGameDrawn() local g = G() return (g and (g.gameDrawn or IsCategory())) and true or false end
+	local function IsBars() local g = G() return (g and g.style == "bars" and not IsCategory()) and true or false end
 	b:Header("Group")
-	b:Note("On this client the addon cannot see auras in combat. Addon-drawn trackers update between fights; 'Track in combat' hands the drawing to the game.")
+	b:Note("The addon cannot see auras in combat on this client, so a group either updates between fights or is drawn by the game.")
 	b:Edit("Name", function() local g = G() return g and g.name or "" end,
 		function(text) local g = G() if g then g.name = (text ~= "" and text) or nil GroupChanged() end end)
+	local showsChoices = {
+		{ "", "My trackers, between fights" },
+		{ "combat", "My trackers, kept right in combat" },
+	}
+	for _, lf in ipairs(ns.LIVE_FILTERS) do showsChoices[#showsChoices + 1] = { lf[1], lf[2] .. " (the game fills it)" } end
+	b:Cycle("Shows", showsChoices,
+		function()
+			local g = G()
+			if not g then return "" end
+			if g.live and g.live ~= "" then return g.live end
+			return g.gameDrawn and "combat" or ""
+		end,
+		function(v)
+			local g = G()
+			if not g then return end
+			if v == "" then g.live, g.gameDrawn = nil, nil
+			elseif v == "combat" then g.live, g.gameDrawn = nil, true
+			else g.live, g.gameDrawn = v, nil end
+			GroupChanged()
+			b:Sync()
+		end,
+		"My trackers, between fights: the addon draws the trackers in this group, and on this client they only update out of combat. My trackers, kept right in combat: the game draws each tracker and keeps it right during a fight, but it shows the aura whenever it is active, so 'It is missing' behaves like 'Always' and the warn window does not apply; it works for buffs on you and debuffs on your target, not for a debuff on you. The rest hand the whole group to the game, which fills it with every aura of that kind and keeps it right in combat; the trackers in such a group are then only there for their sounds.",
+		210)
 	b:Cycle("Show as", { { "icons", "Icons with numbers" }, { "bars", "Bars with icons" } },
 		function() local g = G() return g and g.style or "icons" end,
 		function(v) local g = G() if g then g.style = v if v == "bars" and (g.grow == "RIGHT" or g.grow == "LEFT") then ns.Display:SetGrow(g, "DOWN") end GroupChanged() b:Sync() end end,
 		"Icons show the time left as a number on the icon. Bars show an icon, the name and a draining bar.")
-	local liveChoices = { { "", "My trackers" } }
-	for _, lf in ipairs(ns.LIVE_FILTERS) do liveChoices[#liveChoices + 1] = { lf[1], lf[2] .. " (drawn by the game)" } end
-	b:Cycle("Contents", liveChoices,
-		function() local g = G() return g and g.live or "" end,
-		function(v) local g = G() if g then g.live = (v ~= "" and v) or nil GroupChanged() b:Sync() end end,
-		"My trackers: the trackers in this group, drawn by the addon. The other choices hand the group to the game, which draws every aura of that kind on you or on your target and keeps it current in combat, where the addon cannot see auras. Icon size, spacing, icon frame and position are yours; icons, timers and stacks are the game's. Bars, names and per-tracker settings do not apply. Trackers kept in such a group still play their sounds.")
-	b:Check("Track in combat (drawn by the game)", function() local g = G() return g and g.gameDrawn or false end,
-		function(v) local g = G() if g then g.gameDrawn = v or nil GroupChanged() end end,
-		"Off: the addon draws the trackers, and on this client they only update out of combat. On: the game draws each tracker and keeps it right in combat, but it always shows the aura while it is active ('It is missing' behaves like 'Always'), every tracker keeps its cell, and the warn window does not apply. Works for buffs on you and for debuffs on your target; a debuff on you cannot be drawn by spell (use Contents: Debuffs on me), and a target's auras are only re-read in combat when they change.")
-	b:Check("Only this group's trackers", function() local g = G() return g and g.liveOnlyMine or false end,
-		function(v) local g = G() if g then g.liveOnlyMine = v or nil GroupChanged() end end,
-		"For a category group: show only the spells this group's trackers name.")
+	b:AppliesWhen(function() return not IsCategory() end, "A group the game fills always draws icons.")
 	b:Cycle("Grow towards", ns.GROWS,
 		function() local g = G() return g and g.grow or "RIGHT" end,
 		function(v) local g = G() if g then ns.Display:SetGrow(g, v) end end,
 		"The direction new trackers are added in. The opposite corner stays where you put it.")
 	b:Slider("Icon size", { min = 16, max = 96, step = 1, get = Num("size", 40), set = SetNum("size") })
+	b:AppliesWhen(function() return not IsBars() end, "Bars take their icon size from the bar height.")
 	b:Slider("Bar width", { min = 80, max = 400, step = 5, get = Num("barW", 190), set = SetNum("barW") })
+	b:AppliesWhen(IsBars, "This group shows icons.")
 	b:Slider("Bar height", { min = 12, max = 48, step = 1, get = Num("barH", 22), set = SetNum("barH") })
+	b:AppliesWhen(IsBars, "This group shows icons.")
 	b:Slider("Spacing", { min = 0, max = 30, step = 1, get = Num("spacing", 4), set = SetNum("spacing") })
 	b:Slider("Trackers per row before wrapping", { min = 1, max = 40, step = 1, get = Num("perRow", 8), set = SetNum("perRow") })
 	b:Slider("Scale", { min = 0.5, max = 2.5, step = 0.05, get = Num("scale", 1), set = SetNum("scale"),
@@ -1363,15 +1420,19 @@ local function BuildGroupPanel(width)
 		function(v) local g = G() if g then g.timers = v GroupChanged() end end)
 	b:Check("Show names on bars", function() local g = G() return g and g.names ~= false end,
 		function(v) local g = G() if g then g.names = v GroupChanged() end end)
+	b:AppliesWhen(IsBars, "This group shows icons.")
 	b:Check("Bar border", function() local g = G() return g and g.border ~= false end,
 		function(v) local g = G() if g then g.border = v GroupChanged() end end,
 		"The frame drawn around each bar. Untick for bare bars.")
+	b:AppliesWhen(IsBars, "This group shows icons.")
 	b:Check("Bar background", function() local g = G() return g and g.background ~= false end,
 		function(v) local g = G() if g then g.background = v GroupChanged() end end,
 		"The dark plate behind the fill. Untick to see through the empty part of a bar.")
+	b:AppliesWhen(IsBars, "This group shows icons.")
 	b:Check("Pocket watch on carried timers", function() local g = G() return g and g.watch ~= false end,
 		function(v) local g = G() if g then g.watch = v GroupChanged() end end,
 		"In combat the client hides aura details from addons, so timers are carried on from the last clean read. The small watch marks those. Untick to hide it.")
+	b:AppliesWhen(function() return not IsGameDrawn() end, "The game draws this group, so no timer is ever carried.")
 	b:Check("Icon frame", function() local g = G() return g and g.iconFrame ~= false end,
 		function(v) local g = G() if g then g.iconFrame = v GroupChanged() end end,
 		"The decorative frame around each icon, when the client has one.")
@@ -1445,6 +1506,11 @@ local function BuildTrackerPanel(width)
 		get = function() local t = T() return t and (t.warn or 0) end,
 		set = function(v) local t = T() if t then t.warn = (v > 0) and v or nil TrackerChanged() end end,
 		format = function(v) return v == 0 and "off" or (v .. "s") end })
+	b:AppliesWhen(function()
+		local t = T()
+		local g = t and ns.FindGroupOf(t)
+		return not (g and (g.gameDrawn or (g.live and g.live ~= "")))
+	end, "This group is drawn by the game, which shows the aura whenever it is active.")
 	b:Note("With Missing: also shows while the aura has this long or less left, with a red border. With Always: the border turns red that early.")
 	b:Cycle("Match by", { { false, "Name (any rank)" }, { true, "Exact spell ID" } },
 		function() local t = T() return t and t.matchId and true or false end,

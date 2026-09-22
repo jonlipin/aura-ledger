@@ -30,7 +30,7 @@ The minimize button beside the close button shrinks the window to the Groups and
 
 ## Options
 
-Per **group**: name, icons with numbers or bars with icons, growth direction, icon size, bar width and height, spacing, how many per row before wrapping, scale, opacity, time text, names on bars, and whether to draw the bar border, the bar background and the icon frame.
+Per **group**: what it shows (my trackers between fights, my trackers kept right in combat, or one of the kinds of aura the game fills a group with), name, icons with numbers or bars with icons, growth direction, icon size, bar width and height, spacing, how many per row before wrapping, scale, opacity, time text, names on bars, and whether to draw the bar border, the bar background and the icon frame. Options that do not apply to what the group shows are greyed out, and say why when you hover them.
 
 Debuffs are listed only where they can be followed: on your target. A debuff on you cannot be tracked by spell on this client, so use a group with Contents "Debuffs on me" for those.
 

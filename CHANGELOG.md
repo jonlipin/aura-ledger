@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.24.0
+
+- Fixed: rolling the mouse wheel over a slider in the Options panel dragged the slider and changed the setting. The wheel now scrolls the panel wherever the cursor is.
+- The group options ask one question instead of three. "Contents", "Track in combat" and "Only this group's trackers" are now a single "Shows" choice: my trackers between fights, my trackers kept right in combat, or one of the kinds of aura the game fills a group with. The combinations that meant nothing are gone, and "Only this group's trackers" retires with them, since "my trackers, kept right in combat" is that, done properly.
+- Options that do not apply to the current choice are greyed out rather than left looking available, and hovering one says why: bar settings in a group showing icons, the icon size in a group showing bars, "Show as" in a group the game fills, the pocket watch and the warn window where the game does the drawing.
+
 ## 1.23.0
 
 - An aura can now be dragged out of the book straight into the Groups and trackers list: onto a group to join it, onto a tracker to sit before or after it, or onto empty space in the list for a group of its own. Dropping it on the screen still works as before.
