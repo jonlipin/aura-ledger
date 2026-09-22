@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.46.6
+
+- The square corner over a rounded icon is gone. A cooldown draws its swipe itself and need not hand out a texture for it, and on this client it does not, so there was never anything for a mask to hold: every attempt at masking that swipe was masking nothing. Where a cooldown gives up no texture, its swipe is turned off instead, which leaves the time in numbers and the icon its own shape. On a client whose cooldowns do hand one out, the swipe stays and is masked. /auraledger debug says which.
+
 ## 1.46.5
 
 - Every cooldown on a tracker the game draws is masked, not only the one the addon handed it. The container can run a cooldown of its own, whose textures the addon never saw, and that is the square corner still poking out of a rounded icon. Each cooldown on a slot is found and masked, and each keeps its own set of masks so two on one frame do not tread on each other.

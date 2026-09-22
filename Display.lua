@@ -578,6 +578,14 @@ local function ShapeCooldown(w, cd, size, want)
 			ShapeMask(w, r, size, want, tag .. n)
 		end
 	end
+	-- A cooldown draws its swipe itself and need not hand out a texture for it. Where it does not,
+	-- there is nothing to round off, and a square swipe over a rounded icon is worse than none.
+	if n == 0 and want and HaveShape() then
+		if cd.SetDrawSwipe then pcall(cd.SetDrawSwipe, cd, false) end
+		if cd.SetDrawEdge then pcall(cd.SetDrawEdge, cd, false) end
+		if cd.SetDrawBling then pcall(cd.SetDrawBling, cd, false) end
+		ns.report["cooldown swipe"] = "off: this client's cooldowns hand out no texture to mask"
+	end
 	return n > 0
 end
 
