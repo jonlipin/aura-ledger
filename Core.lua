@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.41.6"
+ns.VERSION = "1.42.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1964,6 +1964,10 @@ ns.ICON_MASK = "UI-HUD-ActionBar-IconFrame-Mask"
 -- size. The shape fills about two thirds of the region, hence the first; it does not sit in the
 -- middle of it on this client, hence the second. /auraledger iconmask sets them.
 ns.MASK_OVER, ns.MASK_SHIFT = 0.26, 0
+-- The frame the client draws round its own icons, which the mask above is cut for: the action bar
+-- wears it, so do the spellbook and the buff bar. The Cooldown Manager's overlay is a different
+-- shape and was what this addon used to copy. In the order they are looked for.
+ns.ICON_FRAMES = { "UI-HUD-ActionBar-IconFrame", "UI-HUD-ActionBar-IconFrame-Slot", "UI-HUD-ActionBar-IconFrame-Border" }
 -- Bumped whenever the mask changes, so every widget knows to dress itself again.
 ns.MASK_EPOCH = 0
 
@@ -2335,6 +2339,20 @@ SlashCmdList.AURALEDGER = function(msg)
 		ns.db.combatLog = not ns.db.combatLog
 		if ns.db.combatLog and not registered.COMBAT_LOG_EVENT_UNFILTERED then SafeRegister("COMBAT_LOG_EVENT_UNFILTERED") end
 		Print("Combat log source " .. (ns.db.combatLog and "on (if the client shows the blocked dialog, turn it off again)." or "off. Type /reload to finish turning it off."))
+	elseif cmd == "iconborder" then
+		local word = strlower(rest or "")
+		if word == "" then
+			Print("Icon border: " .. tostring(ns.db.iconBorder or "client")
+				.. ". |cffffd000/auraledger iconborder client|r draws the frame this client puts round its own icons, |cffffd000cdm|r copies the Cooldown Manager's overlay as before, |cffffd000none|r draws no frame.")
+			Print("  in hand: " .. tostring(ns.report["icon frame"] or "not tried yet"))
+		elseif word == "client" or word == "cdm" or word == "none" then
+			ns.db.iconBorder = (word ~= "client") and word or nil
+			ns.MASK_EPOCH = ns.MASK_EPOCH + 1
+			if ns.Display then ns.Display:Rebuild() end
+			Print("Icon border: " .. word .. ". The window follows after a /reload.")
+		else
+			Print("Icon border: client, cdm or none.")
+		end
 	elseif cmd == "iconmask" then
 		local word = strlower(rest or "")
 		if word == "off" or word == "on" then

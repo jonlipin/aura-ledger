@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.42.0
+
+- Icons wear the frame this client draws round its own. The art was being copied off the Cooldown Manager, and that display's overlay is a different shape from the frame the spellbook, the buff bar and the action bar all wear, which is why a tracker came out rounded at the top and square at the bottom. The action bar's icon frame is drawn instead, at the same size and place as the mask it is cut for, and the Cooldown Manager's overlay is kept only for a client that has no such frame. /auraledger iconborder switches between the two, or draws none at all.
+- Icons are trimmed again. The Cooldown Manager leans on a mask rather than a crop, so the crop copied from it was the whole picture, and every icon was drawn with its own baked border as well as ours. Where the addon is masking, the whole picture is right; where it is not, the icon is trimmed as the game trims an unmasked one.
+
 ## 1.41.6
 
 - Turning the icon mask off now does something. A tracker only dresses itself again when the look it was dressed for changes, and the mask was not counted as part of that look, so the switch was thrown and nothing was redrawn. It counts now, and turning the mask off also takes the masks off the icons already on screen instead of waiting for them to be drawn again.
