@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.39.0
+
+- Stopped borrowing Blizzard's Cooldown Manager frames, and handed the manager back. Putting the game's own frames inside this addon's groups marked them with the addon, and the game then refused its own reads: the manager was throwing "Auras cannot be accessed when secret while tainted by 'AuraLedger'" from its own event handlers, and later could not touch its own tables at all. That breaks a part of the game's interface that has nothing to do with this addon, which no feature is worth. The borrowing, the layout writing and the hooks into the manager are gone; if a previous version took the manager over, it is given back shortly after you log in.
+- Groups set to be drawn by the game use the aura slots again: those are the addon's own frames, filled by the game through the interface meant for it, so the game keeps them right in a fight and nothing of Blizzard's is touched. The cost is that "show it when missing" behaves like "always" in such a group, as it did before.
+
 ## 1.38.0
 
 - Groups can grow out from the centre: "Out from the centre, sideways" spreads the trackers evenly left and right of where you put the group, and "Out from the centre, up and down" spreads them above and below. The group stays pinned to that point as trackers come and go, so a centred row stays centred. Switching a centred row to bars turns it into a centred column, since bars are too wide to march sideways.

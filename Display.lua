@@ -992,116 +992,6 @@ local function TrackerSlots(f, g, t, ids)
 	return frames
 end
 
--- ------------------------------------------------------------------
--- Frames borrowed from Blizzard's Cooldown Manager. The manager reads auras in combat because it
--- is the game's own code, so a tracker that must stay right in a fight shows the manager's frame
--- for its spell rather than anything the addon draws. Whether the manager is showing that frame is
--- the only honest present or absent signal an addon can get on this client.
--- ------------------------------------------------------------------
-local cdmFrames, cdmHolder, cdmHooked, cdmUsed = {}, nil, false, {}
-local CDM_VIEWERS = { "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
-
-local function CDMHolder()
-	if not cdmHolder then
-		cdmHolder = CreateFrame("Frame", nil, UIParent)
-		cdmHolder:SetSize(1, 1)
-		cdmHolder:SetPoint("TOPLEFT", UIParent, "TOPLEFT", -1000, 1000)
-		cdmHolder:Hide()
-	end
-	return cdmHolder
-end
-
-local function CacheCDMFrames()
-	wipe(cdmFrames)
-	for _, name in ipairs(CDM_VIEWERS) do
-		local v = _G[name]
-		local pool = v and v.itemFramePool
-		if pool and pool.EnumerateActive then
-			pcall(function()
-				for item in pool:EnumerateActive() do
-					local cid = item.cooldownID
-					if type(cid) == "number" then
-						cdmFrames[cid] = item
-						if item.alHome == nil then item.alHome = item:GetParent() or false end
-					end
-				end
-			end)
-		end
-	end
-end
-Display.CacheCDMFrames = CacheCDMFrames
-
--- The manager rebuilds its frames on its own schedule, so every route it takes is followed.
-local function HookCDM()
-	if cdmHooked then return end
-	cdmHooked = true
-	local function Later()
-		if C_Timer and C_Timer.After then
-			C_Timer.After(0, function() Display:CDMChanged() end)
-		else
-			Display:CDMChanged()
-		end
-	end
-	for _, name in ipairs(CDM_VIEWERS) do
-		local v = _G[name]
-		if v then
-			for _, method in ipairs({ "RefreshData", "RefreshLayout", "OnUnitAura", "OnUnitTarget", "OnPlayerTargetChanged" }) do
-				if type(v[method]) == "function" and hooksecurefunc then pcall(hooksecurefunc, v, method, Later) end
-			end
-		end
-	end
-end
-Display.HookCDM = HookCDM
-
-function Display:CDMChanged()
-	CacheCDMFrames()
-	self:Refresh()
-end
-
--- Is the manager showing this frame? Hidden values are not answered during a fight, so the last
--- plain answer is kept and used until a plain one comes again.
-local function CDMShown(frame)
-	local ok, shown = pcall(frame.IsShown, frame)
-	if ok and not (issecretvalue and issecretvalue(shown)) then
-		frame.alShown = shown and true or false
-		return frame.alShown
-	end
-	return frame.alShown
-end
-
--- Everything the manager owns that no cell asked for goes out of sight, so the manager has no
--- display of its own while the addon is using it.
-local function ParkUnusedCDMFrames()
-	if not next(cdmFrames) then return end
-	local holder = CDMHolder()
-	for _, frame in pairs(cdmFrames) do
-		if not cdmUsed[frame] then
-			local ok = pcall(function()
-				if frame:GetParent() ~= holder then
-					frame:SetParent(holder)
-					frame:ClearAllPoints()
-					frame:SetPoint("CENTER", holder, "CENTER", 0, 0)
-				end
-			end)
-			if not ok then ns.report["cooldown manager frames"] = "a frame could not be parked" end
-		end
-	end
-end
-
--- Puts a borrowed frame in a cell, at the cell's size.
-local function BorrowCDMFrame(frame, cell, g)
-	cdmUsed[frame] = true
-	local bars = g.style == "bars"
-	local scale = bars and ((g.barH or 22) / 30) or ((g.size or 40) / 40)
-	pcall(function()
-		if frame:GetParent() ~= cell then frame:SetParent(cell) end
-		frame:ClearAllPoints()
-		frame:SetPoint("CENTER", cell, "CENTER", 0, 0)
-		if frame.SetScale then frame:SetScale(max(0.2, scale)) end
-		frame:SetFrameLevel(cell:GetFrameLevel() + 2)
-	end)
-end
-
 local function CreateGroupFrame()
 	local f = CreateFrame("Frame", nil, UIParent)
 	f:SetMovable(true)
@@ -1206,15 +1096,7 @@ local function LayoutGroup(f, g, visible, unlocked)
 		local item = visible[k]
 		widget:SetAlpha(1)
 		if widget:GetParent() ~= cellParent then widget:SetParent(cellParent) end
-		widget.alBorrowed = item.borrowed
-		if item.borrowed then
-			-- The manager draws the aura itself. The cell underneath carries the missing art, for
-			-- when the manager is not showing it.
-			BorrowCDMFrame(item.borrowed, widget, g)
-			local on = CDMShown(item.borrowed)
-			PaintWidget(widget, g, item.t, nil, false, false)
-			if on or item.t.show == "active" then widget:SetAlpha(0) end
-		elseif slots and item.slots then
+		if slots and item.slots then
 			-- The addon draws only the missing state under a game-drawn slot; the game covers it
 			-- while the aura is present. "Show when active" leaves the cell empty underneath.
 			PaintWidget(widget, g, item.t, nil, false, false)
@@ -1336,13 +1218,9 @@ function Display:RefreshGroup(g)
 		Sounds(t, entry, show, unlocked, unlocked and ns.CondPass(g.cond) or groupPass)
 		if g.gameDrawn and not unlocked then
 			local passes = groupPass and ns.CondPass(t.cond)
-			local cd = passes and ns.CDM and ns.CDM.CooldownFor and ns.CDM.CooldownFor(t)
-			local borrowed = cd and cdmFrames[cd]
-			local ids = (not borrowed) and TrackerIds(t) or nil
+			local ids = TrackerIds(t)
 			local slots = ids and passes and TrackerSlots(f, g, t, ids)
-			if borrowed then
-				visible[#visible + 1] = { t = t, entry = entry, expiring = false, borrowed = borrowed }
-			elseif slots then
+			if slots then
 				visible[#visible + 1] = { t = t, entry = entry, expiring = false, slots = slots }
 			elseif show then
 				visible[#visible + 1] = { t = t, entry = entry, expiring = expiring }
@@ -1356,9 +1234,7 @@ end
 
 function Display:Refresh()
 	if not ready then return end
-	wipe(cdmUsed)
 	for _, g in ipairs(ns.profile.groups) do self:RefreshGroup(g) end
-	ParkUnusedCDMFrames()
 	self:Tick(GetTime())
 end
 
@@ -1395,10 +1271,6 @@ end
 function Display:Rebuild()
 	if ns.SyncAuraSounds then ns.SyncAuraSounds() end
 	if not ready then return end
-	if ns.CDM and ns.CDM.Sync then
-		HookCDM()
-		if ns.CDM.Sync() then CacheCDMFrames() end
-	end
 	local wanted = {}
 	for _, g in ipairs(ns.profile.groups) do wanted[g.uid] = g end
 	for uid, f in pairs(active) do

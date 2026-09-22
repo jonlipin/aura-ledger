@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.38.0"
+ns.VERSION = "1.39.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1358,26 +1358,6 @@ function ns.CDM.Apply(bars)
 	return true
 end
 
--- Puts the manager in step with the trackers that asked the game to draw them, and hands it back
--- when none do. The signature stops it rewriting a layout that has not changed.
-function ns.CDM.Sync()
-	if not ns.CDM.Available() then return false end
-	if InCombatLockdown and InCombatLockdown() then return false end
-	local icons, bars = ns.CDM.Wanted()
-	local sig = table.concat(icons, ",") .. "|" .. table.concat(bars, ",")
-	if sig == "|" then
-		if ns.db.cdmSig then
-			ns.CDM.Restore()
-			ns.db.cdmSig = nil
-		end
-		return false
-	end
-	if ns.db.cdmSig == sig and ns.db.cdmLayout then return true end
-	local ok = ns.CDM.Apply(bars)
-	ns.db.cdmSig = ok and sig or nil
-	return ok
-end
-
 -- Reads the layout back and says what is actually in it, which category each cooldown belongs to,
 -- and what the enum values are. A write that lands somewhere unexpected shows up here.
 function ns.CDM.Verify(emit, icons, bars)
@@ -1680,10 +1660,13 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 				ns.CombatCatalogue(true)
 				if ns.ResolveAllBookItems then ns.ResolveAllBookItems() end
 			end)
-			-- The Cooldown Manager builds its frames after login, so this waits a little longer.
+			-- A past version took the Cooldown Manager over and tainted it by doing so. Give it back.
 			C_Timer.After(6, function()
-				if ns.CDM and ns.CDM.Sync and ns.CDM.Sync() and ns.Display and ns.Display.CDMChanged then
-					ns.Display:CDMChanged()
+				if ns.db.cdmLayout or ns.db.cdmSig then
+					ns.db.cdmSig = nil
+					local ok = ns.CDM and ns.CDM.Restore()
+					Print("The Cooldown Manager has been handed back to the game" .. (ok and "." or "; it may need a /reload.")
+						.. " Aura Ledger no longer uses it: borrowing its frames put this addon's taint on the game's own display.")
 				end
 			end)
 			C_Timer.After(5, function()
@@ -2230,6 +2213,7 @@ SlashCmdList.AURALEDGER = function(msg)
 		ns.db.plainBook = not ns.db.plainBook
 		Print("Book background: " .. (ns.db.plainBook and "plain" or "parchment when the client has it") .. ". Type /reload to apply.")
 	elseif cmd == "cdmapply" then
+		Print("|cffff5050Careful:|r writing the manager's layout marks it with this addon, and the game then refuses its own aura reads until you reload. This is a diagnostic, not a feature. /auraledger debug cdmrestore and a reload puts it right.")
 		local icons, bars, missing = ns.CDM.Wanted()
 		Print(("Cooldown Manager: %d spell%s for icons, %d for bars, out of %d it tracks%s"):format(#icons, #icons == 1 and "" or "s", #bars,
 			#ns.CDM.TrackedSet(),
@@ -2327,13 +2311,7 @@ SlashCmdList.AURALEDGER = function(msg)
 					end
 					for i, w in ipairs(f.widgets) do
 						if w:IsShown() then
-							local b = w.alBorrowed
-							local borrowed = "drawn by the addon"
-							if b then
-								local okS, sh = pcall(b.IsShown, b)
-								borrowed = ("borrowed cooldown %s, the game is showing it: %s"):format(tostring(b.cooldownID), okS and S(sh) or "cannot say")
-							end
-							Print(("    cell %d: %s, alpha %.1f, %s"):format(i, w.tracker and (w.tracker.name or "?") or "-", w:GetAlpha(), borrowed))
+							Print(("    cell %d: %s, alpha %.1f"):format(i, w.tracker and (w.tracker.name or "?") or "-", w:GetAlpha()))
 						end
 					end
 				end
