@@ -374,7 +374,10 @@ local function ClientIconFrame()
 end
 
 -- A thin dark line round the icon, the way the game edges an icon that has no frame of its own.
-local function PlaceCleanEdge(w, ref, size, want)
+-- "inward" draws the edge at the cell's own bounds rather than outside the picture, for a widget
+-- that sits under a slot the game fills: anything outside the cell is not covered by the game's
+-- icon and shows round the outside of it.
+local function PlaceCleanEdge(w, ref, size, want, inward)
 	local on = (want ~= false) and BorderMode() == "clean"
 	local tex = w.cleanEdge
 	if not on then
@@ -387,10 +390,16 @@ local function PlaceCleanEdge(w, ref, size, want)
 	end
 	local px = max(1, floor(size / 24 + 0.5))
 	tex.alPx = px
+	tex.alInward = inward or nil
 	tex:SetColorTexture(0, 0, 0, 0.9)
 	tex:ClearAllPoints()
-	tex:SetPoint("TOPLEFT", ref, "TOPLEFT", -px, px)
-	tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", px, -px)
+	if inward then
+		tex:SetPoint("TOPLEFT", ref, "TOPLEFT", 0, 0)
+		tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", 0, 0)
+	else
+		tex:SetPoint("TOPLEFT", ref, "TOPLEFT", -px, px)
+		tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", px, -px)
+	end
 	tex:Show()
 	return true
 end
@@ -755,7 +764,7 @@ local function CreateWidget(parent)
 end
 
 local function ConfigureWidget(w, g)
-	local key = g.style .. ":" .. g.size .. ":" .. g.barW .. ":" .. g.barH .. ":" .. tostring(g.barIconScale or 1)
+	local key = tostring(w.underSlot) .. ":" .. g.style .. ":" .. g.size .. ":" .. g.barW .. ":" .. g.barH .. ":" .. tostring(g.barIconScale or 1)
 		.. ":" .. tostring(g.border ~= false) .. tostring(g.background ~= false) .. tostring(g.iconFrame ~= false)
 		.. ":" .. tostring(ns.MASK_EPOCH)
 	local wantBar = function(d) if d.under then return g.background ~= false else return g.border ~= false end end
@@ -829,6 +838,10 @@ local function ConfigureWidget(w, g)
 		local S = g.size
 		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false, S)
 		local inset = (masked or BorderMode() ~= "cdm") and 0 or IconInset(s, false, S, g.iconFrame ~= false)
+		-- Under a slot the game fills, the edge goes inside the cell and the picture behind it.
+		if w.underSlot and BorderMode() == "clean" and g.iconFrame ~= false then
+			inset = max(inset, max(1, floor(S / 24 + 0.5)))
+		end
 		w:SetSize(S, S)
 		w.icon:SetSize(S - inset * 2, S - inset * 2)
 		w.icon:SetPoint("CENTER")
@@ -836,7 +849,7 @@ local function ConfigureWidget(w, g)
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		w.bar:Hide()
 		PlaceDecor(w, {}, "decor", w.bar, S)
-		local edged = PlaceCleanEdge(w, w.icon, S, g.iconFrame ~= false)
+		local edged = PlaceCleanEdge(w, w.underSlot and w or w.icon, S, g.iconFrame ~= false, w.underSlot)
 		local framed = PlaceClientFrame(w, w.icon, S, g.iconFrame ~= false)
 		if edged or framed then
 			PlaceDecor(w, {}, "iconArt", w.icon, S, wantIcon, true)
@@ -861,6 +874,7 @@ local function TintEdge(w, r, g, b, strong)
 	local tex = w.cleanEdge
 	if not tex or tex:IsShown() == false then return false end
 	tex:SetColorTexture(r, g, b, strong and 1 or 0.9)
+	if tex.alInward then return true end
 	local px = max(1, tex.alPx or 1)
 	if strong then px = px + max(1, floor(px * 0.5)) end
 	local ref = w.icon
@@ -1417,6 +1431,7 @@ local function LayoutGroup(f, g, visible, unlocked)
 			f.widgets[k] = widget
 		end
 		local item = visible[k]
+		widget.underSlot = (slots and item.slots) and true or nil
 		widget:SetAlpha(1)
 		if widget:GetParent() ~= cellParent then widget:SetParent(cellParent) end
 		if slots and item.slots then

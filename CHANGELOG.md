@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.43.2
+
+- A tracker the game draws no longer shows the addon's edge round the outside of it. The addon paints its own widget under a game-drawn slot so the missing state can show through, and the slot is anchored flush to that widget, while the edge is drawn just outside the picture: the part that stuck out was not covered by the game's icon. A widget under a slot now keeps its edge at the cell's own bounds and pulls its picture in behind it, so the game's icon covers the lot while the aura is there, and the red shows only when it is not.
+
 ## 1.43.1
 
 - The red border on a missing tracker was the wrong shape, and it was the one on every screenshot. It came from the old debuff border sheet, whose art on this client is rounded along the top and flat along the bottom, and it is drawn whenever a tracker is missing, expiring or showing a debuff, which covered the icon's own edge entirely. The clean edge is tinted instead: the same line that edges an icon turns red while an aura is missing or nearly gone, or the dispel colour on a debuff, and thickens a little so it still reads at a glance. The old sheet is only used where there is no clean edge to colour.
