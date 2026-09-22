@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.5
+
+- The chapter tabs sit on top of the page edge, as in the spellbook, instead of dipping into it.
+
 ## 1.9.4
 
 - The band above the page is back to the spellbook's height: the page rim no longer overlaps the window's own band (which showed as a second dark texture near the top).

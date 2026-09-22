@@ -907,7 +907,7 @@ local function CreateBookTab(holder, pane, token, index)
 	local tab = CreateFrame("CheckButton", nil, holder)
 	tab:SetSize(TAB_W, TAB_H)
 	-- Above everything: the inset's own background would otherwise cover their feet and take clicks.
-	tab:SetPoint("BOTTOMLEFT", pane, "TOPLEFT", 2 + INDENT + (index - 1) * (TAB_W + TAB_GAP), 0)
+	tab:SetPoint("BOTTOMLEFT", pane, "TOPLEFT", 2 + INDENT + (index - 1) * (TAB_W + TAB_GAP), 6)
 	tab:SetFrameLevel(pane:GetFrameLevel() - 1)
 	local art = SpellBookArt()
 	local back = tab:CreateTexture(nil, "BACKGROUND")
