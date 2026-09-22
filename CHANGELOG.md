@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.39.3
+
+- The icon no longer shows past its border. The frame art copied from the Cooldown Manager has rounded corners and the icon under it was a plain square, so the corners of the picture sat outside the border. Icons are now masked with the same atlas Blizzard masks its own with, on the addon's icons and bars and on the slots the game fills. Turning the icon frame off removes the mask as well, so a bare icon keeps its square corners.
+
 ## 1.39.2
 
 - Icons are square again. The art around an icon was measured against whatever frame the donor's icon hangs on, and on a bar donor that is the whole bar item, which is wide: redrawing it around a square icon stretched it. Art is now only taken from a donor whose own frame is square, the donor's crop is squared off if it takes more off one side than the other, and an icon keeps its own square size rather than filling a frame the game may have resized. /auraledger debug says where the icon art came from, and says so when a donor was turned down for this.

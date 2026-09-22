@@ -393,6 +393,35 @@ end
 
 -- Draws a list of copied art pieces on the under / over frames, relative to ref at height H.
 -- want(d) says whether a piece is wanted; pieces "under" the fill are background, the rest border.
+-- The frame art has rounded corners; a plain square icon shows past them. Blizzard masks its own
+-- icons with this atlas, which is what makes the art sit flush, so the addon uses it too. The mask
+-- is only wanted while the frame art is drawn: a bare icon should keep its corners.
+local ICON_MASK = "UI-HUD-ActionBar-IconFrame-Mask"
+local function MaskIcon(owner, icon, on)
+	if not on then
+		if icon.alMask then
+			if icon.RemoveMaskTexture then pcall(icon.RemoveMaskTexture, icon, icon.alMask) end
+			pcall(icon.alMask.Hide, icon.alMask)
+			icon.alMask = nil
+		end
+		return
+	end
+	if icon.alMask then
+		icon.alMask:SetAllPoints(icon)
+		return
+	end
+	if not owner or not owner.CreateMaskTexture or not HasAtlas(ICON_MASK) then return end
+	local ok, mask = pcall(owner.CreateMaskTexture, owner)
+	if not ok or not mask or not mask.SetAtlas then return end
+	if not pcall(mask.SetAtlas, mask, ICON_MASK) then return end
+	mask:SetAllPoints(icon)
+	if not icon.AddMaskTexture or not pcall(icon.AddMaskTexture, icon, mask) then
+		pcall(mask.Hide, mask)
+		return
+	end
+	icon.alMask = mask
+end
+
 local function PlaceDecor(w, list, key, ref, H, want)
 	local pool = w[key]
 	for i, d in ipairs(list) do
@@ -562,6 +591,7 @@ local function ConfigureWidget(w, g)
 		w.bar:Show()
 		PlaceDecor(w, s.decor, "decor", w.bar, H, wantBar)
 		PlaceDecor(w, IconArt(s), "iconArt", w.icon, H, wantIcon)
+		MaskIcon(w, w.icon, g.iconFrame ~= false)
 		w.bar.bg:SetAlpha(g.background ~= false and 1 or 0)
 		if w.edge then
 			local edgeSize = max(8, min(16, floor(H * 0.6)))
@@ -598,6 +628,7 @@ local function ConfigureWidget(w, g)
 		w.bar:Hide()
 		PlaceDecor(w, {}, "decor", w.bar, S)
 		PlaceDecor(w, IconArt(s), "iconArt", w.icon, S, wantIcon)
+		MaskIcon(w, w.icon, g.iconFrame ~= false)
 		if w.edge then w.edge:Hide() end
 		w.name:Hide()
 		w.duration:Hide()
@@ -837,7 +868,10 @@ local function InitSlotFrame(g, mode, filter, store)
 			if not pcall(button.SetDurationBar, button, bar, dir ~= nil and { direction = dir } or nil) then pcall(button.SetDurationBar, button, bar) end
 			local w = { under = button, over = button, decor = {}, iconArt = {} }
 			PlaceDecor(w, s.decor, "decor", bar, H, function(dd) if dd.under then return g.background ~= false else return g.border ~= false end end)
-			if g.iconFrame ~= false then PlaceDecor(w, IconArt(s), "iconArt", icon, H) end
+			if g.iconFrame ~= false then
+				PlaceDecor(w, IconArt(s), "iconArt", icon, H)
+				MaskIcon(button, icon, true)
+			end
 			local px = max(8, min(14, floor(H * 0.52)))
 			local textHolder = CreateFrame("Frame", nil, button)
 			textHolder:SetAllPoints(bar)
@@ -872,6 +906,7 @@ local function InitSlotFrame(g, mode, filter, store)
 			if g.iconFrame ~= false then
 				local w = { under = button, over = button, decor = {}, iconArt = {} }
 				PlaceDecor(w, IconArt(s), "iconArt", icon, H)
+				MaskIcon(button, icon, true)
 			end
 		end
 		pcall(button.SetMouseMotionEnabled, button, true)
