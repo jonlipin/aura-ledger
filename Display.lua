@@ -19,7 +19,7 @@ local FLOW = { CENTER_H = "RIGHT", CENTER_V = "DOWN" }
 ns.GROWS = { { "RIGHT", "Right" }, { "LEFT", "Left" }, { "DOWN", "Down" }, { "UP", "Up" },
 	{ "CENTER_H", "Out from the centre, sideways" }, { "CENTER_V", "Out from the centre, up and down" } }
 
-local floor, max, min, ceil = math.floor, math.max, math.min, math.ceil
+local floor, max, min, ceil, abs = math.floor, math.max, math.min, math.ceil, math.abs
 
 local active = {}   -- group uid -> frame
 local pool = {}     -- released group frames
@@ -231,6 +231,31 @@ local function FindStrings(bar)
 	return name, dur
 end
 
+-- The donor's crop, squared off. A crop that takes more off one axis than the other leaves the
+-- art inside a square icon stretched, so the tighter of the two is used on both.
+local function SquareCoords(c)
+	if not c then return { 0.07, 0.93, 0.07, 0.93 } end
+	local l, r, t, b = c[1] or 0, c[2] or 1, c[3] or 0, c[4] or 1
+	local wspan, hspan = r - l, b - t
+	if wspan <= 0 or hspan <= 0 then return { 0.07, 0.93, 0.07, 0.93 } end
+	if abs(wspan - hspan) <= 0.02 then return c end
+	local span = min(wspan, hspan) / 2
+	local cx, cy = (l + r) / 2, (t + b) / 2
+	return { cx - span, cx + span, cy - span, cy + span }
+end
+
+-- Art collected against a frame that is not square cannot be redrawn around a square icon without
+-- stretching, so the icon art the addon keeps must come from a square donor.
+local function SquareRef(frame)
+	if not frame or not frame.GetSize then return false end
+	local w, h = frame:GetSize()
+	if not w or not h or w <= 0 or h <= 0 then return false end
+	return abs(w - h) <= h * 0.1
+end
+
+Display.SquareCoords = SquareCoords
+Display.SquareRef = SquareRef
+
 local function SkinFromDonor(root, sourceName)
 	local bar = FindStatusBar(root, 0)
 	if not bar then return end
@@ -250,10 +275,16 @@ local function SkinFromDonor(root, sourceName)
 	local iconTex, iconFrame = FindIcon(root)
 	if iconTex and iconFrame then
 		local ok, ulx, uly, llx, lly, urx = pcall(iconTex.GetTexCoord, iconTex)
-		if ok and ulx and urx and lly then s.iconCoords = { ulx, urx, uly, lly } end
-		Collect(iconFrame, iconFrame, iconTex, s.iconDecor, false)
-		if iconFrame.GetChildren then
-			for _, child in ipairs({ iconFrame:GetChildren() }) do Collect(child, iconFrame, nil, s.iconDecor, false) end
+		if ok and ulx and urx and lly then s.iconCoords = SquareCoords({ ulx, urx, uly, lly }) end
+		-- On a bar donor the icon hangs on the whole bar item, which is wide: art measured against
+		-- it would be stretched around a square icon, so it is left alone.
+		if SquareRef(iconFrame) then
+			Collect(iconFrame, iconFrame, iconTex, s.iconDecor, false)
+			if iconFrame.GetChildren then
+				for _, child in ipairs({ iconFrame:GetChildren() }) do Collect(child, iconFrame, nil, s.iconDecor, false) end
+			end
+		else
+			s.iconRefWide = true
 		end
 	end
 	return s
@@ -271,6 +302,13 @@ local function ViewerDonor(viewer)
 end
 
 local skin
+-- The icon art to draw, whichever donor gave a square one.
+local function IconArt(s)
+	if s.soloIconDecor and #s.soloIconDecor > 0 then return s.soloIconDecor end
+	if s.iconDecor and #s.iconDecor > 0 then return s.iconDecor end
+	return {}
+end
+
 local function BuildSkin()
 	if skin then return skin end
 	local s
@@ -298,14 +336,14 @@ local function BuildSkin()
 	local iconDonor = ViewerDonor(EssentialCooldownViewer) or ViewerDonor(UtilityCooldownViewer) or ViewerDonor(BuffIconCooldownViewer)
 	if iconDonor then
 		local iconTex, iconFrame = FindIcon(iconDonor)
-		if iconTex and iconFrame then
+		if iconTex and iconFrame and SquareRef(iconFrame) then
 			s.soloIconDecor = {}
 			Collect(iconFrame, iconFrame, iconTex, s.soloIconDecor, false)
 			if iconFrame.GetChildren then
 				for _, child in ipairs({ iconFrame:GetChildren() }) do Collect(child, iconFrame, nil, s.soloIconDecor, false) end
 			end
 			local ok, ulx, uly, llx, lly, urx = pcall(iconTex.GetTexCoord, iconTex)
-			if ok and ulx and urx and lly then s.soloIconCoords = { ulx, urx, uly, lly } end
+			if ok and ulx and urx and lly then s.soloIconCoords = SquareCoords({ ulx, urx, uly, lly }) end
 			s.iconSource = "Cooldown Manager icon"
 		end
 	end
@@ -324,7 +362,10 @@ local function BuildSkin()
 	-- Tinting: a file fill from the old art needs colour; copied art is already coloured.
 	if s.tint == nil then s.tint = false end
 	ns.report["bar skin"] = s.source .. (", " .. #s.decor .. " art pieces")
-	ns.report["icon skin"] = s.iconSource and (s.iconSource .. ", " .. #s.soloIconDecor .. " art pieces") or (#s.iconDecor > 0 and ("from the bar donor, " .. #s.iconDecor .. " art pieces") or "none (default buff frame look)")
+	ns.report["icon skin"] = s.iconSource and (s.iconSource .. ", " .. #s.soloIconDecor .. " art pieces")
+		or (#s.iconDecor > 0 and ("from the bar donor, " .. #s.iconDecor .. " art pieces"))
+		or (s.iconRefWide and "none (the donor's icon hangs on a frame that is not square)")
+		or "none (default buff frame look)"
 	skin = s
 	return s
 end
@@ -520,7 +561,7 @@ local function ConfigureWidget(w, g)
 		w.bar:SetPoint("BOTTOMRIGHT")
 		w.bar:Show()
 		PlaceDecor(w, s.decor, "decor", w.bar, H, wantBar)
-		PlaceDecor(w, s.iconDecor, "iconArt", w.icon, H, wantIcon)
+		PlaceDecor(w, IconArt(s), "iconArt", w.icon, H, wantIcon)
 		w.bar.bg:SetAlpha(g.background ~= false and 1 or 0)
 		if w.edge then
 			local edgeSize = max(8, min(16, floor(H * 0.6)))
@@ -550,12 +591,13 @@ local function ConfigureWidget(w, g)
 	else
 		local S = g.size
 		w:SetSize(S, S)
-		w.icon:SetAllPoints(w)
+		w.icon:SetSize(S, S)
+		w.icon:SetPoint("CENTER")
 		local c = s.soloIconCoords or s.iconCoords or { 0.07, 0.93, 0.07, 0.93 }
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		w.bar:Hide()
 		PlaceDecor(w, {}, "decor", w.bar, S)
-		PlaceDecor(w, s.soloIconDecor or s.iconDecor, "iconArt", w.icon, S, wantIcon)
+		PlaceDecor(w, IconArt(s), "iconArt", w.icon, S, wantIcon)
 		if w.edge then w.edge:Hide() end
 		w.name:Hide()
 		w.duration:Hide()
@@ -756,12 +798,8 @@ local function InitSlotFrame(g, mode, filter, store)
 		local icon = button:CreateTexture(nil, "ARTWORK")
 		local c = (bars and s.iconCoords) or s.soloIconCoords or s.iconCoords or { 0.07, 0.93, 0.07, 0.93 }
 		icon:SetTexCoord(c[1], c[2], c[3], c[4])
-		if bars then
-			icon:SetPoint("TOPLEFT")
-			icon:SetSize(H, H)
-		else
-			icon:SetAllPoints(button)
-		end
+		icon:SetSize(H, H)
+		if bars then icon:SetPoint("TOPLEFT") else icon:SetPoint("CENTER") end
 		pcall(button.SetIcon, button, icon)
 		local count = button:CreateFontString(nil, "OVERLAY")
 		count:SetFont(FONT, max(7, floor(H * (bars and 0.45 or 0.3))), "OUTLINE")
@@ -799,7 +837,7 @@ local function InitSlotFrame(g, mode, filter, store)
 			if not pcall(button.SetDurationBar, button, bar, dir ~= nil and { direction = dir } or nil) then pcall(button.SetDurationBar, button, bar) end
 			local w = { under = button, over = button, decor = {}, iconArt = {} }
 			PlaceDecor(w, s.decor, "decor", bar, H, function(dd) if dd.under then return g.background ~= false else return g.border ~= false end end)
-			if g.iconFrame ~= false then PlaceDecor(w, s.iconDecor, "iconArt", icon, H) end
+			if g.iconFrame ~= false then PlaceDecor(w, IconArt(s), "iconArt", icon, H) end
 			local px = max(8, min(14, floor(H * 0.52)))
 			local textHolder = CreateFrame("Frame", nil, button)
 			textHolder:SetAllPoints(bar)
@@ -833,7 +871,7 @@ local function InitSlotFrame(g, mode, filter, store)
 			end
 			if g.iconFrame ~= false then
 				local w = { under = button, over = button, decor = {}, iconArt = {} }
-				PlaceDecor(w, s.soloIconDecor or s.iconDecor, "iconArt", icon, H)
+				PlaceDecor(w, IconArt(s), "iconArt", icon, H)
 			end
 		end
 		pcall(button.SetMouseMotionEnabled, button, true)

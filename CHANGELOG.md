@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.39.2
+
+- Icons are square again. The art around an icon was measured against whatever frame the donor's icon hangs on, and on a bar donor that is the whole bar item, which is wide: redrawing it around a square icon stretched it. Art is now only taken from a donor whose own frame is square, the donor's crop is squared off if it takes more off one side than the other, and an icon keeps its own square size rather than filling a frame the game may have resized. /auraledger debug says where the icon art came from, and says so when a donor was turned down for this.
+
 ## 1.39.1
 
 - Handing the Cooldown Manager back is itself a write from this addon, so it now says plainly that one reload is needed afterwards to clear the mark that write leaves. After that reload nothing in the addon touches the manager again.
