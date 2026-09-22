@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.6
+
+- Tabs a little higher, on the page edge; the search box art shows again (the page rim had been drawn over it).
+
 ## 1.9.5
 
 - The chapter tabs sit on top of the page edge, as in the spellbook, instead of dipping into it.
