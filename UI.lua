@@ -18,7 +18,7 @@ local ICON = "Interface\\Icons\\INV_Misc_Book_09"
 -- share the right page. LIP is how far below the inset top the paper lip sits (the page atlas
 -- starts under the title bar and its own shaded rim forms the band that holds the tabs).
 local BOOK_X, BOOK_W, TREE_W = 4, 700, 260
-local LIP, RIM = 33, 61
+local LIP, RIM = 19, 61
 local INDENT = 60
 local RIGHT_W = FRAME_W - BOOK_W - 44
 local TREE_ROW = 24
@@ -1573,7 +1573,7 @@ local function Build()
 		{ "InputBoxTemplate" },
 	})
 	searchBox:SetSize(220, 20)
-	searchBox:SetPoint("BOTTOMRIGHT", body, "TOPRIGHT", -12, 9)
+	searchBox:SetPoint("BOTTOMRIGHT", body, "TOPRIGHT", -12, 4)
 	searchBox:SetAutoFocus(false)
 	searchBox:HookScript("OnTextChanged", function() book.page = 1 UI:RefreshHistory() end)
 	searchBox:HookScript("OnEscapePressed", function(self) self:ClearFocus() end)

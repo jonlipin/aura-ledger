@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.4
+
+- The band above the page is back to the spellbook's height: the page rim no longer overlaps the window's own band (which showed as a second dark texture near the top).
+
 ## 1.9.3
 
 - The Export buttons sit on the "Group" and "Tracker" header lines of the Options panel, at the right, instead of at the bottom.
