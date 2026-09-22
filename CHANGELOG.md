@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.3
+
+- The Export buttons sit on the "Group" and "Tracker" header lines of the Options panel, at the right, instead of at the bottom.
+
 ## 1.9.2
 
 - The Import button on the Groups and trackers heading is a small note icon instead of a text button.

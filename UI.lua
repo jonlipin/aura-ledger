@@ -1258,6 +1258,14 @@ local function BuildGroupPanel(width)
 	local function Num(key, fallback) return function() local g = G() return g and (g[key] or fallback) end end
 	local function SetNum(key) return function(v) local g = G() if g then g[key] = v GroupChanged() end end end
 
+	local exportG = MakeButton(groupPanel, "Export", 76)
+	exportG:SetPoint("TOPRIGHT", -8, b.y - 6)
+	exportG:SetScript("OnClick", function()
+		local g = G()
+		if g then UI:ShowExport(ns.Export(g, "group"), "group " .. ns.GroupName(g)) end
+	end)
+	exportG:SetScript("OnEnter", function(self) TextTooltip(self, "Export this group", "Gives you a string holding the whole group (its look, conditions and every tracker) to paste elsewhere.") end)
+	exportG:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	b:Header("Group")
 	b:Edit("Name", function() local g = G() return g and g.name or "" end,
 		function(text) local g = G() if g then g.name = (text ~= "" and text) or nil GroupChanged() end end)
@@ -1300,15 +1308,6 @@ local function BuildGroupPanel(width)
 
 	b.y = b.y - 8
 	b:Note("To delete this group, click the X on its row in the Groups and trackers list twice.")
-	local exportG = MakeButton(groupPanel, "Export group", 130)
-	exportG:SetPoint("TOPLEFT", 8, b.y)
-	exportG:SetScript("OnClick", function()
-		local g = G()
-		if g then UI:ShowExport(ns.Export(g, "group"), "group " .. ns.GroupName(g)) end
-	end)
-	exportG:SetScript("OnEnter", function(self) TextTooltip(self, "Export this group", "Gives you a string holding the whole group (its look, conditions and every tracker) to paste elsewhere.") end)
-	exportG:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	b.y = b.y - 34
 	groupPanel.height = -b.y
 	groupPanel:SetHeight(groupPanel.height)
 end
@@ -1356,6 +1355,14 @@ local function BuildTrackerPanel(width)
 	trackerTitle.sub:SetPoint("BOTTOMLEFT", trackerTitle.icon, "BOTTOMRIGHT", 8, 1)
 	b.y = -46
 
+	local exportT = MakeButton(trackerPanel, "Export", 76)
+	exportT:SetPoint("TOPRIGHT", -8, b.y - 6)
+	exportT:SetScript("OnClick", function()
+		local t = T()
+		if t then UI:ShowExport(ns.Export(t, "tracker"), "tracker " .. (t.name or ("spell " .. tostring(t.id)))) end
+	end)
+	exportT:SetScript("OnEnter", function(self) TextTooltip(self, "Export this tracker", "Gives you a string holding this tracker (its settings, conditions and sounds) to paste elsewhere.") end)
+	exportT:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	b:Header("Tracker")
 	b:Cycle("Show when", { { "active", "It is active" }, { "missing", "It is missing" }, { "always", "Always (red when missing)" } },
 		function() local t = T() return t and t.show or "active" end,
@@ -1418,15 +1425,6 @@ local function BuildTrackerPanel(width)
 
 	b.y = b.y - 8
 	b:Note("To move this tracker to another group, or out into a group of its own, drag it in the Groups and trackers list. To remove it, click the X on its row there twice.")
-	local exportT = MakeButton(trackerPanel, "Export tracker", 130)
-	exportT:SetPoint("TOPLEFT", 8, b.y)
-	exportT:SetScript("OnClick", function()
-		local t = T()
-		if t then UI:ShowExport(ns.Export(t, "tracker"), "tracker " .. (t.name or ("spell " .. tostring(t.id)))) end
-	end)
-	exportT:SetScript("OnEnter", function(self) TextTooltip(self, "Export this tracker", "Gives you a string holding this tracker (its settings, conditions and sounds) to paste elsewhere.") end)
-	exportT:SetScript("OnLeave", function() GameTooltip:Hide() end)
-	b.y = b.y - 34
 	trackerPanel.height = -b.y
 	trackerPanel:SetHeight(trackerPanel.height)
 end
