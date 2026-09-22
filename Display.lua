@@ -282,11 +282,20 @@ end
 -- art inside a square icon stretched, so the tighter of the two is used on both.
 local TRIM = { 0.07, 0.93, 0.07, 0.93 }
 
+-- Whether the manager's shape was read, which decides how a tracker is drawn: with it, the picture
+-- is kept whole so its own baked border can be rounded off, and the state colour is a ring of that
+-- shape rather than a frame over the top. Set when the skin is built, below.
+local shapeInHand = false
+local function HaveShape() return shapeInHand end
+
 -- The crop to draw an icon with. A spell icon has a dark border baked into its outer edge, which is
 -- why every frame in the game trims one, and a mask does not take it off: it rounds the corners of
 -- whatever it is given, border and all. A donor that leans on a mask reports the whole picture, so
 -- that answer is not worth keeping.
 local function IconCrop(c)
+	-- With the manager's mask in hand the whole picture is wanted: its baked border is what the
+	-- manager shows, rounded off at the corners. Without one, that border is trimmed as ever.
+	if HaveShape() then return { 0, 1, 0, 1 } end
 	if not c then return TRIM end
 	if c[1] <= 0.001 and c[2] >= 0.999 and c[3] <= 0.001 and c[4] >= 0.999 then return TRIM end
 	return c
@@ -511,6 +520,35 @@ local function ShapeBorder(w, icon, size, want, r, g, b)
 	return true
 end
 
+-- A ring of colour in the manager's own shape, behind the picture and a little larger, so what
+-- shows is a rounded edge rather than a square frame laid over the icon.
+local function ShapeRing(w, icon, size, want, r, g, b)
+	local s = skin
+	local def = HaveShape() and s.shape.masks[1]
+	if not want or not def then
+		if w.shapeRing then w.shapeRing:Hide() end
+		return false
+	end
+	local tex = w.shapeRing
+	if not tex then
+		tex = (w.under or w):CreateTexture(nil, "BACKGROUND", nil, -5)
+		w.shapeRing = tex
+		local ok, m = pcall(function() return (w.under or w):CreateMaskTexture() end)
+		if ok and m then
+			if def.art.atlas then pcall(m.SetAtlas, m, def.art.atlas) else pcall(m.SetTexture, m, def.art.file) end
+			m:SetAllPoints(tex)
+			if not (tex.AddMaskTexture and pcall(tex.AddMaskTexture, tex, m)) then pcall(m.Hide, m) end
+		end
+	end
+	local px = max(1, floor(size / 16 + 0.5))
+	tex:SetColorTexture(r or 1, g or 0.2, b or 0.2, 1)
+	tex:ClearAllPoints()
+	tex:SetPoint("TOPLEFT", icon, "TOPLEFT", -px, px)
+	tex:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", px, -px)
+	tex:Show()
+	return true
+end
+
 -- Just the colour, for a border already in place.
 local function ShapeBorderColor(w, r, g, b)
 	local tex = w.shapeBorder
@@ -694,6 +732,7 @@ local function BuildSkin()
 			s.shape = ShapeFromDonor(s.donorRoot)
 			if s.shape then s.shapeFrom = "the bar this skin came from" end
 		end
+		shapeInHand = (s.shape and #s.shape.masks > 0) and true or false
 		ns.report["icon shape tried"] = table.concat(tried, ", ")
 		do
 			ns.report["icon shape"] = s.shape
@@ -1043,7 +1082,7 @@ local function ConfigureWidget(w, g)
 		PlaceDecor(w, s.decor, "decor", w.bar, H, wantBar)
 		-- Both are asked every time: the one that is not wanted takes itself off screen.
 		ShapeMask(w, w.icon, IS, g.iconFrame ~= false)
-		local shaped = ShapeBorder(w, w.icon, IS, g.iconFrame ~= false)
+		local shaped = ShapeBorder(w, w.icon, IS, g.iconFrame ~= false) or (HaveShape() and g.iconFrame ~= false)
 		local edged = PlaceCleanEdge(w, w.icon, IS, g.iconFrame ~= false)
 		local framed = PlaceClientFrame(w, w.icon, IS, g.iconFrame ~= false)
 		edged = edged or shaped
@@ -1090,7 +1129,7 @@ local function ConfigureWidget(w, g)
 		w.bar:Hide()
 		PlaceDecor(w, {}, "decor", w.bar, S)
 		ShapeMask(w, w.icon, S, g.iconFrame ~= false)
-		local shaped = ShapeBorder(w, w.icon, S, g.iconFrame ~= false)
+		local shaped = ShapeBorder(w, w.icon, S, g.iconFrame ~= false) or (HaveShape() and g.iconFrame ~= false)
 		local edged = PlaceCleanEdge(w, w.icon, S, g.iconFrame ~= false, w.underSlot)
 		local framed = PlaceClientFrame(w, w.icon, S, g.iconFrame ~= false)
 		edged = edged or shaped
@@ -1158,7 +1197,11 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 	elseif flagMissing then
 		br, bg, bb, strong = 1, 0.1, 0.1, true
 	end
-	if ShapeBorderColor(w, br or 1, bg or 1, bb or 1) then
+	if HaveShape() and not w.shapeBorder then
+		ShapeRing(w, w.icon, (w.group and w.group.style == "bars") and ns.BarIconSize(w.group) or (w.group and w.group.size) or 40,
+			br ~= nil and (w.group == nil or w.group.iconFrame ~= false), br, bg, bb)
+		w.border:Hide()
+	elseif ShapeBorderColor(w, br or 1, bg or 1, bb or 1) then
 		w.border:Hide()
 	elseif TintEdge(w, br or 0, bg or 0, bb or 0, strong) then
 		-- The edge said it; the old debuff sheet is not wanted on top of it.

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.45.0
+
+- Trackers look like the Cooldown Manager's icons, because they are made the same way. The readout settled how that is: one mask, UI-HUD-CoolDownManager-Mask, sized exactly to the icon, and no border art at all. The thin dark line round the manager's icons is the spell icon's own baked border with its corners rounded off by that mask, which is why copying border art never found any and why trimming the picture threw away the very thing that makes the look.
+- So a tracker keeps the whole picture, wears the same mask, and drops the plain dark edge that stood in for this. The missing and warning colours are a ring of the same rounded shape behind the picture rather than a square frame over it. A client whose manager cannot be read still gets the plain edge and the trimmed picture.
+
 ## 1.44.1
 
 - The icon shape is looked for on every one of the Cooldown Manager's displays, not just the first one with an icon in it. The addon read the essential cooldowns, whose items carry no border on this client, and so found nothing to copy and changed nothing. Each display is tried now, the fullest answer is kept, and /auraledger debug icon lists what each one offered.
