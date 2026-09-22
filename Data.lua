@@ -80,18 +80,15 @@ ns.BOOK = {
 		{ "Bear Form", 5487 }, { "Dire Bear Form", 9634 }, { "Cat Form", 768 }, { "Travel Form", 783 },
 		{ "Aquatic Form", 1066 }, { "Moonkin Form", 24858 },
 	},
-	-- Things every class runs into.
-	COMMON = {
-		{ "Well Fed", 19705 }, { "Food", 433 }, { "Drink", 430 }, { "First Aid", 746 },
-		{ "Essence of the Red", 23513, "buff", "BWL: Vaelastrasz" },
-		{ "Weakened Soul", 6788, "debuff" }, { "Forbearance", 25771, "debuff" },
-		{ "Recently Bandaged", 11196, "debuff" }, { "Resurrection Sickness", 15007, "debuff" },
-	},
 }
 
 -- Buffs from consumables, world buffs and equipment. The NAME is the buff's name, which is often
 -- not the item's name (Flask of Supreme Power gives "Supreme Power"). { name, spellID or nil, kind, note }
 ns.BOOK.ITEMS = {
+	-- Everyday things, which used to have a chapter of their own
+	{ "Well Fed", 19705, "buff", "Food" }, { "Food", 433, "buff", "Eating" },
+	{ "Drink", 430, "buff", "Drinking" }, { "First Aid", 746, "buff", "Bandage" },
+	{ "Essence of the Red", 23513, "buff", "BWL: Vaelastrasz" },
 	{ "Flask of the Titans", 17626, nil, "Flask" }, { "Supreme Power", 17628, nil, "Flask" },
 	{ "Distilled Wisdom", 17627, nil, "Flask" }, { "Chromatic Resistance", 17629, nil, "Flask" },
 	{ "Petrification", 17624, nil, "Flask" },
@@ -201,7 +198,7 @@ ns.BOOK.PVE = {
 -- The Dungeons and raids chapter (mob debuffs on you) is kept in the data but not offered: on this
 -- client a debuff on you cannot be tracked by spell in combat. A group with Contents "Debuffs on me"
 -- shows them all instead.
-ns.BOOK_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID", "COMMON", "ITEMS" }
+ns.BOOK_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID", "ITEMS" }
 
 -- Turn the raw rows into objects shaped like ledger rows, once.
 local built
@@ -222,16 +219,37 @@ function ns.BookPages()
 end
 
 -- Look the spell up in the client. Cheap to call again; stops once it has an answer.
+-- Spell data can arrive late, so a row is only withheld after the client has been asked for it
+-- several times, a second apart, and still has nothing.
+local WITHHOLD_AFTER = 3
+
 function ns.ResolveBookItem(item)
 	if item.resolved or not item.listId then return end
 	local name, icon = ns.SpellInfo(item.listId)
-	if not name and not icon then return end -- not available (yet); try again next time it is drawn
+	if not name and not icon then
+		local now = GetTime and GetTime() or 0
+		if now - (item.lastTry or -100) > 1 then
+			item.lastTry = now
+			item.tries = (item.tries or 0) + 1
+			if C_Spell and C_Spell.RequestLoadSpellData then pcall(C_Spell.RequestLoadSpellData, item.listId) end
+			if item.tries >= WITHHOLD_AFTER then item.unknown = true end
+		end
+		return -- not available (yet); try again next time it is drawn
+	end
 	item.resolved = true
+	item.unknown = nil
 	item.icon = icon
 	if name == item.name then
 		item.id = item.listId
 	else
 		item.clientName = name -- the ID is good for an icon at best
+	end
+end
+
+-- Every row, not just the page on screen, so the withheld ones are known before anything is drawn.
+function ns.ResolveAllBookItems()
+	for _, list in pairs(ns.BookPages()) do
+		for _, item in ipairs(list) do ns.ResolveBookItem(item) end
 	end
 end
 

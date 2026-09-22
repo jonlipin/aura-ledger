@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.22.0
+
+- The book marks what the game can follow. Any aura the Cooldown Manager knows how to track carries a small "combat" mark in the book and the ledger, and its tooltip says what that means: a group set to track in combat keeps those right during a fight, while everything else is drawn by the addon and updates between fights. The mark is on the row, so the choice is made with that in view instead of discovered afterwards.
+- Rows this client does not have are no longer offered. Every row is looked up when the window opens and shortly after login; a spell the client still cannot name or draw after three attempts, a second apart, is withheld from the book and from search. Spell data that arrives late brings its row straight back. /auraledger debug reports how many are withheld.
+- Common has folded into Items, now "Items and food": five rows did not earn a tab of their own. Well Fed, Food, Drink, First Aid and Essence of the Red sit at the top of that chapter.
+
 ## 1.21.0
 
 - One short command list. The diagnostics now live behind /auraledger debug <topic> (log, api, gd, cdm, cdm2, frames, probe, container, slot, mixin, atlases, combatlog), and the sound commands are /auraledger sound test and /auraledger sound clear. Every old command name still works, so nothing written down stops working. /auraledger on its own still opens the window, and /auraledger help lists the lot.

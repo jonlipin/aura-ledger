@@ -8,7 +8,8 @@ Aura Ledger writes down every buff and debuff that lands on you, and everything 
 
 `/auraledger` (or the minimap button) opens the window. The left side is laid out like the spellbook, and borrows its art when the client provides it:
 
-- **Tabs across the top** pick a chapter. The first tab is your **Ledger**: everything that has ever been on you, with how often and how recently. After it comes a tab for **every class** listing the buffs that class can cast, so you can track Fortitude or Mark of the Wild before anyone has cast it on you. **Common** holds food, drink and the like. **Items** lists the buffs from flasks, elixirs, potions, scrolls, world buffs and trinkets, under the name of the buff itself.
+- **Tabs across the top** pick a chapter. The first tab is your **Ledger**: everything that has ever been on you, with how often and how recently. After it comes a tab for **every class** listing the buffs that class can cast, so you can track Fortitude or Mark of the Wild before anyone has cast it on you. **Items and food** lists the buffs from food, drink, bandages, flasks, elixirs, potions, scrolls, world buffs and trinkets, under the name of the buff itself.
+- Rows the game can follow by spell carry a small **combat** mark: a group set to track in combat keeps those right during a fight, everything else is drawn by the addon and updates between fights. Rows this client does not have are not listed at all.
 - Each page holds twelve auras. Turn pages with the arrows or the mouse wheel.
 - **Search** looks through every chapter at once, by name, spell ID or source ("naxx", "flask", "world buff").
 - **Add by spell name or ID** at the top of the page takes a name, a spell ID or a shift-clicked spell link, for anything that is not in the book yet.

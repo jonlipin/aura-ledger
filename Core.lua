@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.21.0"
+ns.VERSION = "1.22.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -1427,6 +1427,58 @@ local function HandleCombatLog()
 end
 
 -- ------------------------------------------------------------------
+-- What the game can follow per spell in combat. The Cooldown Manager keeps its own catalogue of
+-- spells it knows how to track; anything in it can be handed to the game and stays right while
+-- auras are hidden, anything outside it can only be drawn by the addon between fights. The book
+-- marks the difference so the choice is made with that in view.
+-- ------------------------------------------------------------------
+local combatCat, combatCatAt = nil, -100
+
+function ns.CombatCatalogue(force)
+	local now = GetTime and GetTime() or 0
+	if combatCat and not force and now - combatCatAt < 30 then return combatCat end
+	local cat = { ids = {}, names = {}, count = 0 }
+	local C, E = C_CooldownViewer, Enum and Enum.CooldownViewerCategory
+	if C and C.GetCooldownViewerCategorySet and C.GetCooldownViewerCooldownInfo and E then
+		for _, category in ipairs({ E.TrackedBuff, E.TrackedBar }) do
+			if category ~= nil then
+				local ok, set = pcall(C.GetCooldownViewerCategorySet, category, true)
+				local list = ok and PlainList(set) or nil
+				for _, cdmID in ipairs(list or {}) do
+					local okI, info = pcall(C.GetCooldownViewerCooldownInfo, cdmID)
+					if okI and type(info) == "table" then
+						local sid = Clean(info.spellID)
+						if type(sid) == "number" then
+							if not cat.ids[sid] then cat.count = cat.count + 1 end
+							cat.ids[sid] = true
+							if C_Spell and C_Spell.GetBaseSpell then
+								local okB, base = pcall(C_Spell.GetBaseSpell, sid)
+								if okB and type(base) == "number" then cat.ids[base] = true end
+							end
+							local name = ns.SpellName and ns.SpellName(sid)
+							if name then cat.names[strlower(name)] = true end
+						end
+					end
+				end
+			end
+		end
+	end
+	combatCat, combatCatAt = cat, now
+	return cat
+end
+
+-- A book row or ledger row the game could follow per spell.
+function ns.CombatTrackable(h)
+	if not h then return false end
+	local cat = ns.CombatCatalogue()
+	if cat.count == 0 then return false end
+	if h.id and cat.ids[h.id] then return true end
+	if h.listId and cat.ids[h.listId] then return true end
+	if h.ids then for id in pairs(h.ids) do if cat.ids[id] then return true end end end
+	return h.name ~= nil and cat.names[strlower(h.name)] == true
+end
+
+-- ------------------------------------------------------------------
 -- Alert sounds: Blizzard sound kit entries, looked up by name first, numeric id as fallback. The
 -- fourth field is the sound's file id where known; only a file can be handed to Blizzard for
 -- playing in combat (see SyncAuraSounds), so those choices are the ones that work there.
@@ -1646,6 +1698,12 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		if C_Timer and C_Timer.After then C_Timer.After(1, ns.FlushAdvice) end
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		ns.playerGUID = UnitGUID and UnitGUID("player") or ns.playerGUID
+		if C_Timer and C_Timer.After then
+			C_Timer.After(2, function()
+				ns.CombatCatalogue(true)
+				if ns.ResolveAllBookItems then ns.ResolveAllBookItems() end
+			end)
+		end
 		if C_Timer and C_Timer.After then C_Timer.After(1, function() if ns.SyncAuraSounds then ns.SyncAuraSounds() end end) end
 		ns.UpdateEnv()
 		ns.dirty = true
@@ -2037,8 +2095,10 @@ local function Debug()
 		tostring(e.combat), tostring(e.group), tostring(e.place), tostring(e.class), tostring(e.resting), tostring(e.mounted)))
 	if ns.BookStats then
 		local total, exact, iconOnly, unknown = ns.BookStats()
-		Print(("  pre-built book: %d auras, %d resolved by ID, %d icon only (client name differs), %d unknown to this client"):format(total, exact, iconOnly, unknown))
+		Print(("  pre-built book: %d auras offered, %d resolved by ID, %d icon only (client name differs), %d withheld as unknown to this client"):format(total, exact, iconOnly, unknown))
 	end
+	local cat = ns.CombatCatalogue(true)
+	Print(("  spells the game can follow in combat: %d in the Cooldown Manager's catalogue"):format(cat.count))
 	Print("  spellbook frame: " .. (PlayerSpellsFrame and "loaded" or "not loaded") .. ", minimize art copied: " .. tostring(ns.db.miniArt ~= nil) .. ", dump lines: " .. tostring(ns.db.psDump and #ns.db.psDump or 0))
 	if ns.blocked then
 		for fn, n in pairs(ns.blocked) do

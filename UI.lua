@@ -539,6 +539,7 @@ local function FileExists(path, assume)
 end
 
 local function ClassLabel(token)
+	if token == "ITEMS" then return "Items and food" end
 	if token == "HISTORY" then return "Ledger" end
 	if token == "COMMON" then return "Common" end
 	if token == "ITEMS" then return "Items" end
@@ -580,6 +581,12 @@ local function BookTooltip(b)
 			GameTooltip:AddLine(("Seen %d time%s, last %s"):format(h.count, h.count == 1 and "" or "s", Ago(h.last)), 0.8, 0.8, 0.8)
 		end
 		if h.duration and h.duration > 0 then GameTooltip:AddLine("Lasts " .. ns.FormatTime(h.duration), 0.8, 0.8, 0.8) end
+	end
+	GameTooltip:AddLine(" ")
+	if ns.CombatTrackable and ns.CombatTrackable(h) then
+		GameTooltip:AddLine("Marked combat: the game can follow this one by spell, so a group set to track in combat keeps it right during a fight.", 0.45, 0.75, 1, true)
+	else
+		GameTooltip:AddLine("Not marked combat: the game cannot follow this one by spell, so the addon draws it and it updates between fights.", 0.8, 0.7, 0.5, true)
 	end
 	GameTooltip:AddLine(" ")
 	GameTooltip:AddLine("Drag onto the screen: track it", 0.4, 1, 0.5)
@@ -734,6 +741,9 @@ local function UpdateBookButton(b, h, tracked)
 		sub = "Added by hand"
 	end
 	if isTracked then sub = sub .. (b.onParchment and "  |cff0a5a0atracked|r" or "  |cff40ff60tracked|r") end
+	if ns.CombatTrackable and ns.CombatTrackable(h) then
+		sub = sub .. (b.onParchment and "  |cff1a3f7acombat|r" or "  |cff6cc0ffcombat|r")
+	end
 	b.sub:SetText(sub)
 	b:Show()
 end
@@ -753,7 +763,7 @@ local function BookItems()
 		for _, token in ipairs(ns.BOOK_ORDER) do
 			for _, item in ipairs(ns.BookPages()[token] or {}) do
 				local l = strlower(item.name)
-				if not have[l] and (l .. " " .. tostring(item.listId or "") .. " " .. strlower(item.note or "")):find(query, 1, true) then
+				if not have[l] and not item.unknown and (l .. " " .. tostring(item.listId or "") .. " " .. strlower(item.note or "")):find(query, 1, true) then
 					have[l] = true
 					list[#list + 1] = item
 				end
@@ -763,8 +773,12 @@ local function BookItems()
 		return list, "Search results"
 	end
 	if book.tab ~= "HISTORY" then
-		local titles = { COMMON = "Common", ITEMS = "Items" }
-		return ns.BookPages()[book.tab] or {}, titles[book.tab] or ClassLabel(book.tab)
+		local titles = { ITEMS = "Items and food" }
+		local page = {}
+		for _, item in ipairs(ns.BookPages()[book.tab] or {}) do
+			if not item.unknown then page[#page + 1] = item end
+		end
+		return page, titles[book.tab] or ClassLabel(book.tab)
 	end
 	for _, h in pairs(ns.db.history) do
 		local keep
@@ -794,6 +808,7 @@ end
 -- Named RefreshHistory because the core calls it whenever the ledger gains a row.
 function UI:RefreshHistory()
 	if not frame or not frame:IsShown() or not book.pane then return end
+	if ns.ResolveAllBookItems then ns.ResolveAllBookItems() end
 	local items, title = BookItems()
 	book.items = items
 	book.pages = max(1, ceil(#items / PER_PAGE))
