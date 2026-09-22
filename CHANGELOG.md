@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.18.3
+
+- Game-drawn "show when missing" trackers no longer show the aura while it is active. The game's slot is now invisible and carries a transparent mask over the tracker's missing art: while the game shows the slot (aura present) the art is blanked, and when the game hides it (aura gone) the missing icon or bar appears. "Show when active" and "always" keep drawing the aura. On game-drawn bars set to "missing", the name and "Missing" text are left blank (text cannot be masked). /auraledger nomask switches back to covering the cell with the aura, should the mask misbehave on this client.
+- Game-drawn groups are shown and hidden by the game through a secure driver built from the group's conditions (combat, resting, mounted, target, alive, group size; class and place are checked when the driver is built). Showing or hiding a container from addon code makes the game re-read auras under the addon's taint, which fails in combat and is why the DoT bars did not clear on a target switch. Target containers now have their own driver, so they are cleared when the target is lost and rebuilt for the next one; switching straight between two living targets still keeps the old bars until the new target's auras change.
+- Game-drawn bars: the fill is tinted blue for buffs and red for debuffs so the text is readable, the bar drains instead of filling (the game's timer direction), and the name and timer are pinned to the bar.
+- The slot's black backing is created last, so a slot whose setup failed no longer leaves a black box.
+
 ## 1.18.2
 
 - Fixed: an error at load (Display.lua:888, skin was nil) when a group drawn by the game existed before any addon-drawn tracker had been built.

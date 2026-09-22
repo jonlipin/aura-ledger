@@ -873,17 +873,45 @@ local function SlotKey(g)
 		.. tostring(g.background ~= false) .. tostring(g.timers ~= false) .. tostring(g.names ~= false)
 end
 
-local function InitSlotFrame(g)
+local BLANK = "Interface\\AddOns\\AuraLedger\\blank"
+
+-- The game's timer direction enum: the value that makes a bar drain.
+local function DrainDirection()
+	local e = Enum and Enum.StatusBarTimerDirection
+	if type(e) ~= "table" then return nil end
+	local pick
+	for k, v in pairs(e) do
+		local l = string.lower(tostring(k))
+		if l:find("remain") or l:find("desc") or l:find("down") or l:find("reverse") or l:find("drain") then pick = v end
+	end
+	if pick == nil then
+		local keys = {}
+		for k, v in pairs(e) do keys[#keys + 1] = tostring(k) .. "=" .. tostring(v) end
+		table.sort(keys)
+		ns.report["timer directions"] = table.concat(keys, ", ")
+		for _, v in pairs(e) do if v ~= 0 then pick = v end end
+	end
+	return pick
+end
+
+-- "cover": the slot draws the aura and covers the cell (show when active / always).
+-- "mask": the slot is invisible and carries a transparent mask; the addon's missing art gets that
+--         mask, so it is blanked while the slot is shown and returns when the slot hides.
+local function InitSlotFrame(g, mode, filter, store)
 	return function(button)
 		if not button then return end
+		local ok, err = pcall(function()
 		local s = BuildSkin()
 		local bars = g.style == "bars"
 		local W, H = bars and g.barW or g.size, bars and g.barH or g.size
 		pcall(button.SetSize, button, W, H)
-		-- Opaque backing so the slot covers whatever the addon drew underneath.
-		local back = button:CreateTexture(nil, "BACKGROUND", nil, -8)
-		back:SetAllPoints(button)
-		back:SetColorTexture(0, 0, 0, 1)
+		if mode == "mask" then
+			local mask = button:CreateMaskTexture()
+			mask:SetTexture(BLANK, "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+			mask:SetAllPoints(button)
+			store.mask = mask
+			return
+		end
 		local icon = button:CreateTexture(nil, "ARTWORK")
 		local c = (bars and s.iconCoords) or s.soloIconCoords or s.iconCoords or { 0.07, 0.93, 0.07, 0.93 }
 		icon:SetTexCoord(c[1], c[2], c[3], c[4])
@@ -908,6 +936,7 @@ local function InitSlotFrame(g)
 			local bar = CreateFrame("StatusBar", nil, button)
 			bar:SetPoint("TOPLEFT", icon, "TOPRIGHT", 2, 0)
 			bar:SetPoint("BOTTOMRIGHT")
+			bar:SetFrameLevel(button:GetFrameLevel() + 1)
 			-- The fill is a strip inside a sheet: the bar's texture needs the atlas (or the crop), not the sheet.
 			bar:SetStatusBarTexture(s.fill.file or BAR_TEXTURE)
 			local fillTex = bar:GetStatusBarTexture()
@@ -920,25 +949,33 @@ local function InitSlotFrame(g)
 				end
 				if s.fill.blend then fillTex:SetBlendMode(s.fill.blend) end
 			end
-			if s.tint then bar:SetStatusBarColor(0.2, 0.8, 0.3) end
+			-- The same tints the addon's own bars use, so the text stays readable on the light fill.
+			if filter == "HARMFUL" then bar:SetStatusBarColor(0.85, 0.22, 0.2) else bar:SetStatusBarColor(0.25, 0.6, 1) end
 			local bg = bar:CreateTexture(nil, "BACKGROUND")
 			bg:SetAllPoints()
 			bg:SetColorTexture(0, 0, 0, g.background ~= false and 0.55 or 0)
-			pcall(button.SetDurationBar, button, bar)
+			local dir = DrainDirection()
+			if not pcall(button.SetDurationBar, button, bar, dir ~= nil and { direction = dir } or nil) then pcall(button.SetDurationBar, button, bar) end
 			local w = { under = button, over = button, decor = {}, iconArt = {} }
 			PlaceDecor(w, s.decor, "decor", bar, H, function(dd) if dd.under then return g.background ~= false else return g.border ~= false end end)
 			if g.iconFrame ~= false then PlaceDecor(w, s.iconDecor, "iconArt", icon, H) end
 			local px = max(8, min(14, floor(H * 0.52)))
-			local name = button:CreateFontString(nil, "OVERLAY")
-			ApplyFont(name, s.nameFont, H, px)
-			name:SetPoint("LEFT", bar, "LEFT", 4, 0)
-			name:SetJustifyH("LEFT")
-			if g.names ~= false then pcall(button.SetSpellName, button, name) end
-			local dur = button:CreateFontString(nil, "OVERLAY")
+			local textHolder = CreateFrame("Frame", nil, button)
+			textHolder:SetAllPoints(bar)
+			textHolder:SetFrameLevel(bar:GetFrameLevel() + 2)
+			local dur = textHolder:CreateFontString(nil, "OVERLAY")
 			ApplyFont(dur, s.durFont, H, px)
 			dur:SetPoint("RIGHT", bar, "RIGHT", -4, 0)
-			name:SetPoint("RIGHT", dur, "LEFT", -4, 0)
+			dur:SetJustifyH("RIGHT")
+			dur:SetWordWrap(false)
 			if g.timers ~= false then pcall(button.SetDurationText, button, dur) end
+			local name = textHolder:CreateFontString(nil, "OVERLAY")
+			ApplyFont(name, s.nameFont, H, px)
+			name:SetPoint("LEFT", bar, "LEFT", 4, 0)
+			name:SetWidth(max(10, W - H - 2 - 8 - 44))
+			name:SetJustifyH("LEFT")
+			name:SetWordWrap(false)
+			if g.names ~= false then pcall(button.SetSpellName, button, name) end
 		else
 			local time = button:CreateFontString(nil, "OVERLAY")
 			time:SetFont(FONT, max(8, floor(H * 0.4)), "OUTLINE")
@@ -961,7 +998,74 @@ local function InitSlotFrame(g)
 		pcall(button.SetMouseMotionEnabled, button, true)
 		pcall(button.SetTooltipAnchorPoint, button, "ANCHOR_RIGHT")
 		pcall(button.SetHideTooltipInCombat, button, false)
+		-- Opaque backing, created last so a failed setup never leaves a bare black box.
+		local back = button:CreateTexture(nil, "BACKGROUND", nil, -8)
+		back:SetAllPoints(button)
+		back:SetColorTexture(0, 0, 0, 1)
+		end)
+		if not ok then ns.report["game-drawn trackers"] = "slot setup failed: " .. tostring(err) end
 	end
+end
+
+-- ------------------------------------------------------------------
+-- Visibility of game-drawn groups is left to the game: showing or hiding a container from addon
+-- code makes the game re-read the auras under this addon's taint, which fails in combat. So the
+-- group's conditions are turned into a macro condition and a secure attribute driver shows or
+-- hides a gate frame; the containers and the cells live under the gate.
+-- ------------------------------------------------------------------
+local function CondMacro(cond)
+	if cond and cond.never then return nil end
+	if cond and cond.class and next(cond.class) and not (ns.env.class and cond.class[ns.env.class]) then return nil end
+	if cond and cond.place and next(cond.place) and not cond.place[ns.env.place] then return nil end
+	local common = {}
+	local target = cond and cond.target
+	if target == "yes" then common[#common + 1] = "@target,exists" elseif target == "no" then common[#common + 1] = "@target,noexists" end
+	local c = cond and cond.combat
+	if c == "yes" then common[#common + 1] = "combat" elseif c == "no" then common[#common + 1] = "nocombat" end
+	local r = cond and cond.resting
+	if r == "yes" then common[#common + 1] = "resting" elseif r == "no" then common[#common + 1] = "noresting" end
+	local m = cond and cond.mounted
+	if m == "yes" then common[#common + 1] = "mounted" elseif m == "no" then common[#common + 1] = "nomounted" end
+	local a = cond and cond.alive
+	if not target and a == "yes" then common[#common + 1] = "nodead" elseif not target and a == "no" then common[#common + 1] = "dead" end
+	local groups = {}
+	if cond and cond.group and next(cond.group) then
+		if cond.group.solo then groups[#groups + 1] = "nogroup" end
+		if cond.group.party then groups[#groups + 1] = "group:party,nogroup:raid" end
+		if cond.group.raid then groups[#groups + 1] = "group:raid" end
+	end
+	if #groups == 0 then groups[1] = false end
+	local brackets = {}
+	for _, gp in ipairs(groups) do
+		local parts = {}
+		for _, p in ipairs(common) do parts[#parts + 1] = p end
+		if gp then parts[#parts + 1] = gp end
+		brackets[#brackets + 1] = "[" .. table.concat(parts, ",") .. "]"
+	end
+	return table.concat(brackets, "") .. " show; hide"
+end
+Display.CondMacro = CondMacro
+
+local function EnsureGate(f, g)
+	if not f.gate then
+		f.gate = CreateFrame("Frame", nil, f)
+		f.gate:SetAllPoints(f)
+	end
+	local macro = CondMacro(g.cond)
+	if macro == nil then macro = "hide" end
+	if f.gate.alMacro ~= macro and RegisterAttributeDriver and not (InCombatLockdown and InCombatLockdown()) then
+		if UnregisterAttributeDriver and f.gate.alMacro then pcall(UnregisterAttributeDriver, f.gate, "state-visibility") end
+		if pcall(RegisterAttributeDriver, f.gate, "state-visibility", macro) then f.gate.alMacro = macro end
+	end
+	return f.gate
+end
+
+local function DropGate(f)
+	if not f.gate then return end
+	if InCombatLockdown and InCombatLockdown() then return end
+	if UnregisterAttributeDriver and f.gate.alMacro then pcall(UnregisterAttributeDriver, f.gate, "state-visibility") end
+	f.gate.alMacro = nil
+	f.gate:Hide()
 end
 
 -- The container for one unit of a group; rebuilt when the look changes. Nil in combat when it
@@ -972,17 +1076,26 @@ local function SlotContainer(f, g, unit)
 	local c = f.slotC[unit]
 	if c and c.alKey == key then return c end
 	if InCombatLockdown and InCombatLockdown() then return c end
-	if c then c:Hide() c:ClearAllPoints() f.slotC[unit] = nil end
-	local ok, nc = pcall(CreateFrame, "AuraContainer", nil, f, "CustomAuraContainerTemplate")
+	if c then
+		if UnregisterAttributeDriver and c.alDriven then pcall(UnregisterAttributeDriver, c, "state-visibility") end
+		c:Hide() c:ClearAllPoints() f.slotC[unit] = nil
+	end
+	local gate = EnsureGate(f, g)
+	local ok, nc = pcall(CreateFrame, "AuraContainer", nil, gate, "CustomAuraContainerTemplate")
 	if not (ok and nc) then
 		ns.report["game-drawn trackers"] = "AuraContainer not available: " .. tostring(nc)
 		return nil
 	end
 	nc:SetAllPoints(f)
-	nc:SetFrameLevel(f:GetFrameLevel() + 3)
+	nc:SetFrameLevel(gate:GetFrameLevel() + 3)
 	if nc.SetUnit then pcall(nc.SetUnit, nc, unit) end
-	nc.alKey, nc.alSlots, nc.alIds = key, {}, {}
-	nc:Show()
+	nc.alKey, nc.alSlots, nc.alIds, nc.alStore = key, {}, {}, {}
+	if unit ~= "player" and RegisterAttributeDriver then
+		-- Shown and hidden by the game as the target comes and goes, which is also what makes it
+		-- re-read the new target's auras.
+		if pcall(RegisterAttributeDriver, nc, "state-visibility", "[@" .. unit .. ",exists] show; hide") then nc.alDriven = true end
+	end
+	if not nc.alDriven then nc:Show() end
 	f.slotC[unit] = nc
 	ns.report["game-drawn trackers"] = "AuraContainer ok"
 	return nc
@@ -1004,26 +1117,29 @@ local function TrackerSlots(f, g, t, ids)
 	end
 	local frames = {}
 	local idsKey = IdsKey(ids)
+	local mode = (t.show == "missing" and not (ns.db and ns.db.noMask)) and "mask" or "cover"
 	for _, filter in ipairs(kinds) do
-		local key = tostring(t.uid) .. ":" .. filter
+		local key = tostring(t.uid) .. ":" .. filter .. ":" .. mode
 		local filters = { includeSpellIDs = ids }
 		if t.mine then filters.isFromPlayerOrPlayerPet = true end
 		local frame = c.alSlots[key]
 		if not frame then
 			if InCombatLockdown and InCombatLockdown() then return nil end
-			local ok, fr = pcall(c.AddAuraSlot, c, key, filter, { initializeFrame = InitSlotFrame(g), candidateFilters = filters })
+			local store = {}
+			local ok, fr = pcall(c.AddAuraSlot, c, key, filter, { initializeFrame = InitSlotFrame(g, mode, filter, store), candidateFilters = filters })
 			if not ok then
 				ns.report["game-drawn trackers"] = "AddAuraSlot: " .. tostring(fr)
 				return nil
 			end
 			frame = fr
 			c.alSlots[key] = frame
+			c.alStore[key] = store
 			c.alIds[key] = idsKey .. tostring(t.mine)
-		elseif c.alIds[key] ~= idsKey .. tostring(t.mine) then
+		elseif c.alIds[key] ~= idsKey .. tostring(t.mine) and not (InCombatLockdown and InCombatLockdown()) then
 			pcall(c.SetAuraSlotCandidateFilters, c, key, filters)
 			c.alIds[key] = idsKey .. tostring(t.mine)
 		end
-		frames[#frames + 1] = { key = key, frame = frame, c = c }
+		frames[#frames + 1] = { key = key, frame = frame, c = c, mask = c.alStore[key] and c.alStore[key].mask, mode = mode }
 	end
 	return frames
 end
@@ -1096,6 +1212,13 @@ local function SavePosition(f, g)
 	if x and y then g.x, g.y = x * s, y * s end
 end
 
+local function WidgetTextures(w)
+	local list = { w.icon, w.border, w.fill, w.bar.bg, w.bar.spark, w.stale }
+	for _, t in ipairs(w.decor) do list[#list + 1] = t end
+	for _, t in ipairs(w.iconArt) do list[#list + 1] = t end
+	return list
+end
+
 local function LayoutGroup(f, g, visible, unlocked)
 	local n = #visible
 	local w, h
@@ -1106,12 +1229,14 @@ local function LayoutGroup(f, g, visible, unlocked)
 	local slots = g.gameDrawn and not unlocked
 
 	-- Every slot starts the pass switched off; the ones with a cell are switched on below.
-	if f.slotC then
+	-- Containers are never shown or hidden from here: the gate's driver does that.
+	if f.slotC and slots then
 		for unit, c in pairs(f.slotC) do
-			c:SetShown(slots)
-			if slots then for key in pairs(c.alSlots) do c.alWant = c.alWant or {} c.alWant[key] = false end end
+			for key in pairs(c.alSlots) do c.alWant = c.alWant or {} c.alWant[key] = false end
 		end
 	end
+	if slots then EnsureGate(f, g) elseif f.gate then DropGate(f) end
+	local cellParent = slots and f.gate or f
 
 	for k = 1, n do
 		local widget = f.widgets[k]
@@ -1121,11 +1246,26 @@ local function LayoutGroup(f, g, visible, unlocked)
 		end
 		local item = visible[k]
 		widget:SetAlpha(1)
+		if widget:GetParent() ~= cellParent then widget:SetParent(cellParent) end
 		if slots and item.slots then
 			-- The addon draws only the missing state under a game-drawn slot; the game covers it
 			-- while the aura is present. "Show when active" leaves the cell empty underneath.
 			PaintWidget(widget, g, item.t, nil, false, false)
 			if item.t.show == "active" then widget:SetAlpha(0) end
+			-- A "mask" slot blanks the missing art while the game shows it.
+			local mask
+			for _, sl in ipairs(item.slots) do if sl.mode == "mask" and sl.mask then mask = sl.mask end end
+			if mask and item.t.show == "missing" and g.style == "bars" then
+				widget.name:SetText("")
+				widget.duration:SetText("")
+			end
+			if widget.alMask ~= mask then
+				for _, tex in ipairs(WidgetTextures(widget)) do
+					if widget.alMask then pcall(tex.RemoveMaskTexture, tex, widget.alMask) end
+					if mask then pcall(tex.AddMaskTexture, tex, mask) end
+				end
+				widget.alMask = mask
+			end
 			for _, sl in ipairs(item.slots) do
 				sl.c.alWant[sl.key] = true
 				if not (InCombatLockdown and InCombatLockdown()) or sl.frame.alAnchor ~= k then
@@ -1138,6 +1278,10 @@ local function LayoutGroup(f, g, visible, unlocked)
 				end
 			end
 		else
+			if widget.alMask then
+				for _, tex in ipairs(WidgetTextures(widget)) do pcall(tex.RemoveMaskTexture, tex, widget.alMask) end
+				widget.alMask = nil
+			end
 			PaintWidget(widget, g, item.t, item.entry, unlocked, item.expiring)
 		end
 		local a, b = (k - 1) % perRow, floor((k - 1) / perRow)
@@ -1155,9 +1299,8 @@ local function LayoutGroup(f, g, visible, unlocked)
 		widget.tracker, widget.entry, widget.timed = nil, nil, false
 	end
 
-	if f.slotC and slots then
+	if f.slotC and slots and not (InCombatLockdown and InCombatLockdown()) then
 		for unit, c in pairs(f.slotC) do
-			if unit ~= "player" and c.UpdateAllAuras and not (InCombatLockdown and InCombatLockdown()) then pcall(c.UpdateAllAuras, c) end
 			for key, want in pairs(c.alWant or {}) do
 				if c.alOn == nil then c.alOn = {} end
 				if c.alOn[key] ~= want then
@@ -1180,7 +1323,7 @@ local function LayoutGroup(f, g, visible, unlocked)
 			if sel then f.chrome:SetBackdropBorderColor(0.3, 1, 0.4, 1) else f.chrome:SetBackdropBorderColor(1, 0.82, 0, 0.9) end
 		end
 	end
-	f:SetShown(n > 0)
+	if slots then f:Show() else f:SetShown(n > 0) end
 end
 
 -- Is the aura inside the tracker's "warn before it runs out" window?
@@ -1304,7 +1447,14 @@ function Display:Rebuild()
 			f:Hide()
 			f.group = nil
 			if f.live then f.live:Hide() f.live = nil f.liveKey = nil end
-			if f.slotC then for _, c in pairs(f.slotC) do c:Hide() end f.slotC = nil end
+			if f.slotC then
+				for _, c in pairs(f.slotC) do
+					if UnregisterAttributeDriver and c.alDriven then pcall(UnregisterAttributeDriver, c, "state-visibility") end
+					c:Hide()
+				end
+				f.slotC = nil
+			end
+			DropGate(f)
 			f.chrome.hl:Hide()
 			active[uid] = nil
 			pool[#pool + 1] = f

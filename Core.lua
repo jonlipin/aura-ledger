@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.18.2"
+ns.VERSION = "1.18.3"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -2120,6 +2120,9 @@ SlashCmdList.AURALEDGER = function(msg)
 			end
 			if found == 0 then Print("nothing documented under that name (try the exact name from /api search)") end
 		end
+	elseif cmd == "nomask" then
+		ns.db.noMask = not ns.db.noMask or nil
+		Print("game-drawn 'show when missing' trackers now " .. (ns.db.noMask and "cover their cell with the aura while it is active (mask off)" or "blank their missing art while the aura is active (mask on)") .. "; /reload to rebuild")
 	elseif cmd == "soundclear" then
 		Print(("removed %d aura sound registrations from the game; they come back on the next change or reload for trackers that still have a sound set"):format(ns.ClearAllAuraSounds()))
 	elseif cmd == "soundtest" then
