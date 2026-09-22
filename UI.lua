@@ -1037,6 +1037,38 @@ local function CreateTreeRow(parent)
 		MaskIcon(row, row.icon)
 	end
 	row.text = Ink(row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
+	-- Remove: a small red X on tracker rows. First click arms it (the row asks), second click removes.
+	local x = CreateFrame("Button", nil, row)
+	x:SetSize(16, 16)
+	x:SetPoint("RIGHT", row, "RIGHT", -4, 0)
+	if HasAtlas("RedButton-Exit") and x.SetNormalAtlas then
+		x:SetNormalAtlas("RedButton-Exit")
+		if HasAtlas("RedButton-exit-pressed") then x:SetPushedAtlas("RedButton-exit-pressed") end
+		if HasAtlas("RedButton-Highlight") then x:SetHighlightAtlas("RedButton-Highlight") end
+	else
+		x:SetNormalTexture("Interface\\Buttons\\UI-GroupLoot-Pass-Up")
+		x:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+	end
+	x:SetFrameLevel(row:GetFrameLevel() + 2)
+	x:Hide()
+	x:SetScript("OnClick", function(self)
+		local item = row.item
+		if not item or not item.t then return end
+		if row.armed and GetTime() - row.armed < 3 and row.armedFor == item.t then
+			row.armed = nil
+			ns.RemoveTracker(item.t)
+		else
+			row.armed, row.armedFor = GetTime(), item.t
+			UI:RefreshTree()
+			C_Timer.After(3.2, function() if row.armed and GetTime() - row.armed >= 3 then row.armed = nil UI:RefreshTree() end end)
+		end
+	end)
+	x:SetScript("OnEnter", function(self)
+		if row.plated then row.hl:SetAlpha(1) else row.hl:Show() end
+		TextTooltip(self, "Remove this tracker", "Click twice to remove it. The group is removed too if it was the last tracker in it.")
+	end)
+	x:SetScript("OnLeave", function() if row.plated then row.hl:SetAlpha(0.3) else row.hl:Hide() end GameTooltip:Hide() end)
+	row.remove = x
 	row.text:SetJustifyH("LEFT")
 	row.text:SetWordWrap(false)
 	-- Kept under the text: a HIGHLIGHT-layer texture would draw over it and blank the row.
@@ -1128,16 +1160,19 @@ local function UpdateTreeRow(row, item)
 		row.icon:Show()
 		if row.frame then row.frame:Show() end
 		row.text:SetPoint("LEFT", row.icon, "RIGHT", 5, 0)
-		row.text:SetPoint("RIGHT", -4, 0)
+		row.text:SetPoint("RIGHT", -24, 0)
 		local off = t.cond and t.cond.never
 		local _, dimC, offC = InkCodes()
+		local armed = row.armed and row.armedFor == t and GetTime() - row.armed < 3
 		row.text:SetText((off and offC or "") .. (t.name or ("Spell " .. tostring(t.id)))
-			.. "  " .. dimC .. (off and "off" or (SHOW_TAG[t.show] or "active")) .. (t.unit == "target" and ", target" or "") .. "|r")
+			.. "  " .. (armed and "|cffff4040Remove? click the X again|r" or (dimC .. (off and "off" or (SHOW_TAG[t.show] or "active")) .. (t.unit == "target" and ", target" or "") .. "|r")))
+		row.remove:Show()
 		row.sel:SetShown(SelectedTracker() == t)
 	else
 		local g = item.g
 		row.icon:Hide()
 		if row.frame then row.frame:Hide() end
+		row.remove:Hide()
 		row.text:SetPoint("LEFT", 6, 0)
 		row.text:SetPoint("RIGHT", -4, 0)
 		local off = g.cond and g.cond.never
@@ -1270,6 +1305,17 @@ local function BuildTrackerPanel(width)
 	trackerBuilder = b
 	local function T() return SelectedTracker() end
 
+	do
+		-- The same faint backplate the book entries wear, behind the icon and name.
+		local art = SpellBookArt()
+		if art and art.backplate then
+			local plate = trackerPanel:CreateTexture(nil, "BACKGROUND", nil, 1)
+			plate:SetAtlas(art.backplate)
+			plate:SetPoint("TOPLEFT", trackerPanel, "TOPLEFT", 2, -2)
+			plate:SetPoint("BOTTOMRIGHT", trackerPanel, "TOPRIGHT", -8, -50)
+			plate:SetAlpha(0.35)
+		end
+	end
 	trackerTitle.icon = trackerPanel:CreateTexture(nil, "ARTWORK")
 	trackerTitle.icon:SetSize(36, 36)
 	trackerTitle.icon:SetPoint("TOPLEFT", 12, -10)
@@ -1355,13 +1401,8 @@ local function BuildTrackerPanel(width)
 	b:Conditions(function() local t = T() return t and t.cond end, TrackerChanged)
 
 	b.y = b.y - 8
-	b:Note("To move this tracker to another group, or out into a group of its own, drag it in the Groups and trackers list.")
-	local remove = b:ConfirmButton("Remove tracker", 170, function()
-		local t = T()
-		if t then ns.RemoveTracker(t) end
-	end)
-	remove:SetPoint("TOPLEFT", 8, b.y)
-	b.y = b.y - 34
+	b:Note("To move this tracker to another group, or out into a group of its own, drag it in the Groups and trackers list. To remove it, click the X on its row there twice.")
+	b.y = b.y - 8
 	trackerPanel.height = -b.y
 	trackerPanel:SetHeight(trackerPanel.height)
 end

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.8.1
+
+- Each tracker row in the Groups and trackers list has a small red X: click it once to arm (the row asks), again within three seconds to remove the tracker. The Remove button is gone from the Options panel.
+- The Options header (icon and name) wears the same faint backplate as the book entries.
+
 ## 1.8.0
 
 - Trackers can be dragged within the Groups and trackers list: drop one on a group heading to add it to that group, on another tracker to place it before or after it (in the same group or another), or on empty space in the list to give it a group of its own. Dragging out of the window still drops it onto the screen, joining an on-screen group or starting a new one there.
