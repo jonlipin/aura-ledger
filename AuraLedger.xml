@@ -1,0 +1,12 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.blizzard.com/wow/ui/..\FrameXML\UI.xsd">
+	<!-- Modern scroll frame with the client's own MinimalScrollBar art. KeyValues are read in the
+	     template's OnLoad, so they have to be declared here rather than set from Lua. -->
+	<ScrollFrame name="AuraLedgerScrollFrameTemplate" inherits="ScrollFrameTemplate" virtual="true">
+		<KeyValues>
+			<KeyValue key="scrollBarX" value="6" type="number"/>
+			<KeyValue key="scrollBarTopY" value="0" type="number"/>
+			<KeyValue key="scrollBarBottomY" value="0" type="number"/>
+			<KeyValue key="scrollBarTemplate" value="MinimalScrollBar" type="string"/>
+		</KeyValues>
+	</ScrollFrame>
+</Ui>
