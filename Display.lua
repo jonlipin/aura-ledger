@@ -708,7 +708,24 @@ local function InitLiveButton(g)
 		local count = button:CreateFontString(nil, "OVERLAY")
 		count:SetFont(FONT, max(7, floor(S * 0.3)), "OUTLINE")
 		count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
-		pcall(button.SetApplicationCountText, button, count)
+		pcall(button.SetApplicationCount, button, count)
+		-- The game's own swipe over the icon, and a dispel-type coloured border like the debuff frame's.
+		local okC, cd = pcall(CreateFrame, "Cooldown", nil, button, "CooldownFrameTemplate")
+		if okC and cd then
+			cd:SetAllPoints(icon)
+			if cd.SetReverse then cd:SetReverse(true) end
+			if cd.SetDrawEdge then cd:SetDrawEdge(false) end
+			if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
+			cd.noCooldownCount = true
+			pcall(button.SetDurationCooldown, button, cd)
+		end
+		local border = button:CreateTexture(nil, "OVERLAY")
+		border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
+		border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
+		border:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
+		border:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 1, -1)
+		pcall(button.AddDispelTypeTexture, button, border)
+		pcall(button.SetHideTooltipInCombat, button, false)
 		if g.iconFrame ~= false then
 			local w = { under = button, over = button, decor = {}, iconArt = {} }
 			PlaceDecor(w, s.soloIconDecor or s.iconDecor, "iconArt", icon, S)
@@ -771,12 +788,7 @@ local function EnsureLive(f, g)
 				end
 			end
 		end
-		settings.spellIDs = ids
-		settings.spellIDFilter = ids
-		settings.includeSpellIDs = ids
-		settings.allowedSpellIDs = ids
-		settings.spellNames = names
-		settings.candidateFilters = { spellIDs = ids }
+		f.liveIds, f.liveNames = ids, names
 	end
 	local okG, err
 	if c.AddAuraGroup then
@@ -792,6 +804,25 @@ local function EnsureLive(f, g)
 		return nil
 	end
 	if c.SetUnit then pcall(c.SetUnit, c, "player") end
+	-- Limiting to the group's trackers: the candidate-filter shapes are tried in turn through the
+	-- container's own setter; every answer is logged so the accepted shape can be read off.
+	if g.liveOnlyMine and c.SetAuraGroupCandidateFilters and f.liveIds then
+		local ids, names, gid = f.liveIds, f.liveNames, "al_" .. tostring(g.uid)
+		local shapes = {
+			{ "list of {spellID}",      (function() local l = {} for _, id in ipairs(ids) do l[#l + 1] = { spellID = id } end return l end)() },
+			{ "list of {spellId}",      (function() local l = {} for _, id in ipairs(ids) do l[#l + 1] = { spellId = id } end return l end)() },
+			{ "list of ids",            ids },
+			{ "{spellIDs=list}",        { spellIDs = ids } },
+			{ "list of {spellName}",    (function() local l = {} for _, n in ipairs(names) do l[#l + 1] = { spellName = n } end return l end)() },
+			{ "list of {name}",         (function() local l = {} for _, n in ipairs(names) do l[#l + 1] = { name = n } end return l end)() },
+			{ "list of {type,spellID}", (function() local l = {} for _, id in ipairs(ids) do l[#l + 1] = { type = "spellID", spellID = id } end return l end)() },
+		}
+		for _, sh in ipairs(shapes) do
+			local okF, err = pcall(c.SetAuraGroupCandidateFilters, c, gid, sh[2])
+			if ns.LogLine then ns.LogLine(("candidate filters %s: %s"):format(sh[1], okF and "accepted" or ("error " .. tostring(err)))) end
+			if okF then break end
+		end
+	end
 	c:Show()
 	f.live, f.liveKey = c, key
 	ns.report["game-drawn groups"] = "AuraContainer ok (" .. g.live .. ")"

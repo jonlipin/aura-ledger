@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.17.2
+
+- Game-drawn groups now use the game's real button functions: stack counts (SetApplicationCount), the game's own swipe over the icon (SetDurationCooldown), a dispel-type coloured border (AddDispelTypeTexture), and tooltips stay on in combat.
+- "Only this group's trackers" now goes through the container's own SetAuraGroupCandidateFilters, trying the possible shapes in turn and logging each answer.
+- /auraledger slot calls the container's slot, filter, sort and layout functions with wrong arguments and prints their error messages, to read what they expect.
+
 ## 1.17.1
 
 - Game-drawn groups gain an experimental "Only this group's trackers" switch that asks the game to limit the group to the spells its trackers name. Whether the game honours it is not yet known.

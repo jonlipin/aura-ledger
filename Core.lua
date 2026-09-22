@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.17.1"
+ns.VERSION = "1.17.2"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -2099,6 +2099,77 @@ SlashCmdList.AURALEDGER = function(msg)
 		end
 		Print("playing each file sound in turn (1.5 s apart); say which ones you heard:")
 		step()
+	elseif cmd == "slot" then
+		Print("AuraContainer slot and filter functions, called with wrong arguments to read what they expect:")
+		local ok, c = pcall(CreateFrame, "AuraContainer", nil, UIParent, "CustomAuraContainerTemplate")
+		if not (ok and c) then Print("  cannot create: " .. tostring(c)) return end
+		local function try(label, fn, ...)
+			local okF, a, b = pcall(fn, c, ...)
+			Print(("  %s -> %s"):format(label, okF and ("ok " .. tostring(a) .. " " .. tostring(b)) or ("error " .. tostring(a))))
+		end
+		try("AddAuraSlot()", c.AddAuraSlot)
+		try("AddAuraSlot(1)", c.AddAuraSlot, 1)
+		try("AddAuraSlot('s', 'HARMFUL')", c.AddAuraSlot, "s", "HARMFUL")
+		try("AddAuraSlot('s2', 'HARMFUL', {})", c.AddAuraSlot, "s2", "HARMFUL", {})
+		try("AddAuraSlot('s3', 'HARMFUL', {initializeFrame=f})", c.AddAuraSlot, "s3", "HARMFUL", { initializeFrame = function() end })
+		try("AddAuraSlot('s4', {})", c.AddAuraSlot, "s4", {})
+		try("AddAuraGroup()", c.AddAuraGroup)
+		try("AddAuraGroup('g', 'HARMFUL', 5)", c.AddAuraGroup, "g", "HARMFUL", 5)
+		try("AddAuraGroup('g2', 'HARMFUL', {bogus=1})", c.AddAuraGroup, "g2", "HARMFUL", { bogus = 1 })
+		try("AddAuraGroup('g3', 'HARMFUL', {layout=5})", c.AddAuraGroup, "g3", "HARMFUL", { layout = 5 })
+		try("AddAuraGroup('g4', 'HARMFUL', {layout={bogus=1}})", c.AddAuraGroup, "g4", "HARMFUL", { layout = { bogus = 1 } })
+		try("AddAuraGroup('g5', 'BOGUS', {})", c.AddAuraGroup, "g5", "BOGUS", {})
+		try("AddAuraGroup('g6', 'HARMFUL', {candidateFilters=5})", c.AddAuraGroup, "g6", "HARMFUL", { candidateFilters = 5 })
+		try("AddAuraGroup('g7', 'HARMFUL', {candidateFilters={5}})", c.AddAuraGroup, "g7", "HARMFUL", { candidateFilters = { 5 } })
+		try("AddAuraGroup('g8', 'HARMFUL', {candidateFilters={{}}})", c.AddAuraGroup, "g8", "HARMFUL", { candidateFilters = { {} } })
+		try("AddAuraGroup('g9', 'HARMFUL', {candidateFilters={{bogus=1}}})", c.AddAuraGroup, "g9", "HARMFUL", { candidateFilters = { { bogus = 1 } } })
+		try("AddAuraGroup('g10', 'HARMFUL', {sortMethod=5})", c.AddAuraGroup, "g10", "HARMFUL", { sortMethod = 5 })
+		try("SetAuraGroupCandidateFilters()", c.SetAuraGroupCandidateFilters)
+		try("SetAuraGroupCandidateFilters('g2')", c.SetAuraGroupCandidateFilters, "g2")
+		try("SetAuraGroupCandidateFilters('g2', 5)", c.SetAuraGroupCandidateFilters, "g2", 5)
+		try("SetAuraGroupCandidateFilters('g2', {5})", c.SetAuraGroupCandidateFilters, "g2", { 5 })
+		try("SetAuraGroupCandidateFilters('g2', {{}})", c.SetAuraGroupCandidateFilters, "g2", { {} })
+		try("SetAuraGroupCandidateFilters('g2', {{bogus=1}})", c.SetAuraGroupCandidateFilters, "g2", { { bogus = 1 } })
+		try("SetAuraGroupCandidateFilters('g2', {{spellID='x'}})", c.SetAuraGroupCandidateFilters, "g2", { { spellID = "x" } })
+		try("SetAuraGroupCandidateFilters('g2', {{spellID=172}})", c.SetAuraGroupCandidateFilters, "g2", { { spellID = 172 } })
+		try("SetAuraGroupCandidateFilters('g2', {172})", c.SetAuraGroupCandidateFilters, "g2", { 172 })
+		try("SetAuraGroupFilterString('g2', 5)", c.SetAuraGroupFilterString, "g2", 5)
+		try("SetAuraGroupFilterString('g2', 'HARMFUL|BOGUS')", c.SetAuraGroupFilterString, "g2", "HARMFUL|BOGUS")
+		try("SetAuraGroupSortMethod('g2', 'x')", c.SetAuraGroupSortMethod, "g2", "x")
+		try("SetAuraGroupSortMethod('g2', 99)", c.SetAuraGroupSortMethod, "g2", 99)
+		try("SetAuraGroupLayout('g2', 5)", c.SetAuraGroupLayout, "g2", 5)
+		try("SetAuraGroupLayout('g2', {bogus=1})", c.SetAuraGroupLayout, "g2", { bogus = 1 })
+		try("SetAuraProcessingPolicy('x')", c.SetAuraProcessingPolicy, "x")
+		try("SetAuraProcessingPolicy(99)", c.SetAuraProcessingPolicy, 99)
+		try("GetAuraProcessingPolicy()", c.GetAuraProcessingPolicy)
+		try("SetFlowLayoutGrowthDirection('x')", c.SetFlowLayoutGrowthDirection, "x")
+		try("SetFlowLayoutAxis('x')", c.SetFlowLayoutAxis, "x")
+		try("SetFlowLayoutAnchorPoint('x')", c.SetFlowLayoutAnchorPoint, "x")
+		try("GetFlowLayoutGrowthDirection()", c.GetFlowLayoutGrowthDirection)
+		try("GetFlowLayoutAxis()", c.GetFlowLayoutAxis)
+		try("GetFlowLayoutMaximumLineSize()", c.GetFlowLayoutMaximumLineSize)
+		try("GetFlowLayoutPadding()", c.GetFlowLayoutPadding)
+		try("SetAuraSlotCandidateFilters()", c.SetAuraSlotCandidateFilters)
+		try("SetAuraSlotCandidateFilters('s2', 5)", c.SetAuraSlotCandidateFilters, "s2", 5)
+		try("SetAuraSlotCandidateFilters('s2', {{spellID=172}})", c.SetAuraSlotCandidateFilters, "s2", { { spellID = 172 } })
+		try("SetAuraSlotFilterString('s2', 5)", c.SetAuraSlotFilterString, "s2", 5)
+		try("GetAuraSlotFrame('s2')", c.GetAuraSlotFrame, "s2")
+		try("GetAuraGroupFrame('g2', 1)", c.GetAuraGroupFrame, "g2", 1)
+		try("GetAuraGroupFrameCount('g2')", c.GetAuraGroupFrameCount, "g2")
+		try("HasAuraGroup('g2')", c.HasAuraGroup, "g2")
+		try("IsAuraSlotEnabled('s2')", c.IsAuraSlotEnabled, "s2")
+		c:Hide()
+		for _, en in ipairs({ "AuraProcessingPolicy", "AuraSortMethod", "FlowLayoutGrowthDirection", "FlowLayoutAxis", "AuraFilter", "AuraCandidateFilterType", "UnitAuraCandidateFilterType" }) do
+			local e = Enum and Enum[en]
+			if e then
+				local keys = {}
+				for k, v in pairs(e) do keys[#keys + 1] = tostring(k) .. "=" .. tostring(v) end
+				table.sort(keys)
+				Print("  Enum." .. en .. ": " .. table.concat(keys, ", "))
+			else
+				Print("  Enum." .. en .. ": missing")
+			end
+		end
 	elseif cmd == "mixin" then
 		local function funcs(t, label)
 			local names = {}
