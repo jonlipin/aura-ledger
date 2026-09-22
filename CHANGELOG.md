@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.33.0
+
+- An edit mode you can see you are in. "Edit trackers" at the top of the window, or /auraledger edit, turns arranging on: trackers become draggable wherever they are on the screen and clicking one opens its settings, exactly as before, but now a bar across the top says so and carries a Done button. It stays on when the window is closed, so things can be placed while playing, and the button reads "Done editing" while it is on. /auraledger lock and unlock still work.
+- The group size slider no longer has its label and its value running into each other: the label is simply "Group size".
+
 ## 1.32.0
 
 - A grip in the bottom right corner sizes the window. The window is a book and its art is drawn at fixed sizes, so the grip sizes the whole thing in proportion rather than stretching the page; double-click the grip to put it back. The size is remembered.

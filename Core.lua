@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.32.0"
+ns.VERSION = "1.33.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -2032,7 +2032,7 @@ local function Help()
 	Print("  /auraledger - open or close the window")
 	Print("  /auraledger add <spell name or ID> - add an aura and start tracking it")
 	Print("  /auraledger import <string> - import a tracker or group from an export string")
-	Print("  /auraledger unlock | lock - move trackers without the window open")
+	Print("  /auraledger edit - turn arranging on or off: drag trackers about and click one to change it")
 	Print("  /auraledger minimap - show or hide the minimap button")
 	Print("  /auraledger plainbook - switch the book between parchment and a plain dark page")
 	Print("  /auraledger sound test | clear - play each sound the game can make, or remove the ones registered with it")
@@ -2220,11 +2220,14 @@ SlashCmdList.AURALEDGER = function(msg)
 		ns.TrackHistory(h)
 		Print("Tracking " .. (h.name or ("spell " .. tostring(h.id))) .. ". Open /auraledger to move it or change how it shows.")
 		if ns.UI and ns.UI.RefreshHistory then ns.UI:RefreshHistory() end
-	elseif cmd == "lock" or cmd == "unlock" then
-		ns.db.unlocked = (cmd == "unlock")
-		if ns.Display then ns.Display:Rebuild() end
-		if ns.UI and ns.UI.SyncToolbar then ns.UI:SyncToolbar() end
-		Print(ns.db.unlocked and "Trackers unlocked: drag them where you want them." or "Trackers locked.")
+	elseif cmd == "edit" or cmd == "lock" or cmd == "unlock" then
+		local on = (cmd == "unlock") or (cmd == "edit" and not ns.db.unlocked)
+		if ns.UI and ns.UI.SetEditMode then
+			ns.UI:SetEditMode(on)
+		else
+			ns.db.unlocked = on
+			if ns.Display then ns.Display:Rebuild() end
+		end
 	elseif cmd == "minimap" then
 		ns.db.minimapShown = not ns.db.minimapShown
 		if ns.UI and ns.UI.UpdateMinimapButton then ns.UI:UpdateMinimapButton() end

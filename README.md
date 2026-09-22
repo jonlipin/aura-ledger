@@ -22,6 +22,7 @@ The minimize button beside the close button shrinks the window to the Groups and
 
 - **Drag** an aura off the page and drop it anywhere on the screen. Double-click places it in the middle instead.
 - **Drop it on an existing tracker** and the two become a group. Groups have no size limit, and you can have as many groups and trackers as you like.
+- **Edit trackers** at the top of the window turns arranging on: trackers become draggable wherever they are and clicking one opens its settings. A bar across the top says so and has a Done button. It stays on with the window closed, so things can be placed while playing.
 - While the window is open every tracker is shown as a preview so you can arrange things. Drag a group by any of its icons or by its title plate.
 - Drag a **lone tracker onto another group** to join it.
 - **Shift-drag** a tracker inside a group to reorder it, move it to another group, or pull it out into a group of its own.
@@ -76,7 +77,7 @@ What the addon itself cannot do in combat, on this client: notice a buff being c
 | `/auraledger` | open or close the window (`/aledger` works too) |
 | `/auraledger add <name or ID>` | add an aura and start tracking it |
 | `/auraledger import <string>` | import a tracker or group from an export string |
-| `/auraledger unlock` / `lock` | move trackers without the window open |
+| `/auraledger edit` | turn arranging on or off: drag trackers about and click one to change it (`lock` and `unlock` still work) |
 | `/auraledger minimap` | show or hide the minimap button |
 | `/auraledger combatlog` | try the combat log as an extra in-combat source (off by default: registering it is forbidden on the Forever client) |
 | `/auraledger atlases` | list the art names on the client's spellbook, for bug reports |

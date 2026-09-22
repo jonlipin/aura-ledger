@@ -555,7 +555,7 @@ function Builder:Conditions(getCond, onChange, draw)
 			end
 	end
 	self.y = self.y - 2
-	self:Slider("Only with this many players", { min = 1, max = 40, step = 1,
+	self:Slider("Group size", { min = 1, max = 40, step = 1,
 		get = function() return Cond().minGroup or 1 end,
 		set = function(v) Cond().minGroup = (v > 1) and v or nil onChange() end,
 		format = ns.GroupSizeLabel })
@@ -2118,7 +2118,16 @@ local function Build()
 	BuildTrackerPanel(optionsWidth)
 
 	-- ---- Minimize: full -> groups and trackers only -> header bar only ----
-	UI.parts = { book = left, options = right, tree = mid, toolbar = { searchBox, hint } }
+	local editButton = MakeButton(frame, "Edit trackers", 110)
+	editButton:SetPoint("TOPLEFT", body, "TOPLEFT", 8, 6)
+	editButton:SetFrameLevel((frame.CloseButton and frame.CloseButton:GetFrameLevel() or frame:GetFrameLevel()) + 1)
+	editButton:SetScript("OnClick", function() UI:SetEditMode(not ns.db.unlocked, true) end)
+	editButton:SetScript("OnEnter", function(self)
+		TextTooltip(self, "Edit trackers", "Turns on arranging: trackers become draggable wherever they are on screen, and clicking one opens its settings. It stays on when this window is closed, so you can place things while you play.")
+	end)
+	editButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	UI.editButton = editButton
+	UI.parts = { book = left, options = right, tree = mid, toolbar = { searchBox, hint, editButton } }
 	for _, tab in pairs(book.tabs) do UI.parts.toolbar[#UI.parts.toolbar + 1] = tab end
 	local MiniButton, StepMode
 	function UI.UseFallbackMini()
@@ -2541,7 +2550,72 @@ local function Build()
 	end)
 end
 
+-- ------------------------------------------------------------------
+-- Edit mode. Trackers are only draggable while it is on, so it says so plainly rather than
+-- leaving you to remember a slash command: a bar across the top of the screen with a way out.
+-- ------------------------------------------------------------------
+local editBar
+
+local function GetEditBar()
+	if editBar then return editBar end
+	local ok, f = pcall(CreateFrame, "Frame", "AuraLedgerEditBar", UIParent, "BackdropTemplate")
+	if not ok or not f then f = CreateFrame("Frame", "AuraLedgerEditBar", UIParent) end
+	editBar = f
+	f:SetSize(430, 40)
+	f:SetPoint("TOP", UIParent, "TOP", 0, -140)
+	f:SetFrameStrata("DIALOG")
+	f:EnableMouse(true)
+	f:SetMovable(true)
+	f:RegisterForDrag("LeftButton")
+	f:SetScript("OnDragStart", function(self) self:StartMoving() end)
+	f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+	if f.SetBackdrop then
+		f:SetBackdrop({
+			bgFile = "Interface\\FrameGeneral\\UI-Background-Rock",
+			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+			tile = true, tileSize = 32, edgeSize = 14,
+			insets = { left = 4, right = 4, top = 4, bottom = 4 },
+		})
+		f:SetBackdropBorderColor(1, 0.82, 0, 0.9)
+	else
+		local bg = f:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints()
+		bg:SetColorTexture(0.05, 0.05, 0.08, 0.9)
+	end
+	local text = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	text:SetPoint("LEFT", 14, 0)
+	text:SetText("Arranging trackers: drag them about, click one to change it")
+	text:SetTextColor(1, 0.82, 0)
+	local done = MakeButton(f, "Done", 70)
+	done:SetPoint("RIGHT", -10, 0)
+	done:SetScript("OnClick", function() UI:SetEditMode(false) end)
+	text:SetPoint("RIGHT", done, "LEFT", -10, 0)
+	text:SetJustifyH("LEFT")
+	f:Hide()
+	return f
+end
+
+function UI:SetEditMode(on, quiet)
+	on = on and true or false
+	ns.db.unlocked = on
+	GetEditBar():SetShown(on)
+	if ns.Display then ns.Display:Rebuild() end
+	UI:SyncToolbar()
+	if not quiet then
+		ns.Print(on and "Edit mode on: drag trackers where you want them, and click one to change it. Click Done, or type /auraledger edit again, when you have finished."
+			or "Edit mode off.")
+	end
+end
+
+function UI:IsEditMode()
+	return ns.db.unlocked and true or false
+end
+
 function UI:SyncToolbar()
+	if editBar then editBar:SetShown(ns.db.unlocked and true or false) end
+	if UI.editButton then
+		UI.editButton:SetText(ns.db.unlocked and "Done editing" or "Edit trackers")
+	end
 end
 
 -- ------------------------------------------------------------------
