@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.41.1
+
+- The hint along the bottom of the window fits on its line. It was long enough to wrap onto a second line the bar has no room for, so the end of it was cut off. It now says the one thing worth saying, and is held to a single line.
+
 ## 1.41.0
 
 - Bars have an icon scale, from half the bar's height to twice it. The icon keeps the middle of the bar's height, so a large one stands proud of the bar rather than pushing it down, and the bar, the frame art and the stack count all follow the size. It applies to the bars the addon draws and to the ones the game fills alike, and travels with a group when a tracker is pulled out of it.

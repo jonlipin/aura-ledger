@@ -1791,7 +1791,8 @@ local function Build()
 	hint:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 9)
 	hint:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 9)
 	hint:SetJustifyH("LEFT")
-	hint:SetText("Drag an aura out of the book onto the screen to track it, or into the Groups and trackers list: onto a group to join it, onto a tracker to sit beside it, onto empty space for a group of its own. Drop one tracker on another to group them. Drag a row in the list to move it about.")
+	hint:SetWordWrap(false)
+	hint:SetText("Drag an aura from the book onto the screen to track it, or into the list: onto a group to join it, a tracker to sit beside it, empty space for its own group.")
 
 	-- ---- Book pane (laid out like the Forever spellbook) ----
 	local left = CreateFrame("Frame", nil, body)
