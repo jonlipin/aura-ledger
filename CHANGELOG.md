@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.8.2
+
+- The remove confirmation is a small bubble above the X ("Remove <name>? Click the X again") instead of text on the row.
+
 ## 1.8.1
 
 - Each tracker row in the Groups and trackers list has a small red X: click it once to arm (the row asks), again within three seconds to remove the tracker. The Remove button is gone from the Options panel.

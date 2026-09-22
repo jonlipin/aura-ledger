@@ -1037,7 +1037,8 @@ local function CreateTreeRow(parent)
 		MaskIcon(row, row.icon)
 	end
 	row.text = Ink(row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
-	-- Remove: a small red X on tracker rows. First click arms it (the row asks), second click removes.
+	-- Remove: a small red X on tracker rows. First click arms it (a small bubble above the X asks),
+	-- second click within three seconds removes.
 	local x = CreateFrame("Button", nil, row)
 	x:SetSize(16, 16)
 	x:SetPoint("RIGHT", row, "RIGHT", -4, 0)
@@ -1056,11 +1057,14 @@ local function CreateTreeRow(parent)
 		if not item or not item.t then return end
 		if row.armed and GetTime() - row.armed < 3 and row.armedFor == item.t then
 			row.armed = nil
+			UI:HideConfirmBubble()
 			ns.RemoveTracker(item.t)
 		else
 			row.armed, row.armedFor = GetTime(), item.t
-			UI:RefreshTree()
-			C_Timer.After(3.2, function() if row.armed and GetTime() - row.armed >= 3 then row.armed = nil UI:RefreshTree() end end)
+			UI:ShowConfirmBubble(self, "Remove " .. (item.t.name or "this tracker") .. "?", "Click the X again")
+			C_Timer.After(3.2, function()
+				if row.armed and GetTime() - row.armed >= 3 then row.armed = nil UI:HideConfirmBubble(self) end
+			end)
 		end
 	end)
 	x:SetScript("OnEnter", function(self)
@@ -1163,9 +1167,8 @@ local function UpdateTreeRow(row, item)
 		row.text:SetPoint("RIGHT", -24, 0)
 		local off = t.cond and t.cond.never
 		local _, dimC, offC = InkCodes()
-		local armed = row.armed and row.armedFor == t and GetTime() - row.armed < 3
 		row.text:SetText((off and offC or "") .. (t.name or ("Spell " .. tostring(t.id)))
-			.. "  " .. (armed and "|cffff4040Remove? click the X again|r" or (dimC .. (off and "off" or (SHOW_TAG[t.show] or "active")) .. (t.unit == "target" and ", target" or "") .. "|r")))
+			.. "  " .. dimC .. (off and "off" or (SHOW_TAG[t.show] or "active")) .. (t.unit == "target" and ", target" or "") .. "|r")
 		row.remove:Show()
 		row.sel:SetShown(SelectedTracker() == t)
 	else
@@ -1184,6 +1187,7 @@ local function UpdateTreeRow(row, item)
 end
 
 function UI:RefreshTree()
+	if UI.HideConfirmBubble then UI:HideConfirmBubble() end
 	if not frame or not frame:IsShown() then return end
 	local data = {}
 	for _, g in ipairs(ns.profile.groups) do
@@ -2176,6 +2180,39 @@ local function Build()
 end
 
 function UI:SyncToolbar()
+end
+
+-- A small text bubble above a button, used for the two-click remove.
+local bubble
+function UI:ShowConfirmBubble(anchor, title, line)
+	if not bubble then
+		local ok, f = pcall(CreateFrame, "Frame", "AuraLedgerConfirmBubble", UIParent, "BackdropTemplate")
+		if not ok or not f then f = CreateFrame("Frame", "AuraLedgerConfirmBubble", UIParent) end
+		bubble = f
+		f:SetFrameStrata("TOOLTIP")
+		f:SetSize(150, 36)
+		if f.SetBackdrop then
+			f:SetBackdrop({ bgFile = "Interface\Tooltips\UI-Tooltip-Background", edgeFile = "Interface\Tooltips\UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 12, insets = { left = 3, right = 3, top = 3, bottom = 3 } })
+			f:SetBackdropColor(0.05, 0.03, 0.02, 0.95)
+		end
+		f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		f.title:SetPoint("TOP", 0, -6)
+		f.title:SetTextColor(1, 0.35, 0.35)
+		f.line = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		f.line:SetPoint("TOP", f.title, "BOTTOM", 0, -2)
+		f:Hide()
+	end
+	bubble.title:SetText(title)
+	bubble.line:SetText(line)
+	bubble:SetWidth(math.max(120, math.max(bubble.title:GetStringWidth() or 0, bubble.line:GetStringWidth() or 0) + 24))
+	bubble:ClearAllPoints()
+	bubble:SetPoint("BOTTOM", anchor, "TOP", 0, 4)
+	bubble.owner = anchor
+	bubble:Show()
+end
+
+function UI:HideConfirmBubble(anchor)
+	if bubble and (not anchor or bubble.owner == anchor) then bubble:Hide() end
 end
 
 function UI:Toggle()
