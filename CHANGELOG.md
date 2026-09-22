@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.33.1
+
+- Fixed: a group the game fills was only one row tall while the game was allowed to fill three, so a target carrying several debuffs spilled outside the group. The group is now as tall as the game may fill it, which is also what the edit mode plate covers.
+
 ## 1.33.0
 
 - An edit mode you can see you are in. "Edit trackers" at the top of the window, or /auraledger edit, turns arranging on: trackers become draggable wherever they are on the screen and clicking one opens its settings, exactly as before, but now a bar across the top says so and carries a Done button. It stays on when the window is closed, so things can be placed while playing, and the button reads "Done editing" while it is on. /auraledger lock and unlock still work.

@@ -774,7 +774,8 @@ local function EnsureLive(f, g)
 	end
 	local S, sp, perRow = g.size, g.spacing, max(1, g.perRow or 8)
 	c:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
-	c:SetSize(perRow * (S + sp) - sp, 3 * (S + sp) - sp)
+	local LIVE_ROWS = 3 -- the game fills these, so room is kept for more than one row of them
+	c:SetSize(perRow * (S + sp) - sp, LIVE_ROWS * (S + sp) - sp)
 	c:SetFrameLevel(f:GetFrameLevel() + 1)
 	local settings = {
 		maxFrameCount = perRow * 3,
@@ -812,7 +813,9 @@ local function LayoutLive(f, g, unlocked)
 		widget.tracker, widget.entry, widget.timed = nil, nil, false
 	end
 	local c = EnsureLive(f, g)
-	f:SetSize(perRow * (S + sp) - sp, S)
+	-- The group is as tall as the game is allowed to fill it, so the icons sit inside it rather
+	-- than spilling out below.
+	f:SetSize(perRow * (S + sp) - sp, 3 * (S + sp) - sp)
 	f:SetAlpha(g.alpha or 1)
 	f.chrome:SetShown(unlocked)
 	if unlocked then
