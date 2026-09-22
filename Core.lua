@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.41.3"
+ns.VERSION = "1.41.4"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1961,12 +1961,34 @@ end
 ns.ICON_MASK = "UI-HUD-ActionBar-IconFrame-Mask"
 local MASK_OVER = 0.26
 
-local function PointMask(m, tex)
-	local w = (tex.GetWidth and tex:GetWidth()) or 40
-	local h = (tex.GetHeight and tex:GetHeight()) or 40
+-- "size" is what the icon will be, which the caller knows: read off the texture instead, it can
+-- still be nothing at all, and a mask drawn to nothing sits on the icon and hides all but its
+-- middle.
+local function PointMask(m, tex, size)
+	local w = size or (tex.GetWidth and tex:GetWidth()) or 0
+	local h = size or (tex.GetHeight and tex:GetHeight()) or 0
+	if not w or w <= 0 then w = 40 end
+	if not h or h <= 0 then h = 40 end
 	m:ClearAllPoints()
 	m:SetPoint("TOPLEFT", tex, "TOPLEFT", -MASK_OVER * w, MASK_OVER * h)
 	m:SetPoint("BOTTOMRIGHT", tex, "BOTTOMRIGHT", MASK_OVER * w, -MASK_OVER * h)
+end
+
+local function MaskOne(frame, tex, size)
+	if not tex then return end
+	if tex.alMask then
+		PointMask(tex.alMask, tex, size)
+		return
+	end
+	local ok, m = pcall(frame.CreateMaskTexture, frame)
+	if ok and m and pcall(m.SetAtlas, m, ns.ICON_MASK) then
+		PointMask(m, tex, size)
+		if tex.AddMaskTexture and pcall(tex.AddMaskTexture, tex, m) then
+			tex.alMask = m
+		else
+			pcall(m.Hide, m)
+		end
+	end
 end
 
 function ns.MaskIcon(frame, ...)
@@ -1975,20 +1997,7 @@ function ns.MaskIcon(frame, ...)
 		return false
 	end
 	for i = 1, select("#", ...) do
-		local tex = select(i, ...)
-		if tex and not tex.alMask then
-			local ok, m = pcall(frame.CreateMaskTexture, frame)
-			if ok and m and pcall(m.SetAtlas, m, ns.ICON_MASK) then
-				PointMask(m, tex)
-				if tex.AddMaskTexture and pcall(tex.AddMaskTexture, tex, m) then
-					tex.alMask = m
-				else
-					pcall(m.Hide, m)
-				end
-			end
-		elseif tex then
-			PointMask(tex.alMask, tex)
-		end
+		MaskOne(frame, (select(i, ...)))
 	end
 	ns.report["icon mask"] = ns.ICON_MASK
 	return true
@@ -1996,9 +2005,17 @@ end
 
 -- The same, switchable, for the trackers: a group can turn its icon frame off, and a bare icon
 -- should keep its own corners.
-function ns.SetIconMask(frame, tex, on)
+function ns.SetIconMask(frame, tex, on, size)
 	if not tex then return false end
-	if on then return ns.MaskIcon(frame, tex) and tex.alMask ~= nil end
+	if on then
+		if not (frame.CreateMaskTexture and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(ns.ICON_MASK)) then
+			ns.report["icon mask"] = "none"
+			return false
+		end
+		MaskOne(frame, tex, size)
+		ns.report["icon mask"] = ns.ICON_MASK
+		return tex.alMask ~= nil
+	end
 	if tex.alMask then
 		if tex.RemoveMaskTexture then pcall(tex.RemoveMaskTexture, tex, tex.alMask) end
 		pcall(tex.alMask.Hide, tex.alMask)

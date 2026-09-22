@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.41.4
+
+- The icon the addon draws is whole again. The mask was built before the icon had been given a size, and a mask drawn to nothing sits exactly on the icon and hides everything but its middle, which is why the picture looked shrunk inside its border. The mask is now told the size it is there to clip.
+- The icon on a slot the game fills keeps its square. The container takes the icon and anchors it to its button, which is not always square, and the picture was being stretched to match; it is put back on its own square afterwards and again whenever the slot is shown.
+
 ## 1.41.3
 
 - The trackers' icons are masked the way the window's tabs have been all along. The window has had a working icon mask since the book was built: the rounded shape fills about two thirds of that atlas region, so the mask has to be drawn a quarter larger than the icon it clips. The attempt in 1.39.3 sized it to the icon and so showed only the middle of the picture. That helper now lives in one place and both the window and the trackers use it, so the corners come off the same way in both.

@@ -645,12 +645,13 @@ local function ConfigureWidget(w, g)
 		-- proud of the bar top and bottom rather than pushing the bar down.
 		local IS = ns.BarIconSize(g)
 		-- Masked to the client's icon shape, the picture can fill its square: the mask takes the
-		-- corners off. Only where there is no mask is it pulled in under the art instead.
-		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false)
+		-- corners off. Only where there is no mask is it pulled in under the art instead. The mask
+		-- is told the size it clips, because the icon has not been given one yet.
+		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false, IS)
 		local inset = masked and 0 or IconInset(s, true, IS, g.iconFrame ~= false)
 		w:SetSize(g.barW, H)
-		w.icon:SetPoint("LEFT", w, "LEFT", inset, 0)
 		w.icon:SetSize(IS - inset * 2, IS - inset * 2)
+		w.icon:SetPoint("LEFT", w, "LEFT", inset, 0)
 		local c = s.iconCoords or { 0.07, 0.93, 0.07, 0.93 }
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		w.bar:ClearAllPoints()
@@ -687,7 +688,7 @@ local function ConfigureWidget(w, g)
 		w.count:SetPoint("BOTTOMRIGHT", w.icon, "BOTTOMRIGHT", -1, 1)
 	else
 		local S = g.size
-		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false)
+		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false, S)
 		local inset = masked and 0 or IconInset(s, false, S, g.iconFrame ~= false)
 		w:SetSize(S, S)
 		w.icon:SetSize(S - inset * 2, S - inset * 2)
@@ -898,13 +899,20 @@ local function InitSlotFrame(g, mode, filter, store)
 		local icon = button:CreateTexture(nil, "ARTWORK")
 		local c = (bars and s.iconCoords) or s.soloIconCoords or s.iconCoords or { 0.07, 0.93, 0.07, 0.93 }
 		icon:SetTexCoord(c[1], c[2], c[3], c[4])
-		-- The size is set before the mask, which is drawn from it.
-		icon:SetSize(IS, IS)
-		local masked = g.iconFrame ~= false and ns.SetIconMask(button, icon, true)
+		local masked = g.iconFrame ~= false and ns.SetIconMask(button, icon, true, IS)
 		local inset = masked and 0 or IconInset(s, bars, IS, g.iconFrame ~= false)
-		if inset > 0 then icon:SetSize(IS - inset * 2, IS - inset * 2) end
-		if bars then icon:SetPoint("LEFT", button, "LEFT", inset, 0) else icon:SetPoint("CENTER") end
+		local IW = IS - inset * 2
+		-- The container takes the icon and anchors it to the button, which is not always square, so
+		-- the picture is put back on its own square afterwards.
+		local function SquareUp()
+			icon:ClearAllPoints()
+			icon:SetSize(IW, IW)
+			if bars then icon:SetPoint("LEFT", button, "LEFT", inset, 0) else icon:SetPoint("CENTER", button, "CENTER", 0, 0) end
+		end
+		SquareUp()
 		pcall(button.SetIcon, button, icon)
+		SquareUp()
+		if button.HookScript then pcall(button.HookScript, button, "OnShow", SquareUp) end
 		local count = button:CreateFontString(nil, "OVERLAY")
 		count:SetFont(FONT, max(7, floor(IS * (bars and 0.45 or 0.3))), "OUTLINE")
 		count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -1, 1)
