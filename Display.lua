@@ -1379,9 +1379,9 @@ local function InitSlotFrame(g, mode, filter, store)
 		icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		local masked = g.iconFrame ~= false and ns.SetIconMask(button, icon, true, IS)
 		local inset = (masked or BorderMode() ~= "cdm") and 0 or IconInset(s, bars, IS, g.iconFrame ~= false)
-		-- The same pulling in as the cell underneath, so the two are the same size, and the same
-		-- mask, so the game's icon is the same shape as the cell it sits on.
-		if HaveShape() and g.iconFrame ~= false then inset = max(inset, max(1, floor(IS / 20 + 0.5))) end
+		-- The same mask as the cell underneath, but the cell's full size: the ring that carries the
+		-- missing colour is a band round the outside of a cell, and an icon pulled in off that band
+		-- leaves it on show while the game is drawing the aura.
 		local IW = IS - inset * 2
 		-- The container takes the icon and anchors it to the button, which is not always square, so
 		-- the picture is put back on its own square afterwards.

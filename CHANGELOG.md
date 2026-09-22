@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.45.4
+
+- A tracker the game is drawing is no longer red while its aura is up. The ring that carries the missing colour is a band round the outside of a cell, with the picture pulled in off it so the band shows; the icon handed to a game-drawn slot was being pulled in by the same amount, so the band stayed on show underneath it. The slot's icon wears the same mask but keeps the cell's full size, so it covers the band while the game is drawing the aura and uncovers it the moment the aura goes.
+
 ## 1.45.3
 
 - The square behind a tracker the game draws is gone. Each slot carries an opaque black backing so that a setup which fails part way never leaves a bare box on screen, and that backing covered the whole slot while the icon on top of it had been pulled in and rounded off. It follows the icon now and wears the same mask, so the slot is the shape of its icon and nothing square shows round it.
