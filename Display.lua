@@ -684,151 +684,6 @@ local function AdviseGameDrawn(field, what)
 		function() return not tostring(ns.report[field] or ""):find("ok", 1, true) end)
 end
 
-local function LiveKey(g)
-	return (g.live or "") .. ":" .. g.size .. ":" .. g.spacing .. ":" .. (g.perRow or 8) .. ":" .. tostring(g.iconFrame ~= false)
-end
-
-local function LiveParts(g)
-	local unit, filter = tostring(g.live):match("^(%a+):(.+)$")
-	if unit then return unit, filter end
-	return "player", g.live
-end
-
-local function InitLiveButton(g)
-	return function(button)
-		if not button then return end
-		local s = BuildSkin()
-		local S = g.size
-		pcall(button.SetSize, button, S, S)
-		local icon = button:CreateTexture(nil, "ARTWORK")
-		icon:SetAllPoints(button)
-		local c = s.soloIconCoords or s.iconCoords or { 0.07, 0.93, 0.07, 0.93 }
-		icon:SetTexCoord(c[1], c[2], c[3], c[4])
-		pcall(button.SetIcon, button, icon)
-		local time = button:CreateFontString(nil, "OVERLAY")
-		time:SetFont(FONT, max(8, floor(S * 0.4)), "OUTLINE")
-		time:SetPoint("CENTER", button, "CENTER", 0, 0)
-		if g.timers ~= false then pcall(button.SetDurationText, button, time) end
-		local count = button:CreateFontString(nil, "OVERLAY")
-		count:SetFont(FONT, max(7, floor(S * 0.3)), "OUTLINE")
-		count:SetPoint("BOTTOMRIGHT", button, "BOTTOMRIGHT", -1, 1)
-		pcall(button.SetApplicationCount, button, count)
-		-- The game's own swipe over the icon, and a dispel-type coloured border like the debuff frame's.
-		local okC, cd = pcall(CreateFrame, "Cooldown", nil, button, "CooldownFrameTemplate")
-		if okC and cd then
-			cd:SetAllPoints(icon)
-			if cd.SetReverse then cd:SetReverse(true) end
-			if cd.SetDrawEdge then cd:SetDrawEdge(false) end
-			if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
-			cd.noCooldownCount = true
-			pcall(button.SetDurationCooldown, button, cd)
-		end
-		local border = button:CreateTexture(nil, "OVERLAY")
-		border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
-		border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
-		border:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
-		border:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 1, -1)
-		pcall(button.AddDispelTypeTexture, button, border)
-		pcall(button.SetHideTooltipInCombat, button, false)
-		if g.iconFrame ~= false then
-			local w = { under = button, over = button, decor = {}, iconArt = {} }
-			PlaceDecor(w, s.soloIconDecor or s.iconDecor, "iconArt", icon, S)
-		end
-		pcall(button.SetMouseMotionEnabled, button, true)
-		pcall(button.SetTooltipAnchor, button, "ANCHOR_RIGHT")
-		if not liveMethodsLogged and ns.LogLine then
-			liveMethodsLogged = true
-			local names = {}
-			pcall(function()
-				local idx = getmetatable(button) and getmetatable(button).__index
-				if type(idx) == "table" then
-					for k in pairs(idx) do
-						if type(k) == "string" and k:find("Icon") or k:find("Duration") or k:find("Count") or k:find("Dispel") or k:find("Caster") or k:find("Tooltip") or k:find("Name") or k:find("Bar") or k:find("Aura") then names[#names + 1] = k end
-					end
-				end
-			end)
-			table.sort(names)
-			ns.LogLine("game-drawn button methods: " .. table.concat(names, ", "))
-		end
-	end
-end
-
--- Builds (or rebuilds) the container for a live group. Not possible in combat: returns nil then
--- and is tried again on the next refresh.
-local function EnsureLive(f, g)
-	local key = LiveKey(g)
-	if f.live and f.liveKey == key then return f.live end
-	if InCombatLockdown and InCombatLockdown() then return f.live end
-	if f.live then
-		if UnregisterAttributeDriver and f.live.alDriven then pcall(UnregisterAttributeDriver, f.live, "state-visibility") end
-		f.live:Hide()
-		f.live:ClearAllPoints()
-		f.live = nil
-	end
-	local unit, filter = LiveParts(g)
-	local ok, c = pcall(CreateFrame, "AuraContainer", nil, f, "CustomAuraContainerTemplate")
-	if not (ok and c) then
-		ns.report["game-drawn groups"] = "AuraContainer not available: " .. tostring(c)
-		AdviseGameDrawn("game-drawn groups", "the game's aura display could not be created")
-		return nil
-	end
-	local S, sp, perRow = g.size, g.spacing, max(1, g.perRow or 8)
-	c:SetPoint("TOPLEFT", f, "TOPLEFT", 0, 0)
-	local LIVE_ROWS = 3 -- the game fills these, so room is kept for more than one row of them
-	c:SetSize(perRow * (S + sp) - sp, LIVE_ROWS * (S + sp) - sp)
-	c:SetFrameLevel(f:GetFrameLevel() + 1)
-	local settings = {
-		maxFrameCount = perRow * 3,
-		initializeFrame = InitLiveButton(g),
-		layout = { elementWidth = S, elementHeight = S, elementSpacing = sp, lineSpacing = sp, maxElementsPerLine = perRow, elementsPerLine = perRow },
-	}
-	local okG, err
-	if c.AddAuraGroup then
-		okG, err = pcall(c.AddAuraGroup, c, "al_" .. tostring(g.uid), filter, settings)
-	elseif c.AddAuraFilter then
-		okG, err = pcall(c.AddAuraFilter, c, filter, settings)
-	else
-		okG, err = false, "no AddAuraGroup"
-	end
-	if not okG then
-		ns.report["game-drawn groups"] = "aura group refused: " .. tostring(err)
-		AdviseGameDrawn("game-drawn groups", "the game refused the group")
-		c:Hide()
-		return nil
-	end
-	if c.SetUnit then pcall(c.SetUnit, c, unit) end
-	if unit ~= "player" and RegisterAttributeDriver then
-		if pcall(RegisterAttributeDriver, c, "state-visibility", "[@" .. unit .. ",exists] show; hide") then c.alDriven = true end
-	end
-	if not c.alDriven then c:Show() end
-	f.live, f.liveKey = c, key
-	ns.report["game-drawn groups"] = "AuraContainer ok (" .. tostring(g.live) .. ")"
-	return c
-end
-
-local function LayoutLive(f, g, unlocked)
-	local S, sp, perRow = g.size, g.spacing, max(1, g.perRow or 8)
-	for _, widget in ipairs(f.widgets) do
-		widget:Hide()
-		widget.tracker, widget.entry, widget.timed = nil, nil, false
-	end
-	local c = EnsureLive(f, g)
-	-- The group is as tall as the game is allowed to fill it, so the icons sit inside it rather
-	-- than spilling out below.
-	f:SetSize(perRow * (S + sp) - sp, 3 * (S + sp) - sp)
-	f:SetAlpha(g.alpha or 1)
-	f.chrome:SetShown(unlocked)
-	if unlocked then
-		f.chrome.label:SetText(ns.GroupName(g) .. " (drawn by the game)")
-		local sel = ns.selected and ns.selected.group == g
-		if f.chrome.SetBackdropBorderColor then
-			if sel then f.chrome:SetBackdropBorderColor(0.3, 1, 0.4, 1) else f.chrome:SetBackdropBorderColor(1, 0.82, 0, 0.9) end
-		end
-	end
-	local pass = unlocked or ns.CondPass(g.cond)
-	if not (InCombatLockdown and InCombatLockdown()) then f:SetShown(pass and (c ~= nil or unlocked)) end
-end
-
 -- ------------------------------------------------------------------
 -- Trackers drawn by the game. An aura slot is one game-owned frame that shows a single aura
 -- matching its filter and spell map, current in combat. One slot per tracker (two for "buff or
@@ -1471,7 +1326,6 @@ function Display:TargetChanged()
 	for _, f in pairs(active) do
 		local list = {}
 		if f.slotC and f.slotC.target then list[#list + 1] = f.slotC.target end
-		if f.live and f.live.alDriven then list[#list + 1] = f.live end
 		for _, c in ipairs(list) do
 			pcall(function()
 				if c:IsShown() then c:Hide() c:Show() end
@@ -1508,12 +1362,7 @@ function Display:RefreshGroup(g)
 			visible[#visible + 1] = { t = t, entry = entry, expiring = expiring }
 		end
 	end
-	if g.live and g.live ~= "" then
-		LayoutLive(f, g, unlocked)
-	else
-		if f.live then f.live:Hide() end
-		LayoutGroup(f, g, visible, unlocked)
-	end
+	LayoutGroup(f, g, visible, unlocked)
 end
 
 function Display:Refresh()
@@ -1544,7 +1393,7 @@ function Display:Tick(now)
 					end
 				end
 			end
-			if f:IsShown() and not (g.live and g.live ~= "") then
+			if f:IsShown() then
 				for _, w in ipairs(f.widgets) do
 					if w:IsShown() then TickWidget(w, g, now) end
 				end
@@ -1567,7 +1416,6 @@ function Display:Rebuild()
 		if not wanted[uid] then
 			f:Hide()
 			f.group = nil
-			if f.live then f.live:Hide() f.live = nil f.liveKey = nil end
 			if f.slotC then
 				for _, c in pairs(f.slotC) do
 					if UnregisterAttributeDriver and c.alDriven then pcall(UnregisterAttributeDriver, c, "state-visibility") end

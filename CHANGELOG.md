@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.34.0
+
+- The groups the game filled are gone, and with them the Contents question. A group whose contents the game chose could not honour the list you put in it, which is the one thing this addon is for: you would drag auras into a group and watch it show something else. Every group is now the trackers you put there, and the only question left about a group is who draws them, which lives with the combat condition. Any group that was set to one of the filled kinds becomes an ordinary group of its own trackers.
+
 ## 1.33.1
 
 - Fixed: a group the game fills was only one row tall while the game was allowed to fill three, so a target carrying several debuffs spilled outside the group. The group is now as tall as the game may fill it, which is also what the edit mode plate covers.

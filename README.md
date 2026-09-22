@@ -31,7 +31,7 @@ The minimize button beside the close button shrinks the window to the Groups and
 
 ## Options
 
-Per **group**: its contents (the trackers you put there, your debuffs on your target, or every debuff on your target), name, icons with numbers or bars with icons, growth direction, icon size, bar width and height, spacing, how many per row before wrapping, scale, opacity, time text, names on bars, and whether to draw the bar border, the bar background and the icon frame. Options that do not apply to what the group shows are greyed out, and say why when you hover them.
+Per **group**: name, icons with numbers or bars with icons, growth direction, icon size, bar width and height, spacing, how many per row before wrapping, scale, opacity, time text, names on bars, and whether to draw the bar border, the bar background and the icon frame. Options that do not apply to what the group shows are greyed out, and say why when you hover them.
 
 Debuffs are listed only where they can be followed: on your target. A debuff on you cannot be tracked by spell on this client, and the game's own debuff frame is the only thing that shows those during a fight.
 
@@ -62,8 +62,7 @@ The Forever client hides your auras from addons in combat. Not just the details:
 - whatever it knew going in keeps counting down on its own timer, so a buff running out mid-fight still flips its tracker on time
 - your own successful casts are watched: casting a spell the ledger knows as an aura creates or refreshes an estimated aura (a buff on you, a debuff on your target) with the remembered duration, so a recast Demon Skin clears its "missing" tracker at once and a Blood Fury shows its bar
 - the "when applied" and "when it runs out" sounds are handed to the game (C_UnitAuras.AddAuraSound), which plays them itself when that aura is added to you or removed from you, in combat too; only sound choices with a file behind them qualify, marked "(combat)" in the picker
-- a group can have its trackers drawn by the game: each tracker gets a Blizzard aura slot filtered to its spell, shown by the game while the aura is on you (in combat too) and hidden otherwise, uncovering the addon's "missing" art underneath ("it is missing" therefore behaves like "always" there); the game allows this for buffs on you and debuffs on your target, not debuffs on you
-- a group can be handed to the game (Contents: your debuffs on your target, or every debuff on your target): Blizzard draws every aura of that kind through its AuraContainer and keeps it current in combat, with our icon art, size and place
+- a group can have its trackers drawn by the game: each tracker borrows the Cooldown Manager's own frame for that spell, which the game keeps right in a fight, and whether the game is showing it tells the addon whether the aura is there
 - anything carried or estimated wears a small pocket watch and a `~` in front of its time, and everything is re-read properly the moment the restriction lifts
 
 What the addon itself cannot do in combat, on this client: notice a buff being clicked off or dispelled, or a debuff landing. The game-drawn options above are how that is covered. When the client hides less, the addon reads more without changes.

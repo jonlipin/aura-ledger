@@ -1371,7 +1371,7 @@ local function UpdateTreeRow(row, item)
 		local off = g.cond and g.cond.never
 		local groupC, dimC, offC = InkCodes()
 		row.text:SetText((off and offC or groupC) .. ns.GroupName(g) .. "|r  " .. dimC
-			.. (off and "off" or ((g.live and g.live ~= "") and "game-drawn" or (g.style == "bars" and "bars" or "icons"))) .. "|r")
+			.. (off and "off" or (g.style == "bars" and "bars" or "icons")) .. "|r")
 		row.sel:SetShown(SelectedGroup() == g and not SelectedTracker())
 	end
 end
@@ -1450,47 +1450,28 @@ local function BuildGroupPanel(width)
 	exportG:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	-- What the group is, in one question. The old Contents, "track in combat" and "only this
 	-- group's trackers" could be combined in ways that meant nothing; these cannot.
-	local function IsCategory() local g = G() return (g and g.live and g.live ~= "") and true or false end
-	local function IsGameDrawn() local g = G() return (g and (g.gameDrawn or IsCategory())) and true or false end
-	local function IsBars() local g = G() return (g and g.style == "bars" and not IsCategory()) and true or false end
+	local function IsGameDrawn() local g = G() return (g and g.gameDrawn) and true or false end
+	local function IsBars() local g = G() return (g and g.style == "bars") and true or false end
 	b:Header("Group")
 	b:Note("The addon cannot see auras in combat on this client, so a group either updates between fights or is drawn by the game.")
 	b:Edit("Name", function() local g = G() return g and g.name or "" end,
 		function(text) local g = G() if g then g.name = (text ~= "" and text) or nil GroupChanged() end end)
 	-- Two plain questions: what is in the group, and who draws it. The second only comes up for a
 	-- group of your own trackers, because a group the game fills is always drawn by the game.
-	local contentChoices = { { "", "The trackers I put here" } }
-	for _, lf in ipairs(ns.LIVE_FILTERS) do contentChoices[#contentChoices + 1] = { lf[1], lf[2] } end
-	b:Cycle("Contents", contentChoices,
-		function() local g = G() return g and g.live or "" end,
-		function(v)
-			local g = G()
-			if not g then return end
-			g.live = (v ~= "" and v) or nil
-			if g.live then g.gameDrawn = nil end
-			GroupChanged()
-			b:Sync()
-		end,
-		"The trackers I put here: the group holds the auras you drag into it. Any other choice hands the whole group to the game, which fills it with every aura of that kind and keeps it right in a fight; the trackers in such a group are then only there for their sounds.",
-		210)
-	local whoNote = b:Note("The game fills this group and keeps it right in a fight. Its own trackers are only there for their sounds.")
+	local whoNote = b:Note("The addon draws these trackers, so they only update between fights. Ask the game to draw them under Only show this group when.")
 	b.syncers[#b.syncers + 1] = function()
 		local g = G()
 		if not g then return end
-		if g.live and g.live ~= "" then
-			whoNote:SetText("The game fills this group and keeps it right in a fight. Its own trackers are only there for their sounds.")
-		elseif g.gameDrawn then
-			whoNote:SetText("The game draws these trackers through its Cooldown Manager, so they stay right in a fight, and the tracker shows as missing when the game is not showing the aura.")
+		if g.gameDrawn then
+			whoNote:SetText("The game draws these trackers through its Cooldown Manager, so they stay right in a fight, and a tracker shows as missing when the game is not showing the aura.")
 		else
 			whoNote:SetText("The addon draws these trackers, so they only update between fights. Ask the game to draw them under Only show this group when.")
 		end
 	end
-
 	b:Cycle("Show as", { { "icons", "Icons with numbers" }, { "bars", "Bars with icons" } },
 		function() local g = G() return g and g.style or "icons" end,
 		function(v) local g = G() if g then g.style = v if v == "bars" and (g.grow == "RIGHT" or g.grow == "LEFT") then ns.Display:SetGrow(g, "DOWN") end GroupChanged() b:Sync() end end,
 		"Icons show the time left as a number on the icon. Bars show an icon, the name and a draining bar.")
-	b:AppliesWhen(function() return not IsCategory() end)
 	b:Cycle("Grow towards", ns.GROWS,
 		function() local g = G() return g and g.grow or "RIGHT" end,
 		function(v) local g = G() if g then ns.Display:SetGrow(g, v) end end,
@@ -1526,10 +1507,10 @@ local function BuildGroupPanel(width)
 
 	b:Header("Only show this group when")
 	b:Conditions(function() local g = G() return g and g.cond end, TrackerChanged, {
-		get = function() local g = G() return g and g.gameDrawn and not IsCategory() end,
+		get = function() local g = G() return g and g.gameDrawn end,
 		set = function(v)
 			local g = G()
-			if not g or IsCategory() then return end
+			if not g then return end
 			g.gameDrawn = v or nil
 			GroupChanged()
 		end,
@@ -1601,7 +1582,7 @@ local function BuildTrackerPanel(width)
 	local function TrackerIsAddonDrawn()
 		local t = T()
 		local g = t and ns.FindGroupOf(t)
-		return not (g and (g.gameDrawn or (g.live and g.live ~= "")))
+		return not (g and g.gameDrawn)
 	end
 	b:Header("Tracker")
 	b:Cycle("Show the aura when it is", { { "active", "Active" }, { "missing", "Missing" }, { "always", "Either (red when missing)" } },

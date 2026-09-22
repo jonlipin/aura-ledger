@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.33.1"
+ns.VERSION = "1.34.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -156,6 +156,7 @@ function ns.InitDB()
 		g.trackers = type(g.trackers) == "table" and g.trackers or {}
 		g.cond = type(g.cond) == "table" and g.cond or {}
 		g.liveOnlyMine = nil -- retired: the combat question covers this properly
+		g.live = nil -- retired: a group the game filled could not honour the list put in it
 		g.watch = nil -- retired: the ~ in front of a carried time already says it
 		-- Group size used to be three boxes; it is a number of players now.
 		local function MigrateGroupSize(c)
@@ -331,16 +332,9 @@ function ns.NewTracker(h)
 end
 
 -- The look of a group, copied when a tracker is pulled out into a group of its own.
-ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "live", "liveOnlyMine", "gameDrawn" }
+ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "gameDrawn" }
 
 -- What a game-drawn group can show: Blizzard's aura filters for the player.
--- What the game can fill a group with. Only the two worth having are offered: the rest repeated
--- what the default buff, debuff and target frames already show.
-ns.LIVE_FILTERS = {
-	{ "target:HARMFUL|PLAYER",  "My debuffs on my target" },
-	{ "target:HARMFUL",         "Every debuff on my target" },
-}
-
 function ns.NewGroupLike(g, x, y)
 	local ng = ns.NewGroup(x or ((g.x or 500) + 30), y or ((g.y or 400) - 60))
 	for _, key in ipairs(ns.GROUP_STYLE_KEYS) do ng[key] = g[key] end
@@ -1273,7 +1267,7 @@ function ns.CDM.Wanted()
 	local cat = ns.CombatCatalogue()
 	local icons, bars, missing, seen = {}, {}, {}, {}
 	for _, g in ipairs(ns.profile.groups) do
-		if g.gameDrawn and not (g.live and g.live ~= "") then
+		if g.gameDrawn then
 			for _, t in ipairs(g.trackers) do
 				local cd = ns.CDM.CooldownFor(t, cat)
 				if cd and not seen[cd] then
@@ -2250,7 +2244,7 @@ SlashCmdList.AURALEDGER = function(msg)
 			#ns.CDM.TrackedSet(),
 			#missing > 0 and ("; %d with no entry (" .. table.concat(missing, ", ") .. ")"):format(#missing) or ""))
 		for _, g in ipairs(ns.profile.groups) do
-			if g.gameDrawn and not (g.live and g.live ~= "") then
+			if g.gameDrawn then
 				for _, t in ipairs(g.trackers) do
 					local cd = ns.CDM.CooldownFor(t)
 					local belongs
@@ -2323,10 +2317,10 @@ SlashCmdList.AURALEDGER = function(msg)
 		Print("game-drawn groups (secret: " .. YesNo(AurasSecret()) .. ", attribute drivers " .. YesNo(RegisterAttributeDriver) .. "):")
 		local any = false
 		for _, g in ipairs(ns.profile.groups) do
-			if g.gameDrawn or (g.live and g.live ~= "") then
+			if g.gameDrawn then
 				any = true
 				local f = ns.Display.FrameFor and ns.Display.FrameFor(g)
-				Print(("  %s: %s, macro %s"):format(ns.GroupName(g), g.gameDrawn and "trackers drawn by the game" or ("contents " .. tostring(g.live)), tostring(ns.Display.CondMacro and ns.Display.CondMacro(g.cond))))
+				Print(("  %s: %s, macro %s"):format(ns.GroupName(g), "drawn by the game", tostring(ns.Display.CondMacro and ns.Display.CondMacro(g.cond))))
 				if f then
 					Print(("    frame shown %s, gate %s (driver %s, shown %s, visible %s)"):format(tostring(f:IsShown()), f.gate and "yes" or "no",
 						f.gate and tostring(f.gate.alMacro) or "-", f.gate and tostring(f.gate:IsShown()) or "-", f.gate and tostring(f.gate:IsVisible()) or "-"))
