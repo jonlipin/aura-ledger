@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.10.2
+
+- Heading backplates raised 14px.
+
 ## 1.10.1
 
 - The heading backplate is positioned as in the spellbook: starting out toward the page margin and above the text, so the heading sits in its upper half and the divider crosses its lower half.
