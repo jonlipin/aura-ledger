@@ -78,11 +78,9 @@ What the addon itself cannot do in combat, on this client: notice a buff being c
 | `/auraledger combatlog` | try the combat log as an extra in-combat source (off by default: registering it is forbidden on the Forever client) |
 | `/auraledger atlases` | list the art names on the client's spellbook, for bug reports |
 | `/auraledger plainbook` | switch the book between parchment and a plain dark page |
-| `/auraledger debug` | self report |
-| `/auraledger log` / `log clear` | the addon keeps everything it prints (and everything that reaches the chat frame) in its saved variables, written on reload or logout; this shows the counts or empties them |
-| `/auraledger soundtest` | plays each file-backed sound choice in turn and reports what the client said |
-| `/auraledger api <name>` | prints a structure, enum or function from Blizzard's API documentation (run any `/api` first) |
-| `/auraledger probe`, `frames`, `cdm`, `container` | diagnostics: what the by-spell lookups, the default aura frames, the Cooldown Manager data and an AuraContainer widget expose right now |
+| `/auraledger sound test` / `sound clear` | play each sound the game itself can make, or remove the ones registered with it |
+| `/auraledger debug` | self report: what this client let the addon read (send this with a bug report) |
+| `/auraledger debug <topic>` | a closer look: log, api, gd, cdm, cdm2, frames, probe, container, slot, mixin, atlases, combatlog |
 
 ## Notes
 

@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.20.1"
+ns.VERSION = "1.21.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -1643,6 +1643,7 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		ns.combatFlag = false
 		ns.UpdateEnv()
 		ns.dirty = true
+		if C_Timer and C_Timer.After then C_Timer.After(1, ns.FlushAdvice) end
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		ns.playerGUID = UnitGUID and UnitGUID("player") or ns.playerGUID
 		if C_Timer and C_Timer.After then C_Timer.After(1, function() if ns.SyncAuraSounds then ns.SyncAuraSounds() end end) end
@@ -1915,6 +1916,54 @@ function ns.Import(text)
 end
 
 -- ------------------------------------------------------------------
+-- Advice with the fix on it. A line of chat scrolls away and is easy to miss, so anything the
+-- user has to act on is raised as a dialog with a Reload button. Each reason is raised once a
+-- session, and never during a fight: it waits for the fight to end, and is dropped if the addon
+-- has put itself right by then.
+-- ------------------------------------------------------------------
+-- The diagnostic topics, in the order the help lists them.
+ns.DIAG_ORDER = { "log", "api", "gd", "cdm", "cdm2", "frames", "probe", "container", "slot", "mixin", "atlases", "combatlog" }
+ns.DIAG = {}
+for _, k in ipairs(ns.DIAG_ORDER) do ns.DIAG[k] = true end
+ns.DIAG.soundtest, ns.DIAG.soundclear = true, true
+
+local adviceSeen, advicePending = {}, {}
+
+if type(StaticPopupDialogs) == "table" then
+	StaticPopupDialogs["AURALEDGER_ADVICE"] = {
+		text = "Aura Ledger\n\n%s",
+		button1 = RELOADUI or "Reload UI",
+		button2 = CLOSE or "Close",
+		OnAccept = function() ReloadUI() end,
+		timeout = 0,
+		whileDead = true,
+		hideOnEscape = true,
+		preferredIndex = 3,
+	}
+end
+
+-- stillWrong: called when the fight ends; the advice is dropped when it answers false.
+function ns.Advise(key, text, stillWrong)
+	if adviceSeen[key] then return end
+	if InCombatLockdown and InCombatLockdown() then
+		advicePending[key] = { text = text, check = stillWrong }
+		return
+	end
+	adviceSeen[key] = true
+	Print(text)
+	if type(StaticPopupDialogs) == "table" and StaticPopup_Show then
+		pcall(StaticPopup_Show, "AURALEDGER_ADVICE", text)
+	end
+end
+
+function ns.FlushAdvice()
+	for key, item in pairs(advicePending) do
+		advicePending[key] = nil
+		if not item.check or item.check() then ns.Advise(key, item.text) end
+	end
+end
+
+-- ------------------------------------------------------------------
 -- Slash commands
 -- ------------------------------------------------------------------
 local function Help()
@@ -1924,9 +1973,10 @@ local function Help()
 	Print("  /auraledger import <string> - import a tracker or group from an export string")
 	Print("  /auraledger unlock | lock - move trackers without the window open")
 	Print("  /auraledger minimap - show or hide the minimap button")
-	Print("  /auraledger atlases - list the art names on the client's spellbook (for bug reports)")
 	Print("  /auraledger plainbook - switch the book between parchment and a plain dark page")
-	Print("  /auraledger debug - what this client let the addon read")
+	Print("  /auraledger sound test | clear - play each sound the game can make, or remove the ones registered with it")
+	Print("  /auraledger debug - what this client let the addon read (send this with a bug report)")
+	Print("  /auraledger debug <topic> - a closer look: " .. table.concat(ns.DIAG_ORDER, ", "))
 end
 
 local function YesNo(v) return v and "|cff40ff40yes|r" or "|cffff5050no|r" end
@@ -2014,6 +2064,23 @@ SlashCmdList.AURALEDGER = function(msg)
 	msg = tostring(msg or "")
 	local cmd, rest = msg:match("^%s*(%S*)%s*(.-)%s*$")
 	cmd = strlower(cmd or "")
+	-- The diagnostics live behind one command; their old names still work, so older notes do too.
+	if cmd == "debug" and rest ~= "" then
+		local sub, tail = rest:match("^(%S+)%s*(.-)$")
+		sub = strlower(sub or "")
+		if ns.DIAG[sub] then
+			cmd, rest = sub, tail
+		else
+			Print("No such topic. Try: " .. table.concat(ns.DIAG_ORDER, ", "))
+			return
+		end
+	elseif cmd == "sound" then
+		local sub, tail = rest:match("^(%S+)%s*(.-)$")
+		sub = strlower(sub or "")
+		if sub == "test" then cmd, rest = "soundtest", tail
+		elseif sub == "clear" then cmd, rest = "soundclear", tail
+		else Print("Use /auraledger sound test, or /auraledger sound clear.") return end
+	end
 	if cmd == "" then
 		if ns.UI and ns.UI.Toggle then ns.UI:Toggle() end
 	elseif cmd == "add" then

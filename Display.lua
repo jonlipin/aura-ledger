@@ -685,6 +685,13 @@ end
 -- ------------------------------------------------------------------
 local liveMethodsLogged = false
 
+-- Raised when the game refuses to draw a group. The check drops it if the next attempt worked.
+local function AdviseGameDrawn(field, what)
+	if not ns.Advise then return end
+	ns.Advise("gamedrawn", ("A group set to be drawn by the game could not be built (%s). Those groups will stay empty until it is. Reloading usually puts it right."):format(what),
+		function() return not tostring(ns.report[field] or ""):find("ok", 1, true) end)
+end
+
 local function LiveKey(g)
 	local ids = ""
 	if g.liveOnlyMine then for _, t in ipairs(g.trackers) do ids = ids .. tostring(t.id or t.name) .. "," end end
@@ -772,6 +779,7 @@ local function EnsureLive(f, g)
 	local ok, c = pcall(CreateFrame, "AuraContainer", nil, f, "CustomAuraContainerTemplate")
 	if not (ok and c) then
 		ns.report["game-drawn groups"] = "AuraContainer not available: " .. tostring(c)
+		AdviseGameDrawn("game-drawn groups", "the game's aura display could not be created")
 		return nil
 	end
 	local S, sp, perRow = g.size, g.spacing, max(1, g.perRow or 8)
@@ -809,6 +817,7 @@ local function EnsureLive(f, g)
 	end
 	if not okG then
 		ns.report["game-drawn groups"] = "aura group refused: " .. tostring(err)
+		AdviseGameDrawn("game-drawn groups", "the game refused the group")
 		c:Hide()
 		return nil
 	end
@@ -1004,7 +1013,10 @@ local function InitSlotFrame(g, mode, filter, store)
 		back:SetAllPoints(button)
 		back:SetColorTexture(0, 0, 0, 1)
 		end)
-		if not ok then ns.report["game-drawn trackers"] = "slot setup failed: " .. tostring(err) end
+		if not ok then
+			ns.report["game-drawn trackers"] = "slot setup failed: " .. tostring(err)
+			AdviseGameDrawn("game-drawn trackers", "a tracker's slot could not be dressed")
+		end
 	end
 end
 
@@ -1093,6 +1105,7 @@ local function SlotContainer(f, g, unit)
 	local ok, nc = pcall(CreateFrame, "AuraContainer", nil, gate, "CustomAuraContainerTemplate")
 	if not (ok and nc) then
 		ns.report["game-drawn trackers"] = "AuraContainer not available: " .. tostring(nc)
+		AdviseGameDrawn("game-drawn trackers", "the game's aura display could not be created")
 		return nil
 	end
 	nc:SetAllPoints(f)
@@ -1138,6 +1151,7 @@ local function TrackerSlots(f, g, t, ids)
 			local ok, fr = pcall(c.AddAuraSlot, c, key, filter, { initializeFrame = InitSlotFrame(g, mode, filter, store), candidateFilters = filters })
 			if not ok then
 				ns.report["game-drawn trackers"] = "AddAuraSlot: " .. tostring(fr)
+				AdviseGameDrawn("game-drawn trackers", "the game refused a tracker's slot")
 				return nil
 			end
 			frame = fr

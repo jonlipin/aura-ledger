@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.21.0
+
+- One short command list. The diagnostics now live behind /auraledger debug <topic> (log, api, gd, cdm, cdm2, frames, probe, container, slot, mixin, atlases, combatlog), and the sound commands are /auraledger sound test and /auraledger sound clear. Every old command name still works, so nothing written down stops working. /auraledger on its own still opens the window, and /auraledger help lists the lot.
+- When a group set to be drawn by the game cannot be built, the addon now says so in a dialog with a Reload button rather than a line of chat that scrolls away. It is raised once a session, never during a fight, and is dropped if the addon has put itself right by the time the fight ends.
+
 ## 1.20.1
 
 - New: /auraledger cdm2 reports the Cooldown Manager the way the Coolinator addon uses it: the viewers' item frame pools, each item's cooldown ID, layout index and shown state, the display widgets it carries, and whether the layout data APIs exist on this client. If they do, a tracker can be pushed into Blizzard's own Cooldown Manager and its frame borrowed, which the game keeps live in combat.
