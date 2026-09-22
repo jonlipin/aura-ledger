@@ -522,6 +522,7 @@ end
 
 -- A ring of colour in the manager's own shape, behind the picture and a little larger, so what
 -- shows is a rounded edge rather than a square frame laid over the icon.
+-- "icon" is what the ring is laid on: the cell, so it fills the room the picture was pulled off.
 local function ShapeRing(w, icon, size, want, r, g, b)
 	local s = skin
 	local def = HaveShape() and s.shape.masks[1]
@@ -540,11 +541,12 @@ local function ShapeRing(w, icon, size, want, r, g, b)
 			if not (tex.AddMaskTexture and pcall(tex.AddMaskTexture, tex, m)) then pcall(m.Hide, m) end
 		end
 	end
-	local px = max(1, floor(size / 16 + 0.5))
 	tex:SetColorTexture(r or 1, g or 0.2, b or 0.2, 1)
 	tex:ClearAllPoints()
-	tex:SetPoint("TOPLEFT", icon, "TOPLEFT", -px, px)
-	tex:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", px, -px)
+	-- Flush with the picture. Anything past it reaches into the next cell, and past a cell under a
+	-- game-drawn slot it is not covered by the game's icon and shows round the outside of it.
+	tex:SetPoint("TOPLEFT", icon, "TOPLEFT", 0, 0)
+	tex:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 0, 0)
 	tex:Show()
 	return true
 end
@@ -604,7 +606,9 @@ local function LayEdge(w, r, g, b, a, thicker)
 end
 
 local function PlaceCleanEdge(w, ref, size, want, inward)
-	local shaped = (want ~= false) and BorderMode() == "clean" and skin and skin.shape and skin.shape.border
+	-- The manager's shape does the edging where it was read: its mask rounds the picture's own
+	-- border off, and square bars over that is what put a sharp red frame round a rounded icon.
+	local shaped = (want ~= false) and BorderMode() == "clean" and HaveShape()
 	local on = (want ~= false) and BorderMode() == "clean" and not shaped
 	if not on then
 		for _, tex in ipairs(w.edgeBars or {}) do tex:Hide() end
@@ -850,6 +854,8 @@ function Display:IconReport(emit)
 			emit("    " .. TexLine("picture", w.icon))
 			emit("    " .. TexLine("client frame", w.clientFrame))
 			for i, tex in ipairs(w.iconArt or {}) do emit("    " .. TexLine("copied art " .. i, tex)) end
+			emit("    " .. TexLine("state ring", w.shapeRing))
+			emit("    shape masks on the picture: " .. tostring(w.shapeMasks and #w.shapeMasks or 0))
 			emit("    " .. TexLine("dispel border", w.border))
 			emit("    mask: " .. (w.icon and w.icon.alMask and "on" or "off"))
 			if w.icon and w.icon.alMask then emit("    " .. TexLine("mask art", w.icon.alMask)) end
@@ -1005,6 +1011,12 @@ local function CreateWidget(parent)
 		if okb and edge and edge.SetBackdrop then w.edge = edge end
 	end
 
+	-- The ring is laid on this, which is the cell's own square: the picture is pulled in off it, so
+	-- what shows round the picture is the ring, in the shape the mask gives it.
+	w.ringHolder = w:CreateTexture(nil, "BACKGROUND", nil, -7)
+	w.ringHolder:SetAllPoints(w)
+	w.ringHolder:SetColorTexture(0, 0, 0, 0)
+
 	w.alBaseLevel = w:GetFrameLevel()
 
 	-- Text sits above everything.
@@ -1067,6 +1079,7 @@ local function ConfigureWidget(w, g)
 		-- is told the size it clips, because the icon has not been given one yet.
 		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false, IS)
 		local inset = (masked or BorderMode() ~= "cdm") and 0 or IconInset(s, true, IS, g.iconFrame ~= false)
+		if HaveShape() and g.iconFrame ~= false then inset = max(inset, max(1, floor(IS / 20 + 0.5))) end
 		-- The widget is as tall as the taller of the two, and both the icon and the bar hold its
 		-- middle, so scaling the icon moves neither off the other's line.
 		local WH = max(H, IS)
@@ -1081,6 +1094,7 @@ local function ConfigureWidget(w, g)
 		w.bar:Show()
 		PlaceDecor(w, s.decor, "decor", w.bar, H, wantBar)
 		-- Both are asked every time: the one that is not wanted takes itself off screen.
+		w.ringRef = w.ringHolder
 		ShapeMask(w, w.icon, IS, g.iconFrame ~= false)
 		local shaped = ShapeBorder(w, w.icon, IS, g.iconFrame ~= false) or (HaveShape() and g.iconFrame ~= false)
 		local edged = PlaceCleanEdge(w, w.icon, IS, g.iconFrame ~= false)
@@ -1121,6 +1135,7 @@ local function ConfigureWidget(w, g)
 		local S = g.size
 		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false, S)
 		local inset = (masked or BorderMode() ~= "cdm") and 0 or IconInset(s, false, S, g.iconFrame ~= false)
+		if HaveShape() and g.iconFrame ~= false then inset = max(inset, max(1, floor(S / 20 + 0.5))) end
 		w:SetSize(S, S)
 		w.icon:SetSize(S - inset * 2, S - inset * 2)
 		w.icon:SetPoint("CENTER")
@@ -1128,6 +1143,7 @@ local function ConfigureWidget(w, g)
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		w.bar:Hide()
 		PlaceDecor(w, {}, "decor", w.bar, S)
+		w.ringRef = w.ringHolder
 		ShapeMask(w, w.icon, S, g.iconFrame ~= false)
 		local shaped = ShapeBorder(w, w.icon, S, g.iconFrame ~= false) or (HaveShape() and g.iconFrame ~= false)
 		local edged = PlaceCleanEdge(w, w.icon, S, g.iconFrame ~= false, w.underSlot)
@@ -1198,7 +1214,7 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 		br, bg, bb, strong = 1, 0.1, 0.1, true
 	end
 	if HaveShape() and not w.shapeBorder then
-		ShapeRing(w, w.icon, (w.group and w.group.style == "bars") and ns.BarIconSize(w.group) or (w.group and w.group.size) or 40,
+		ShapeRing(w, w.ringRef or w.icon, (w.group and w.group.style == "bars") and ns.BarIconSize(w.group) or (w.group and w.group.size) or 40,
 			br ~= nil and (w.group == nil or w.group.iconFrame ~= false), br, bg, bb)
 		w.border:Hide()
 	elseif ShapeBorderColor(w, br or 1, bg or 1, bb or 1) then

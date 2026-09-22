@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.45.1
+
+- A tracker whose aura is up no longer wears the missing colour. The ring that carries that colour was drawn a little outside the picture, so on a cell sitting under a game-drawn slot it reached past the cell, where the game's icon does not cover it, and showed as a red outline round an aura that was there. The ring is laid on the cell's own square now and the picture is pulled in off it, so the ring shows where the picture is not and never reaches past the cell.
+- /auraledger debug icon reports the state ring and how many of the manager's masks are actually on a tracker's picture.
+
 ## 1.45.0
 
 - Trackers look like the Cooldown Manager's icons, because they are made the same way. The readout settled how that is: one mask, UI-HUD-CoolDownManager-Mask, sized exactly to the icon, and no border art at all. The thin dark line round the manager's icons is the spell icon's own baked border with its corners rounded off by that mask, which is why copying border art never found any and why trimming the picture threw away the very thing that makes the look.
