@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.12.2"
+ns.VERSION = "1.13.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -978,6 +978,104 @@ end
 ns.HandleCast = HandleCast
 ns.SpellName = SpellName
 
+-- ------------------------------------------------------------------
+-- The Cooldown Manager's buff viewers. Blizzard shows an item there only while that tracked buff is
+-- on you, and neither the item's shown state nor its cooldown id is hidden in combat. So while auras
+-- are secret, a shown item means the buff is present and a hidden item means it is gone, for every
+-- buff the Cooldown Manager tracks. Anything that answers as secret or missing changes nothing.
+-- ------------------------------------------------------------------
+local viewerStats = { reads = 0, items = 0, plain = 0, secret = 0, present = 0, absent = 0, sample = nil }
+ns.viewerStats = viewerStats
+local VIEWERS = { "BuffIconCooldownViewer", "BuffBarCooldownViewer" }
+
+local function ItemCooldownID(child)
+	local cid = Clean(child.cooldownID)
+	if type(cid) ~= "number" and child.GetCooldownID then
+		local ok, v = pcall(child.GetCooldownID, child)
+		if ok then cid = Clean(v) end
+	end
+	return type(cid) == "number" and cid or nil
+end
+
+-- One pass over the viewers: name (lower) -> shown or hidden. Shown wins when ranks repeat.
+-- Returns the table, how many items had a plain answer, and a sample line for the report.
+local function ReadViewers(collect)
+	local C = C_CooldownViewer
+	if not (C and C.GetCooldownViewerCooldownInfo) then return nil end
+	local state, plain, secret, items = {}, 0, 0, 0
+	local lines = collect and {} or nil
+	for _, vname in ipairs(VIEWERS) do
+		local v = _G[vname]
+		if v and v.GetChildren then
+			local okV, vShown = pcall(v.IsShown, v)
+			if okV and Clean(vShown) then
+				for _, child in ipairs({ v:GetChildren() }) do
+					local cid = ItemCooldownID(child)
+					if cid then
+						items = items + 1
+						local okI, info = pcall(C.GetCooldownViewerCooldownInfo, cid)
+						local sid = okI and type(info) == "table" and not (issecretvalue and issecretvalue(info)) and Clean(info.spellID) or nil
+						local name = sid and SpellName(sid) or nil
+						local okS, shown = pcall(child.IsShown, child)
+						local hidden = not okS or (issecretvalue and issecretvalue(shown))
+						if lines then
+							lines[#lines + 1] = ("%s #%s %s: shown %s, instance %s"):format(vname:gsub("CooldownViewer", ""), tostring(cid), name or "?",
+								okS and ((issecretvalue and issecretvalue(shown)) and "secret" or tostring(shown)) or "error",
+								okI and type(info) == "table" and ((issecretvalue and issecretvalue(info.auraInstanceID)) and "secret" or tostring(info.auraInstanceID)) or "?")
+						end
+						if name and not hidden then
+							plain = plain + 1
+							local l = strlower(name)
+							if shown then state[l] = true elseif state[l] == nil then state[l] = false end
+						elseif name then
+							secret = secret + 1
+						end
+					end
+				end
+			end
+		end
+	end
+	return state, plain, secret, items, lines
+end
+ns.ReadViewers = ReadViewers
+
+-- Returns true when something changed.
+local function ReconcileWithViewers()
+	local state, plain, secret, items = ReadViewers(false)
+	if not state then return false end
+	viewerStats.reads = viewerStats.reads + 1
+	viewerStats.items, viewerStats.plain, viewerStats.secret = items, plain, secret
+	if plain == 0 then return false end
+	local now = GetTime()
+	local auras = ns.auras
+	local changed = false
+	for l, shown in pairs(state) do
+		local existing
+		for _, e in pairs(auras) do
+			if e.kind == "buff" and e.name and strlower(e.name) == l then existing = e break end
+		end
+		if shown and not existing then
+			local h = ns.db.history["buff:" .. l]
+			if h then
+				local duration = h.duration or 0
+				local key = "v:player:" .. l
+				auras[key] = { key = key, name = h.name or l, id = h.id, icon = h.icon, count = 0, duration = duration,
+					expires = duration > 0 and (now + duration) or 0, kind = "buff", unit = "player",
+					synth = true, estimated = true, stale = true, probed = true }
+				viewerStats.present = viewerStats.present + 1
+				changed = true
+			end
+		elseif not shown and existing and (existing.stale or existing.estimated) then
+			auras[existing.key] = nil
+			viewerStats.absent = viewerStats.absent + 1
+			changed = true
+		end
+	end
+	if changed then Reindex() end
+	return changed
+end
+ns.ReconcileWithViewers = ReconcileWithViewers
+
 -- Combat log: only consulted while auras are unreadable, to catch applications and removals on
 -- you or on your target.
 local AURA_EVENTS = {
@@ -1206,6 +1304,7 @@ function ns.OnUpdate(elapsed)
 		end
 		-- While auras are secret, the default buff frames' icons are the only live word we get.
 		if ns.restricted and ReconcileWithFrames() then ns.dirty = true end
+		if ns.restricted and ReconcileWithViewers() then ns.dirty = true end
 	end
 end
 events:SetScript("OnUpdate", function(_, elapsed) ns.OnUpdate(elapsed) end)
@@ -1455,6 +1554,9 @@ local function Debug()
 	if #fi.sample > 0 then Print("    frame icons seen: " .. table.concat(fi.sample, "; ")) end
 	Print(("  your casts: %d seen, %d turned into auras while restricted (spell cast events %s)"):format(
 		s.casts, s.castsUsed, registered.UNIT_SPELLCAST_SUCCEEDED and "registered" or "not registered"))
+	local vs = ns.viewerStats
+	Print(("  Cooldown Manager buff viewers while restricted: reads %d, items %d (plain %d, secret %d), buffs seen present %d, seen gone %d"):format(
+		vs.reads, vs.items, vs.plain, vs.secret, vs.present, vs.absent))
 	local p = ns.payloadStats
 	Print(("  aura events while restricted: %d; removed lists plain %d / secret %d, updated plain %d / secret %d, added plain %d / secret %d, full updates %d"):format(
 		p.events, p.plainRemoved, p.secretRemoved, p.plainUpdated, p.secretUpdated, p.plainAdded, p.secretAdded, p.full))
@@ -1547,6 +1649,17 @@ SlashCmdList.AURALEDGER = function(msg)
 	elseif cmd == "cdm" then
 		local C = C_CooldownViewer
 		Print("Cooldown Manager data (secret: " .. YesNo(AurasSecret()) .. "; API " .. YesNo(C) .. (C and (", available " .. YesNo(C.IsCooldownViewerAvailable and select(2, pcall(C.IsCooldownViewerAvailable)))) or "") .. "):")
+		local state, plain, secret, items, lines = ns.ReadViewers(true)
+		if lines then
+			Print(("  viewer items: %d (plain %d, secret %d)"):format(items, plain, secret))
+			for _, line in ipairs(lines) do Print("    " .. line) end
+			for _, vname in ipairs({ "BuffIconCooldownViewer", "BuffBarCooldownViewer" }) do
+				local v = _G[vname]
+				Print(("    %s: %s"):format(vname, v and ("exists, shown " .. tostring(select(2, pcall(v.IsShown, v)))) or "missing"))
+			end
+		end
+		local wanted = {}
+		for _, g in ipairs(ns.profile.groups) do for _, t in ipairs(g.trackers) do if t.name then wanted[strlower(t.name)] = true end end end
 		if C and C.GetCooldownViewerCategorySet and C.GetCooldownViewerCooldownInfo then
 			local cats = (Enum and Enum.CooldownViewerCategory) or { Essential = 0, Utility = 1, TrackedBuff = 2, TrackedBar = 3 }
 			local names = {}
@@ -1560,8 +1673,10 @@ SlashCmdList.AURALEDGER = function(msg)
 					if ok2 and type(info) == "table" and not (issecretvalue and issecretvalue(info)) then
 						local sid = Clean(info.spellID)
 						local name = sid and ns.SpellName and ns.SpellName(sid) or "?"
-						Print(("    #%s spell %s %s: hasAura %s, auraInstanceID %s, selfAura %s, isKnown %s, auraSpellID %s"):format(
-							tostring(id), tostring(sid), name, Describe(info.hasAura), Describe(info.auraInstanceID), Describe(info.selfAura), Describe(info.isKnown), Describe(info.auraSpellID)))
+						if wanted[strlower(name)] then
+							Print(("    #%s spell %s %s: hasAura %s, auraInstanceID %s, selfAura %s, isKnown %s, auraSpellID %s"):format(
+								tostring(id), tostring(sid), name, Describe(info.hasAura), Describe(info.auraInstanceID), Describe(info.selfAura), Describe(info.isKnown), Describe(info.auraSpellID)))
+						end
 					else
 						Print(("    #%s: %s"):format(tostring(id), ok2 and Describe(info) or "error"))
 					end

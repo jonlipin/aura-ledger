@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.13.0
+
+- In combat, Blizzard's Cooldown Manager buff viewers are now read as the present/absent signal. The Cooldown Manager shows an item only while that tracked buff is on you, and neither the item's shown state nor the spell behind it is hidden in combat. A shown item keeps or creates the aura (timer from the ledger), a hidden item drops it, so clicking a buff off or having it dispelled mid-fight now reaches your trackers, for every buff the Cooldown Manager tracks (Demon Skin, Demon Armor, Shadow Ward and the rest of its list). An item that answers as hidden data changes nothing.
+- /auraledger cdm now lists the viewer items with their shown state first, and only prints cooldowns that match one of your trackers. /auraledger debug has a Cooldown Manager line.
+
 ## 1.12.2
 
 - Diagnostics only. /auraledger debug now describes the aura events received in combat (whether the removed, updated and added lists arrive plain or hidden, and what the last payload looked like), and /auraledger cdm prints what the Cooldown Manager's data reports for each of its spells (hasAura and the aura instance), in or out of combat.
