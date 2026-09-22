@@ -2192,7 +2192,7 @@ function UI:ShowConfirmBubble(anchor, title, line)
 		f:SetFrameStrata("TOOLTIP")
 		f:SetSize(150, 36)
 		if f.SetBackdrop then
-			f:SetBackdrop({ bgFile = "Interface\Tooltips\UI-Tooltip-Background", edgeFile = "Interface\Tooltips\UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 12, insets = { left = 3, right = 3, top = 3, bottom = 3 } })
+			f:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", tile = true, tileSize = 16, edgeSize = 12, insets = { left = 3, right = 3, top = 3, bottom = 3 } })
 			f:SetBackdropColor(0.05, 0.03, 0.02, 0.95)
 		end
 		f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
