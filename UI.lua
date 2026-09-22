@@ -1296,7 +1296,15 @@ local function BuildGroupPanel(width)
 		if g then ns.DeleteGroup(g) end
 	end)
 	del:SetPoint("TOPLEFT", 8, b.y)
-	b.y = b.y - 34
+	local exportG = MakeButton(groupPanel, "Export group", 130)
+	exportG:SetPoint("TOPLEFT", 8, b.y - 28)
+	exportG:SetScript("OnClick", function()
+		local g = G()
+		if g then UI:ShowExport(ns.Export(g, "group"), "group " .. ns.GroupName(g)) end
+	end)
+	exportG:SetScript("OnEnter", function(self) TextTooltip(self, "Export this group", "Gives you a string holding the whole group (its look, conditions and every tracker) to paste elsewhere.") end)
+	exportG:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	b.y = b.y - 62
 	groupPanel.height = -b.y
 	groupPanel:SetHeight(groupPanel.height)
 end
@@ -1406,7 +1414,15 @@ local function BuildTrackerPanel(width)
 
 	b.y = b.y - 8
 	b:Note("To move this tracker to another group, or out into a group of its own, drag it in the Groups and trackers list. To remove it, click the X on its row there twice.")
-	b.y = b.y - 8
+	local exportT = MakeButton(trackerPanel, "Export tracker", 130)
+	exportT:SetPoint("TOPLEFT", 8, b.y)
+	exportT:SetScript("OnClick", function()
+		local t = T()
+		if t then UI:ShowExport(ns.Export(t, "tracker"), "tracker " .. (t.name or ("spell " .. tostring(t.id)))) end
+	end)
+	exportT:SetScript("OnEnter", function(self) TextTooltip(self, "Export this tracker", "Gives you a string holding this tracker (its settings, conditions and sounds) to paste elsewhere.") end)
+	exportT:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	b.y = b.y - 34
 	trackerPanel.height = -b.y
 	trackerPanel:SetHeight(trackerPanel.height)
 end
@@ -1737,6 +1753,11 @@ local function Build()
 
 	-- ---- Layout pane ----
 	local mid = Pane(body, "Groups and trackers", BOOK_X + 24 + BOOK_W, BOOK_X + 24 + BOOK_W + TREE_W, LIP + 10)
+	local importBtn = MakeButton(mid, "Import", 70)
+	importBtn:SetPoint("TOPRIGHT", mid, "TOPRIGHT", -26, -2)
+	importBtn:SetScript("OnClick", function() UI:ShowImport() end)
+	importBtn:SetScript("OnEnter", function(self) TextTooltip(self, "Import", "Paste a tracker or group string from someone else, or from another character.") end)
+	importBtn:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	treeList = CreateList("AuraLedgerTreeScroll", mid, TREE_ROW, CreateTreeRow, UpdateTreeRow)
 	treeList.scroll:SetPoint("TOPLEFT", 4, -(mid.titleHeight or 24))
 	treeList.scroll:SetPoint("BOTTOMRIGHT", -24, 4)
@@ -2180,6 +2201,91 @@ local function Build()
 end
 
 function UI:SyncToolbar()
+end
+
+-- ------------------------------------------------------------------
+-- Share window: shows an export string to copy, or takes a pasted one to import.
+-- ------------------------------------------------------------------
+local share
+local function GetShare()
+	if share then return share end
+	local ok, f = pcall(CreateFrame, "Frame", "AuraLedgerShareFrame", UIParent, "BackdropTemplate")
+	if not ok or not f then f = CreateFrame("Frame", "AuraLedgerShareFrame", UIParent) end
+	share = f
+	f:SetSize(440, 200)
+	f:SetFrameStrata("DIALOG")
+	f:SetPoint("CENTER")
+	f:SetMovable(true)
+	f:EnableMouse(true)
+	f:SetClampedToScreen(true)
+	f:RegisterForDrag("LeftButton")
+	f:SetScript("OnDragStart", function(self) self:StartMoving() end)
+	f:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() end)
+	if f.SetBackdrop then
+		f:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background", edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border", tile = true, tileSize = 32, edgeSize = 32, insets = { left = 11, right = 12, top = 12, bottom = 11 } })
+	end
+	f.title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	f.title:SetPoint("TOP", 0, -16)
+	f.note = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	f.note:SetPoint("TOP", f.title, "BOTTOM", 0, -4)
+	f.note:SetWidth(400)
+	local okS, scroll = pcall(CreateFrame, "ScrollFrame", "AuraLedgerShareScroll", f, "AuraLedgerScrollFrameTemplate")
+	if not (okS and scroll) then scroll = CreateFrame("ScrollFrame", "AuraLedgerShareScroll", f) end
+	scroll:SetPoint("TOPLEFT", 20, -54)
+	scroll:SetPoint("BOTTOMRIGHT", -40, 48)
+	local boxBg = f:CreateTexture(nil, "BACKGROUND", nil, 1)
+	boxBg:SetPoint("TOPLEFT", scroll, "TOPLEFT", -4, 4)
+	boxBg:SetPoint("BOTTOMRIGHT", scroll, "BOTTOMRIGHT", 4, -4)
+	boxBg:SetColorTexture(0, 0, 0, 0.5)
+	local box = CreateFrame("EditBox", "AuraLedgerShareBox", scroll)
+	box:SetMultiLine(true)
+	box:SetAutoFocus(false)
+	box:SetFontObject("GameFontHighlightSmall")
+	box:SetWidth(360)
+	box:SetScript("OnEscapePressed", function() f:Hide() end)
+	box:SetScript("OnTextChanged", function(self) scroll:UpdateScrollChildRect() end)
+	scroll:SetScrollChild(box)
+	scroll:EnableMouse(true)
+	scroll:SetScript("OnMouseDown", function() box:SetFocus() end)
+	f.box = box
+	f.action = MakeButton(f, "Import", 100)
+	f.action:SetPoint("BOTTOMRIGHT", -20, 16)
+	f.action:SetScript("OnClick", function()
+		if f.mode ~= "import" then f:Hide() return end
+		local g, err = ns.Import(box:GetText())
+		if not g then ns.Print(err) f.note:SetText("|cffff5050" .. tostring(err) .. "|r") return end
+		f:Hide()
+		UI:ShowSelection(true)
+		ns.Print("Imported " .. ns.GroupName(g) .. " (" .. #g.trackers .. " tracker" .. (#g.trackers == 1 and "" or "s") .. "). It is placed near the middle of the screen; drag it where you want it.")
+	end)
+	local close = MakeButton(f, "Close", 80)
+	close:SetPoint("RIGHT", f.action, "LEFT", -6, 0)
+	close:SetScript("OnClick", function() f:Hide() end)
+	tinsert(UISpecialFrames, "AuraLedgerShareFrame")
+	return f
+end
+
+function UI:ShowExport(text, what)
+	local f = GetShare()
+	f.mode = "export"
+	f.title:SetText("Export " .. what)
+	f.note:SetText("Press Ctrl-C to copy the string below, then paste it anywhere (chat, a text file, another character).")
+	f.action:SetText("Done")
+	f.box:SetText(text)
+	f:Show()
+	f.box:SetFocus()
+	f.box:HighlightText()
+end
+
+function UI:ShowImport()
+	local f = GetShare()
+	f.mode = "import"
+	f.title:SetText("Import a tracker or group")
+	f.note:SetText("Paste an Aura Ledger string (it starts with !AL1:) into the box and click Import.")
+	f.action:SetText("Import")
+	f.box:SetText("")
+	f:Show()
+	f.box:SetFocus()
 end
 
 -- A small text bubble above a button, used for the two-click remove.

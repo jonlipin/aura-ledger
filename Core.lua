@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.8.2"
+ns.VERSION = "1.9.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0 }
 ns.auras = {}
@@ -906,12 +906,220 @@ end
 events:SetScript("OnUpdate", function(_, elapsed) ns.OnUpdate(elapsed) end)
 
 -- ------------------------------------------------------------------
+-- Sharing: a tracker or a whole group as a paste-able string.
+-- Format: "!AL1:" followed by base64 of a plain-text table literal. The reader is a small parser
+-- of its own (no load()), so a pasted string can only ever become data.
+-- ------------------------------------------------------------------
+local B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+local B64R = {}
+for i = 1, 64 do B64R[B64:sub(i, i)] = i - 1 end
+
+local function B64Encode(data)
+	local out = {}
+	for i = 1, #data, 3 do
+		local a, b, c = data:byte(i, i + 2)
+		local n = a * 65536 + (b or 0) * 256 + (c or 0)
+		local c1, c2 = floor(n / 262144) % 64, floor(n / 4096) % 64
+		local c3, c4 = floor(n / 64) % 64, n % 64
+		out[#out + 1] = B64:sub(c1 + 1, c1 + 1) .. B64:sub(c2 + 1, c2 + 1)
+			.. (b and B64:sub(c3 + 1, c3 + 1) or "=") .. (c and B64:sub(c4 + 1, c4 + 1) or "=")
+	end
+	return table.concat(out)
+end
+
+local function B64Decode(text)
+	text = text:gsub("[^%w%+/=]", "")
+	local out = {}
+	for i = 1, #text, 4 do
+		local c1, c2, c3, c4 = text:sub(i, i), text:sub(i + 1, i + 1), text:sub(i + 2, i + 2), text:sub(i + 3, i + 3)
+		local n = (B64R[c1] or 0) * 262144 + (B64R[c2] or 0) * 4096 + (B64R[c3] or 0) * 64 + (B64R[c4] or 0)
+		out[#out + 1] = string.char(floor(n / 65536) % 256)
+		if c3 ~= "=" and c3 ~= "" then out[#out + 1] = string.char(floor(n / 256) % 256) end
+		if c4 ~= "=" and c4 ~= "" then out[#out + 1] = string.char(n % 256) end
+	end
+	return table.concat(out)
+end
+
+local function Serialize(v, out)
+	local tv = type(v)
+	if tv == "table" then
+		out[#out + 1] = "{"
+		for k, val in pairs(v) do
+			local tk = type(k)
+			if (tk == "string" or tk == "number" or tk == "boolean") and (type(val) ~= "function") then
+				out[#out + 1] = "["
+				Serialize(k, out)
+				out[#out + 1] = "]="
+				Serialize(val, out)
+				out[#out + 1] = ","
+			end
+		end
+		out[#out + 1] = "}"
+	elseif tv == "string" then
+		out[#out + 1] = string.format("%q", v)
+	elseif tv == "number" then
+		out[#out + 1] = tostring(v)
+	elseif tv == "boolean" then
+		out[#out + 1] = v and "true" or "false"
+	else
+		out[#out + 1] = "nil"
+	end
+end
+
+-- Reads back what Serialize wrote. Returns value, nextPos or nil, error.
+local function Parse(s, pos)
+	pos = pos or 1
+	local c = s:sub(pos, pos)
+	if c == "{" then
+		local t = {}
+		pos = pos + 1
+		while true do
+			c = s:sub(pos, pos)
+			if c == "}" then return t, pos + 1 end
+			if c ~= "[" then return nil, pos, "expected key" end
+			local key, np, err = Parse(s, pos + 1)
+			if err then return nil, np, err end
+			if s:sub(np, np + 1) ~= "]=" then return nil, np, "expected ]=" end
+			local val
+			val, np, err = Parse(s, np + 2)
+			if err then return nil, np, err end
+			t[key] = val
+			if s:sub(np, np) == "," then np = np + 1 end
+			pos = np
+			if pos > #s then return nil, pos, "unterminated table" end
+		end
+	elseif c == '"' then
+		local i = pos + 1
+		local buf = {}
+		while i <= #s do
+			local ch = s:sub(i, i)
+			if ch == "\\" then
+				local nx = s:sub(i + 1, i + 1)
+				if nx == "n" then buf[#buf + 1] = "\n"
+				elseif nx == "\n" then buf[#buf + 1] = "\n"
+				elseif nx:match("%d") then
+					local digits = s:match("^%d%d?%d?", i + 1)
+					buf[#buf + 1] = string.char(tonumber(digits))
+					i = i + #digits - 1
+				else buf[#buf + 1] = nx end
+				i = i + 2
+			elseif ch == '"' then
+				return table.concat(buf), i + 1
+			else
+				buf[#buf + 1] = ch
+				i = i + 1
+			end
+		end
+		return nil, i, "unterminated string"
+	elseif s:sub(pos, pos + 3) == "true" then return true, pos + 4
+	elseif s:sub(pos, pos + 4) == "false" then return false, pos + 5
+	elseif s:sub(pos, pos + 2) == "nil" then return nil, pos + 3
+	else
+		local num = s:match("^-?%d+%.?%d*[eE]?[-+]?%d*", pos)
+		if num and num ~= "" and tonumber(num) then return tonumber(num), pos + #num end
+		return nil, pos, "unexpected '" .. c .. "'"
+	end
+end
+
+local TRACKER_KEYS = { "name", "id", "icon", "kind", "matchId", "show", "mine", "label", "unit", "warn", "cond", "snd" }
+
+local function CopyTracker(t)
+	local c = {}
+	for _, k in ipairs(TRACKER_KEYS) do
+		local v = t[k]
+		if type(v) == "table" then
+			local cc = {}
+			for kk, vv in pairs(v) do
+				if type(vv) == "table" then
+					local ccc = {}
+					for k3, v3 in pairs(vv) do ccc[k3] = v3 end
+					cc[kk] = ccc
+				else cc[kk] = vv end
+			end
+			c[k] = cc
+		elseif v ~= nil then c[k] = v end
+	end
+	return c
+end
+
+local function CopyGroup(g)
+	local c = { trackers = {} }
+	for _, k in ipairs(ns.GROUP_STYLE_KEYS) do if g[k] ~= nil then c[k] = g[k] end end
+	c.name = g.name
+	c.cond = {}
+	for k, v in pairs(g.cond or {}) do
+		if type(v) == "table" then local cc = {} for kk, vv in pairs(v) do cc[kk] = vv end c.cond[k] = cc else c.cond[k] = v end
+	end
+	for i, t in ipairs(g.trackers) do c.trackers[i] = CopyTracker(t) end
+	return c
+end
+
+-- Returns the string for a tracker ("tracker") or a group ("group").
+function ns.Export(obj, kind)
+	local data = { v = 1, kind = kind, addon = "AuraLedger" }
+	if kind == "group" then data.group = CopyGroup(obj) else data.tracker = CopyTracker(obj) end
+	local out = {}
+	Serialize(data, out)
+	return "!AL1:" .. B64Encode(table.concat(out))
+end
+
+-- Imports a string. Returns the created group (a tracker comes in as a group of one) or nil, error.
+function ns.Import(text)
+	text = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+	if not text:find("^!AL1:") then return nil, "That is not an Aura Ledger string (it should start with !AL1:)." end
+	local raw = B64Decode(text:sub(6))
+	local data, _, err = Parse(raw, 1)
+	if err or type(data) ~= "table" or data.addon ~= "AuraLedger" then return nil, "That string could not be read" .. (err and (": " .. err) or ".") end
+	local n = #ns.profile.groups
+	local x = (UIParent:GetWidth() or 1024) / 2 - 40 + (n % 6) * 12
+	local y = (UIParent:GetHeight() or 768) / 2 + 100 - (n % 6) * 12
+	local function CleanTracker(src)
+		if type(src) ~= "table" or (not src.name and not src.id) then return nil end
+		local t = ns.NewTracker({ name = src.name, id = src.id, icon = src.icon, kind = src.kind or "any" })
+		t.matchId = src.matchId and true or false
+		t.show = (src.show == "missing" or src.show == "always") and src.show or "active"
+		t.mine = src.mine and true or false
+		t.label = type(src.label) == "string" and src.label or nil
+		t.unit = src.unit == "target" and "target" or nil
+		t.warn = tonumber(src.warn) or nil
+		t.cond = type(src.cond) == "table" and src.cond or {}
+		t.snd = type(src.snd) == "table" and src.snd or nil
+		return t
+	end
+	if data.kind == "group" and type(data.group) == "table" then
+		local src = data.group
+		local g = ns.NewGroup(x, y)
+		for _, k in ipairs(ns.GROUP_STYLE_KEYS) do if src[k] ~= nil then g[k] = src[k] end end
+		g.name = type(src.name) == "string" and src.name or nil
+		g.cond = type(src.cond) == "table" and src.cond or {}
+		for _, ts in ipairs(src.trackers or {}) do
+			local t = CleanTracker(ts)
+			if t then table.insert(g.trackers, t) end
+		end
+		if #g.trackers == 0 then ns.DeleteGroup(g) return nil, "That group had no trackers in it." end
+		ns.selected = { group = g }
+		ns.Changed()
+		return g
+	elseif data.kind == "tracker" and type(data.tracker) == "table" then
+		local t = CleanTracker(data.tracker)
+		if not t then return nil, "That tracker had no name or spell ID." end
+		local g = ns.NewGroup(x, y)
+		table.insert(g.trackers, t)
+		ns.selected = { group = g, tracker = t }
+		ns.Changed()
+		return g
+	end
+	return nil, "That string holds neither a tracker nor a group."
+end
+
+-- ------------------------------------------------------------------
 -- Slash commands
 -- ------------------------------------------------------------------
 local function Help()
 	Print("v" .. ns.VERSION .. " commands:")
 	Print("  /auraledger - open or close the window")
 	Print("  /auraledger add <spell name or ID> - add an aura and start tracking it")
+	Print("  /auraledger import <string> - import a tracker or group from an export string")
 	Print("  /auraledger unlock | lock - move trackers without the window open")
 	Print("  /auraledger minimap - show or hide the minimap button")
 	Print("  /auraledger atlases - list the art names on the client's spellbook (for bug reports)")
@@ -994,6 +1202,9 @@ SlashCmdList.AURALEDGER = function(msg)
 		ns.db.minimapShown = not ns.db.minimapShown
 		if ns.UI and ns.UI.UpdateMinimapButton then ns.UI:UpdateMinimapButton() end
 		Print("Minimap button " .. (ns.db.minimapShown and "shown." or "hidden."))
+	elseif cmd == "import" then
+		local g, err = ns.Import(rest)
+		if g then Print("Imported " .. ns.GroupName(g) .. ".") else Print(err) end
 	elseif cmd == "combatlog" then
 		ns.db.combatLog = not ns.db.combatLog
 		if ns.db.combatLog and not registered.COMBAT_LOG_EVENT_UNFILTERED then SafeRegister("COMBAT_LOG_EVENT_UNFILTERED") end

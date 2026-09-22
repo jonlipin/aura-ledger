@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.0
+
+- Export and import. "Export tracker" and "Export group" in the Options panel give you a string (it starts with !AL1:) to copy; "Import" on the Groups and trackers pane takes a pasted one. An imported tracker arrives as its own group and an imported group arrives whole, both near the middle of the screen, ready to drag into place. Everything travels: look, conditions, sounds, warn window. "/auraledger import <string>" works too.
+
 ## 1.8.2
 
 - The remove confirmation is a small bubble above the X ("Remove <name>? Click the X again") instead of text on the row.

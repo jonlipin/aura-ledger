@@ -45,6 +45,10 @@ Per **tracker**: on **you** or on **your target** (a target tracker hides with n
 
 Trackers are drawn with art copied off the client's own frames when the game loads: a Cooldown Manager tracked-buff bar for the bars (fill, background, border, pip, fonts) and its icon overlay for icons, so they match whatever the Forever client draws. Without the Cooldown Manager the cast bar is used instead. `/auraledger debug` reports which.
 
+## Sharing
+
+"Export tracker" and "Export group" in the Options panel produce a string starting with `!AL1:`; copy it and paste it to a friend or into another character's "Import" button on the Groups and trackers pane (or `/auraledger import <string>`). Trackers arrive as their own group, groups arrive whole, both near the middle of the screen.
+
 ## Combat and hidden auras
 
 This client hides aura details from addons while addon restrictions are active (mostly in combat). Aura Ledger copes as well as the client allows:
@@ -61,6 +65,7 @@ This client hides aura details from addons while addon restrictions are active (
 | --- | --- |
 | `/auraledger` | open or close the window (`/aledger` works too) |
 | `/auraledger add <name or ID>` | add an aura and start tracking it |
+| `/auraledger import <string>` | import a tracker or group from an export string |
 | `/auraledger unlock` / `lock` | move trackers without the window open |
 | `/auraledger minimap` | show or hide the minimap button |
 | `/auraledger combatlog` | try the combat log as an extra in-combat source (off by default: registering it is forbidden on the Forever client) |
