@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.46.4
+
+- The swipe on a tracker the game draws is masked once it exists. A cooldown makes its textures the first time it runs, and the game runs the ones in its own slots, so masking them while the slot was being built masked nothing: there was nothing there yet. The mask is asked for again each time the group is laid out, by which point the game has the cooldown going.
+
 ## 1.46.3
 
 - The cooldown swipe keeps inside the icon. The swipe is drawn with textures on a frame of its own laid over the picture, and none of them were masked, so its square corners sat outside a rounded icon. They take the same mask the picture does, on the addon's own cells and on the slots the game fills, and again whenever a cooldown is set going, since those textures are only made when one first runs.

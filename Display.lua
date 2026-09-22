@@ -476,8 +476,14 @@ local function ShapeMask(w, icon, size, want, key)
 		w[key] = nil
 		return false
 	end
+	-- Masks belong to the texture they were added to; a different one needs its own.
+	if w[key] and w[key .. "On"] ~= icon then
+		for _, m in ipairs(w[key]) do pcall(m.Hide, m) end
+		w[key] = nil
+	end
 	if not w[key] then
 		w[key] = {}
+		w[key .. "On"] = icon
 		for i, def in ipairs(shape.masks) do
 			local ok, m = pcall(function() return (w.over or w):CreateMaskTexture() end)
 			if ok and m then
@@ -1508,6 +1514,7 @@ local function InitSlotFrame(g, mode, filter, store)
 				if cd.SetHideCountdownNumbers then cd:SetHideCountdownNumbers(true) end
 				cd.noCooldownCount = true
 				pcall(button.SetDurationCooldown, button, cd)
+				button.alCd, button.alW, button.alCdSize = cd, w, IW
 				ShapeCooldown(w, cd, IW, g.iconFrame ~= false)
 				if cd.HookScript then pcall(cd.HookScript, cd, "OnShow", function() ShapeCooldown(w, cd, IW, g.iconFrame ~= false) end) end
 			end
@@ -1813,6 +1820,11 @@ local function LayoutGroup(f, g, visible, unlocked)
 				-- The game's icon has to cover the cell underneath, edge and all.
 				local lvl = sl.frame.GetFrameLevel and sl.frame:GetFrameLevel()
 				if lvl then SetCellLevel(widget, lvl - 6) end
+				-- A cooldown makes its textures the first time it runs, and the game runs these, so
+				-- the mask is asked for again here rather than only when the slot was built.
+				if sl.frame.alCd then
+					ShapeCooldown(sl.frame.alW, sl.frame.alCd, sl.frame.alCdSize or g.size or 40, g.iconFrame ~= false)
+				end
 			end
 		else
 			SetCellLevel(widget, widget.alBaseLevel)
