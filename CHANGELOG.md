@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.9.10
+
+- Tab spacing set to 2px.
+
 ## 1.9.9
 
 - Tab spacing tightened by another 2px.

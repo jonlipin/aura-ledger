@@ -902,7 +902,7 @@ end
 
 -- Tabs across the top like the Forever spellbook: Blizzard's own tab frame, its glow when chosen,
 -- the icon in the frame's window, and their feet on the page edge.
-local TAB_W, TAB_H, TAB_GAP = 43, 37, 1
+local TAB_W, TAB_H, TAB_GAP = 43, 37, 2
 local function CreateBookTab(holder, pane, token, index)
 	local tab = CreateFrame("CheckButton", nil, holder)
 	tab:SetSize(TAB_W, TAB_H)
