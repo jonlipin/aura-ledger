@@ -236,6 +236,9 @@ end
 -- ones below it close the gap. Inside a row the cursor starts at zero, so each method's own
 -- offsets are unchanged.
 function Builder:Begin()
+	-- Where the rows start: whatever the panel left the cursor at before the first one, so a
+	-- title block built above them keeps its place when the rows are re-stacked.
+	if self.top == nil then self.top = self.y end
 	local r = CreateFrame("Frame", nil, self.panel)
 	r:SetPoint("TOPLEFT", 0, self.y)
 	r:SetPoint("TOPRIGHT", 0, self.y)
@@ -269,7 +272,7 @@ end
 
 -- Stacks the rows that apply, and reports the new bottom so the panel can be resized.
 function Builder:Relayout()
-	local y = -4
+	local y = self.top or -4
 	for _, row in ipairs(self.rows) do
 		local on = (not row.visible) or (row.visible() and true or false)
 		row.frame:SetShown(on)

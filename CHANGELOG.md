@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.24.2
+
+- Fixed: re-stacking the options rows ran them over the tracker name and icon at the top of the panel. The rows now start where the panel left off, below the title block.
+
 ## 1.24.1
 
 - Options that do not apply are now hidden rather than greyed out, and the rows below them close the gap. A group showing icons no longer lists bar width, bar height, bar border, bar background or names on bars; a group showing bars no longer lists the icon size; a group the game fills no longer lists "Show as"; and the pocket watch and the warn window only appear where the addon does the drawing. The panel resizes itself as the choices change.
