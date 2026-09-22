@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.27.0
+
+- Groundwork for having Blizzard's Cooldown Manager draw the trackers that must stay right in a fight. The manager can read auras in combat because it is the game's own code, so the addon can put a tracker's spell into the manager's layout and use the frame the manager makes for it. This release writes that layout: /auraledger debug cdmapply builds one named "Aura Ledger (spec)" holding the spells of every tracker whose group asked the game to draw it, icons and bars in their own rows, and says which trackers the manager has no entry for. /auraledger debug cdmrestore hands the manager back to whatever was in charge before.
+- Borrowing the frames into the addon's groups comes next; until then the manager draws them itself.
+
 ## 1.26.1
 
 - The Cooldown Manager probe now runs itself once a few seconds after login and writes the full reading to the log, with a one-line summary in chat. It reports whether this client exposes the pieces an addon needs to make the game's own Cooldown Manager draw the spells you choose: the viewers' item frame pools, each item's cooldown id and shown state, and the layout data APIs. /auraledger debug cdm2 still prints it on demand.

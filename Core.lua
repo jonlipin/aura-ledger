@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.26.1"
+ns.VERSION = "1.27.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -1439,7 +1439,7 @@ local combatCat, combatCatAt = nil, -100
 function ns.CombatCatalogue(force)
 	local now = GetTime and GetTime() or 0
 	if combatCat and not force and now - combatCatAt < 30 then return combatCat end
-	local cat = { ids = {}, names = {}, count = 0 }
+	local cat = { ids = {}, names = {}, cooldownById = {}, cooldownByName = {}, count = 0 }
 	local C, E = C_CooldownViewer, Enum and Enum.CooldownViewerCategory
 	if C and C.GetCooldownViewerCategorySet and C.GetCooldownViewerCooldownInfo and E then
 		for _, category in ipairs({ E.TrackedBuff, E.TrackedBar }) do
@@ -1453,12 +1453,20 @@ function ns.CombatCatalogue(force)
 						if type(sid) == "number" then
 							if not cat.ids[sid] then cat.count = cat.count + 1 end
 							cat.ids[sid] = true
+							cat.cooldownById[sid] = cat.cooldownById[sid] or cdmID
 							if C_Spell and C_Spell.GetBaseSpell then
 								local okB, base = pcall(C_Spell.GetBaseSpell, sid)
-								if okB and type(base) == "number" then cat.ids[base] = true end
+								if okB and type(base) == "number" then
+									cat.ids[base] = true
+									cat.cooldownById[base] = cat.cooldownById[base] or cdmID
+								end
 							end
 							local name = ns.SpellName and ns.SpellName(sid)
-							if name then cat.names[strlower(name)] = true end
+							if name then
+								local l = strlower(name)
+								cat.names[l] = true
+								cat.cooldownByName[l] = cat.cooldownByName[l] or cdmID
+							end
 						end
 					end
 				end
@@ -1478,6 +1486,170 @@ function ns.CombatTrackable(h)
 	if h.listId and cat.ids[h.listId] then return true end
 	if h.ids then for id in pairs(h.ids) do if cat.ids[id] then return true end end end
 	return h.name ~= nil and cat.names[strlower(h.name)] == true
+end
+
+-- ------------------------------------------------------------------
+-- Blizzard's Cooldown Manager as a drawing engine. The manager can read auras during a fight
+-- because it is the game's own code, so the way to keep a tracker right in combat is to put its
+-- spell into the manager's layout and use the frame the manager makes for it. The layout is a
+-- CBOR table, deflated and base64 encoded, in the shape the Coolinator addon documents; the
+-- fields below are its numbered keys.
+-- ------------------------------------------------------------------
+ns.CDM = {}
+local CDM_ACTIVE_NAMES, CDM_LAYOUTS, CDM_LAYOUT_IDS = 2, 3, 4
+local CDM_OVERRIDES = 2
+
+local function CDMTag()
+	if CooldownViewerUtil and CooldownViewerUtil.GetCurrentClassAndSpecTag then
+		local ok, tag = pcall(CooldownViewerUtil.GetCurrentClassAndSpecTag)
+		if ok and tag ~= nil then return tag end
+	end
+end
+
+function ns.CDM.Available()
+	return (C_CooldownViewer and C_CooldownViewer.GetLayoutData and C_CooldownViewer.SetLayoutData
+		and C_EncodingUtil and C_EncodingUtil.SerializeCBOR and CooldownViewerSettings
+		and Enum and Enum.CooldownViewerCategory and CDMTag() ~= nil) and true or false
+end
+
+function ns.CDM.LayoutName()
+	return "Aura Ledger (" .. tostring(CDMTag()) .. ")"
+end
+
+function ns.CDM.Read()
+	if not (C_CooldownViewer and C_CooldownViewer.GetLayoutData and C_EncodingUtil) then return nil end
+	local ok, raw = pcall(C_CooldownViewer.GetLayoutData)
+	if not ok or type(raw) ~= "string" then return nil end
+	local body = raw:match("^%d%|(.*)$")
+	if not body or body == "" then return nil end
+	local okD, data = pcall(function()
+		return C_EncodingUtil.DeserializeCBOR(C_EncodingUtil.DecompressString(C_EncodingUtil.DecodeBase64(body), Enum.CompressionMethod.Deflate))
+	end)
+	if not okD or type(data) ~= "table" then return nil end
+	return data
+end
+
+-- The cooldown entry for a tracker, by its spell id, any rank the ledger has seen, or its name.
+function ns.CDM.CooldownFor(t, cat)
+	cat = cat or ns.CombatCatalogue()
+	if t.id and cat.cooldownById[t.id] then return cat.cooldownById[t.id] end
+	if t.name then
+		local l = strlower(t.name)
+		if cat.cooldownByName[l] then return cat.cooldownByName[l] end
+		for _, kind in ipairs({ "buff", "debuff" }) do
+			local h = ns.db.history[kind .. ":" .. l]
+			if h and h.ids then
+				for id in pairs(h.ids) do if cat.cooldownById[id] then return cat.cooldownById[id] end end
+			end
+		end
+	end
+end
+
+-- What the manager should hold: the spells of every tracker whose group asked the game to draw it.
+-- Bars and icons are separate rows in the manager, so the group's style decides which one.
+function ns.CDM.Wanted()
+	local cat = ns.CombatCatalogue()
+	local icons, bars, missing, seen = {}, {}, {}, {}
+	for _, g in ipairs(ns.profile.groups) do
+		if g.gameDrawn and not (g.live and g.live ~= "") then
+			for _, t in ipairs(g.trackers) do
+				local cd = ns.CDM.CooldownFor(t, cat)
+				if cd and not seen[cd] then
+					seen[cd] = true
+					local into = (g.style == "bars") and bars or icons
+					into[#into + 1] = cd
+				elseif not cd then
+					missing[#missing + 1] = t.name or ("spell " .. tostring(t.id))
+				end
+			end
+		end
+	end
+	return icons, bars, missing
+end
+
+-- Writes a layout of our own holding just those cooldowns. Returns true, or false and why.
+function ns.CDM.Apply(icons, bars)
+	if not ns.CDM.Available() then return false, "this client does not offer the layout data" end
+	if InCombatLockdown and InCombatLockdown() then return false, "not during a fight" end
+	local tag = CDMTag()
+	local data = ns.CDM.Read() or { [1] = 5, [CDM_ACTIVE_NAMES] = {}, [CDM_LAYOUTS] = {}, [CDM_LAYOUT_IDS] = {} }
+	local version = data[1]
+	if version ~= 4 and version ~= 5 then
+		return false, "the layout format is version " .. tostring(version) .. ", which this addon does not know"
+	end
+	data[CDM_ACTIVE_NAMES] = data[CDM_ACTIVE_NAMES] or {}
+	data[CDM_LAYOUTS] = data[CDM_LAYOUTS] or {}
+	data[CDM_LAYOUT_IDS] = data[CDM_LAYOUT_IDS] or {}
+
+	local name = ns.CDM.LayoutName()
+	local id
+	for lid, lname in pairs(data[CDM_LAYOUT_IDS]) do if lname == name then id = lid end end
+	if not id then
+		id = 1
+		while data[CDM_LAYOUT_IDS][id] do id = id + 1 end
+	end
+
+	local E = Enum.CooldownViewerCategory
+	local overrides = {}
+	overrides[E.TrackedBuff] = icons
+	overrides[E.TrackedBar] = bars
+	if E.Essential then overrides[E.Essential] = {} end
+	if E.Utility then overrides[E.Utility] = {} end
+	data[CDM_LAYOUTS][tag] = data[CDM_LAYOUTS][tag] or {}
+	data[CDM_LAYOUTS][tag][id] = { [CDM_OVERRIDES] = overrides }
+	data[CDM_LAYOUT_IDS][id] = name
+
+	-- Whatever was in charge before is remembered once, so it can be handed back.
+	if ns.db.cdmPrevious == nil then
+		ns.db.cdmPrevious = { tag = tag, id = data[CDM_ACTIVE_NAMES][tag] or false }
+	end
+	data[CDM_ACTIVE_NAMES][tag] = id
+
+	local okS, encoded = pcall(function()
+		return C_EncodingUtil.EncodeBase64(C_EncodingUtil.CompressString(C_EncodingUtil.SerializeCBOR(data), Enum.CompressionMethod.Deflate))
+	end)
+	if not okS then return false, "the layout could not be packed: " .. tostring(encoded) end
+
+	-- The manager caches the layout it decoded, so the caches go before the new one is set, and it
+	-- is switched off and on around the write so it reads everything again.
+	if C_CVar and C_CVar.SetCVar then pcall(C_CVar.SetCVar, "cooldownViewerEnabled", "0") end
+	for holder, key in pairs({ dataSerialization = "cachedSerializedData", dataProvider = "displayData", layoutManager = "activeLayoutID" }) do
+		local t = CooldownViewerSettings and CooldownViewerSettings[holder]
+		if type(t) == "table" then pcall(function() t[key] = nil end) end
+	end
+	local okW, err = pcall(C_CooldownViewer.SetLayoutData, "1|" .. encoded)
+	if C_Timer and C_Timer.After then
+		C_Timer.After(0, function() if C_CVar and C_CVar.SetCVar then pcall(C_CVar.SetCVar, "cooldownViewerEnabled", "1") end end)
+	end
+	if not okW then return false, "the game refused the layout: " .. tostring(err) end
+	ns.db.cdmLayout = name
+	return true
+end
+
+-- Hands the manager back to whatever was in charge before the addon took it over.
+function ns.CDM.Restore()
+	if not ns.CDM.Available() then return false, "this client does not offer the layout data" end
+	local prev = ns.db.cdmPrevious
+	if not prev then return false, "nothing was taken over" end
+	local data = ns.CDM.Read()
+	if not data then return false, "the layout could not be read" end
+	data[CDM_ACTIVE_NAMES] = data[CDM_ACTIVE_NAMES] or {}
+	data[CDM_ACTIVE_NAMES][prev.tag] = prev.id or nil
+	local okS, encoded = pcall(function()
+		return C_EncodingUtil.EncodeBase64(C_EncodingUtil.CompressString(C_EncodingUtil.SerializeCBOR(data), Enum.CompressionMethod.Deflate))
+	end)
+	if not okS then return false, "the layout could not be packed" end
+	if C_CVar and C_CVar.SetCVar then pcall(C_CVar.SetCVar, "cooldownViewerEnabled", "0") end
+	for holder, key in pairs({ dataSerialization = "cachedSerializedData", dataProvider = "displayData", layoutManager = "activeLayoutID" }) do
+		local t = CooldownViewerSettings and CooldownViewerSettings[holder]
+		if type(t) == "table" then pcall(function() t[key] = nil end) end
+	end
+	local okW = pcall(C_CooldownViewer.SetLayoutData, "1|" .. encoded)
+	if C_Timer and C_Timer.After then
+		C_Timer.After(0, function() if C_CVar and C_CVar.SetCVar then pcall(C_CVar.SetCVar, "cooldownViewerEnabled", "1") end end)
+	end
+	ns.db.cdmPrevious, ns.db.cdmLayout = nil, nil
+	return okW and true or false, okW and nil or "the game refused the layout"
 end
 
 -- ------------------------------------------------------------------
@@ -1990,7 +2162,7 @@ end
 -- has put itself right by then.
 -- ------------------------------------------------------------------
 -- The diagnostic topics, in the order the help lists them.
-ns.DIAG_ORDER = { "log", "api", "gd", "cdm", "cdm2", "frames", "probe", "container", "slot", "mixin", "atlases", "combatlog" }
+ns.DIAG_ORDER = { "log", "api", "gd", "cdm", "cdm2", "cdmapply", "cdmrestore", "frames", "probe", "container", "slot", "mixin", "atlases", "combatlog" }
 ns.DIAG = {}
 for _, k in ipairs(ns.DIAG_ORDER) do ns.DIAG[k] = true end
 ns.DIAG.soundtest, ns.DIAG.soundclear = true, true
@@ -2273,6 +2445,23 @@ SlashCmdList.AURALEDGER = function(msg)
 			local ik = e.icon and ns.IconKey(e.icon)
 			Print(("  %s icon %s -> %s"):format(e.name or "?", tostring(e.icon), shown[ik] and "on the frame" or "NOT on the frame"))
 		end
+	elseif cmd == "cdmapply" then
+		local icons, bars, missing = ns.CDM.Wanted()
+		Print(("Cooldown Manager: %d spell%s for icons, %d for bars%s"):format(#icons, #icons == 1 and "" or "s", #bars,
+			#missing > 0 and (", " .. #missing .. " with no entry in the manager (" .. table.concat(missing, ", ") .. ")") or ""))
+		if #icons == 0 and #bars == 0 then
+			Print("  Nothing to write. Set a group's 'In combat' to 'the game keeps it right' first.")
+		else
+			local ok, err = ns.CDM.Apply(icons, bars)
+			if ok then
+				Print("  Written as " .. ns.CDM.LayoutName() .. ". Run /auraledger debug cdm2 in a moment to see the frames it made.")
+			else
+				Print("  Not written: " .. tostring(err))
+			end
+		end
+	elseif cmd == "cdmrestore" then
+		local ok, err = ns.CDM.Restore()
+		Print(ok and "The Cooldown Manager is back to what it was before." or ("Not restored: " .. tostring(err)))
 	elseif cmd == "cdm2" then
 		ns.ProbeCDM(Print)
 	elseif cmd == "cdm" then
