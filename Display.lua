@@ -953,15 +953,8 @@ local function TrackerSlots(f, g, t, ids)
 	local unit = t.unit or "player"
 	local c = SlotContainer(f, g, unit)
 	if not c then return nil end
-	-- The game only matches spell ids for helpful auras on friendly units and harmful ones on
-	-- enemies, so a debuff on you cannot have a slot; the addon draws that tracker as before.
-	local kinds
-	if unit == "player" then
-		if t.kind == "debuff" then return nil end
-		kinds = { "HELPFUL" }
-	else
-		kinds = (t.kind == "buff" and { "HELPFUL" }) or (t.kind == "debuff" and { "HARMFUL" }) or { "HELPFUL", "HARMFUL" }
-	end
+	if t.kind == "debuff" then return nil end
+	local kinds = { "HELPFUL" }
 	local frames = {}
 	local idsKey = IdsKey(ids)
 	local mode = "cover"
@@ -1318,21 +1311,6 @@ end
 
 function Display.FrameFor(g)
 	return active[g.uid]
-end
-
--- Out of combat a target container can be made to re-read the new target (a show from addon
--- code is fine then); in combat the game only updates it when that target's auras change.
-function Display:TargetChanged()
-	if InCombatLockdown and InCombatLockdown() then return end
-	for _, f in pairs(active) do
-		local list = {}
-		if f.slotC and f.slotC.target then list[#list + 1] = f.slotC.target end
-		for _, c in ipairs(list) do
-			pcall(function()
-				if c:IsShown() then c:Hide() c:Show() end
-			end)
-		end
-	end
 end
 
 function Display:RefreshGroup(g)

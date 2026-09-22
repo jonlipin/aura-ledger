@@ -865,8 +865,7 @@ local function UpdateBookButton(b, h, tracked)
 	if h.prebuilt then
 		sub = h.note or (h.kind == "debuff" and "Debuff" or "Buff")
 	elseif (h.count or 0) > 0 then
-		local where = (h.onTarget and not h.onYou) and " on targets" or (h.onTarget and " on you and targets" or "")
-		sub = "Seen " .. h.count .. "x" .. where .. ", " .. Ago(h.last)
+		sub = "Seen " .. h.count .. "x, " .. Ago(h.last)
 	else
 		sub = "Added by hand"
 	end
@@ -885,7 +884,7 @@ local function BookItems()
 		local have = {}
 		for _, h in pairs(ns.db.history) do
 			local hay = strlower(h.name or "") .. " " .. tostring(h.id or "")
-			if hay:find(query, 1, true) and not (h.kind == "debuff" and not h.onTarget) then
+			if hay:find(query, 1, true) and h.kind ~= "debuff" then
 				list[#list + 1] = h
 				if h.name then have[strlower(h.name)] = true end
 			end
@@ -912,11 +911,9 @@ local function BookItems()
 	end
 	for _, h in pairs(ns.db.history) do
 		local keep
-		if histFilter == "you" then keep = h.onYou or (not h.onTarget)
-		elseif histFilter == "target" then keep = h.onTarget
-		else keep = histFilter == "all" or h.kind == histFilter or h.kind == "any" end
-		-- A debuff only ever seen on you cannot be tracked by spell on this client; it is not offered.
-		if keep and h.kind == "debuff" and not h.onTarget then keep = false end
+		keep = histFilter == "all" or h.kind == histFilter or h.kind == "any"
+		-- Only buffs on you can be tracked on this client, so only those are offered.
+		if h.kind == "debuff" then keep = false end
 		if keep then list[#list + 1] = h end
 	end
 	if histSort == "name" then
@@ -1607,37 +1604,6 @@ local function BuildTrackerPanel(width)
 			TrackerChanged()
 		end,
 		"Each rank of a spell has its own ID, so matching by name is usually what you want.")
-	b:Cycle("On", { { "player", "Me" }, { "target", "My target" } },
-		function() local t = T() return t and t.unit or "player" end,
-		function(v) local t = T() if t then t.unit = (v ~= "player") and v or nil TrackerChanged() end end,
-		"Me: the aura on you. My target: the aura on whatever you have targeted, such as your curse on a mob or a buff it cast on itself. A target tracker hides when you have no target. In combat, after you switch targets, the new target's auras are only re-read when they change; out of combat they are re-read at once.")
-	b:Cycle("Type", { { "any", "Buff or debuff" }, { "buff", "Buff only" }, { "debuff", "Debuff only" } },
-		function() local t = T() return t and t.kind or "any" end,
-		function(v)
-			local t = T()
-			if not t then return end
-			t.kind = v
-			if v == "debuff" and (t.unit or "player") == "player" then
-				t.unit = "target"
-				ns.Print("A debuff can only be followed on a target on this client; this tracker now watches your target.")
-			end
-			TrackerChanged()
-			b:Sync()
-		end,
-		"On this client a debuff on you cannot be followed by spell, so debuff trackers watch your target. The game's own debuff frame is what shows a debuff on you during a fight.")
-	local limitNote = b:Note("Debuff trackers watch your target: on this client a debuff on you cannot be followed by spell, and the game's own debuff frame is the only thing that can show those during a fight.")
-	b:AppliesWhen(function()
-		local t = T()
-		return (t and (t.kind == "debuff" or ((t.unit or "player") == "player" and t.kind ~= "buff"))) and true or false
-	end)
-	b.syncers[#b.syncers + 1] = function()
-		local t = T()
-		if t and (t.unit or "player") == "player" and t.kind ~= "debuff" then
-			limitNote:SetText("Set to 'Buff or debuff' on you: only the buff side can be followed in combat. Set the type to Buff only, or watch your target for a debuff.")
-		else
-			limitNote:SetText("Debuff trackers watch your target: on this client a debuff on you cannot be followed by spell, and the game's own debuff frame is the only thing that can show those during a fight.")
-		end
-	end
 	b:Check("Only when it was cast by me", function() local t = T() return t and t.mine end,
 		function(v) local t = T() if t then t.mine = v TrackerChanged() end end,
 		"Ignores the same aura when it comes from someone else.")

@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.34.1"
+ns.VERSION = "1.35.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -157,6 +157,11 @@ function ns.InitDB()
 		g.cond = type(g.cond) == "table" and g.cond or {}
 		g.liveOnlyMine = nil -- retired: the combat question covers this properly
 		g.live = nil -- retired: a group the game filled could not honour the list put in it
+		-- Trackers are buffs on you: an aura on another unit cannot be followed through a fight.
+		for _, t in ipairs(g.trackers) do
+			t.unit = nil
+			t.kind = "buff"
+		end
 		g.watch = nil -- retired: the ~ in front of a carried time already says it
 		-- Group size used to be three boxes; it is a number of players now.
 		local function MigrateGroupSize(c)
@@ -244,7 +249,7 @@ function ns.RecordAura(e, quiet)
 	end
 	if not quiet then h.count = (h.count or 0) + 1 end
 	h.last = now
-	if e.unit == "target" then h.onTarget = true else h.onYou = true end
+	h.onYou = true
 	h.ids = h.ids or {}
 	if e.id then h.id = e.id h.ids[e.id] = true end
 	if e.icon then h.icon = e.icon end
@@ -317,16 +322,13 @@ end
 -- ------------------------------------------------------------------
 function ns.NewTracker(h)
 	local idOnly = h.idOnly or not h.name
-	local kind = h.kind or "any"
 	return {
 		uid = ns.NewUid(),
 		name = h.name, id = h.id, icon = h.icon,
-		kind = kind,
+		kind = "buff",
 		matchId = (idOnly or h.byId) and true or false,
 		show = "active",
 		mine = false,
-		-- A debuff can only be followed on a target on this client; start it there.
-		unit = (kind == "debuff") and "target" or nil,
 		cond = {},
 	}
 end
@@ -535,7 +537,9 @@ end
 -- ------------------------------------------------------------------
 -- Aura reader: your own auras and your target's, kept in separate tables with their own indexes.
 -- ------------------------------------------------------------------
-ns.UNITS = { "player", "target" }
+-- Only your own buffs: see the note on the tracker, nothing on this client can follow an aura on
+-- another unit through a fight.
+ns.UNITS = { "player" }
 ns.targetAuras = {}
 local byName, byId = { player = {}, target = {} }, { player = {}, target = {} }
 
@@ -762,15 +766,6 @@ function ns.Scan()
 	local fresh, restricted, changed = ScanUnit("player", ns.auras, firstScan)
 	ns.auras = fresh
 	local historyChanged = changed
-	local hasTarget = UnitExists and Clean(UnitExists("target")) and true or false
-	if hasTarget then
-		local tfresh, trestricted, tchanged = ScanUnit("target", ns.targetAuras, false)
-		ns.targetAuras = tfresh
-		restricted = restricted or trestricted
-		historyChanged = historyChanged or tchanged
-	else
-		ns.targetAuras = {}
-	end
 	firstScan = false
 	ns.restricted = restricted
 	Reindex()
@@ -894,10 +889,10 @@ local function HandleCast(unit, spellId)
 	local lname = strlower(name)
 	local now = GetTime()
 	local used = false
-	for _, kind in ipairs({ "buff", "debuff" }) do
+	for _, kind in ipairs({ "buff" }) do
 		local h = ns.db.history[kind .. ":" .. lname]
-		local unitTo = kind == "buff" and "player" or "target"
-		if h and (unitTo == "player" or (UnitExists and Clean(UnitExists("target")))) then
+		local unitTo = "player"
+		if h then
 			local auras = AuraTable(unitTo)
 			local existing
 			for _, e in pairs(auras) do
@@ -1666,11 +1661,7 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 	elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
 		HandleCast(a1, a3)
 	elseif event == "PLAYER_TARGET_CHANGED" then
-		if ns.Display and ns.Display.TargetChanged then ns.Display:TargetChanged() end
 		ns.targetGUID = UnitGUID and Clean(UnitGUID("target")) or nil
-		ns.targetAuras = {}
-		Reindex()
-		ns.dirty = true
 		ns.UpdateEnv()
 	elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
 		HandleCombatLog()

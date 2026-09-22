@@ -2,7 +2,7 @@
 
 A buff and debuff tracker for the WoW: Forever client (Interface 16001), built from Blizzard's own interface art.
 
-Aura Ledger writes down every buff and debuff that lands on you, and everything it sees on your targets. Open the book, find the aura you care about, and drag it onto the screen the same way you drag a spell out of the spellbook. That is a tracker. Drop trackers on each other to make groups, show groups as icons or bars, and decide when each one is allowed to appear.
+Aura Ledger writes down every buff that lands on you. Open the book, find the aura you care about, and drag it onto the screen the same way you drag a spell out of the spellbook. That is a tracker. Drop trackers on each other to make groups, show groups as icons or bars, and decide when each one is allowed to appear.
 
 ## The book
 
@@ -33,9 +33,9 @@ The minimize button beside the close button shrinks the window to the Groups and
 
 Per **group**: name, icons with numbers or bars with icons, growth direction, icon size, bar width and height, spacing, how many per row before wrapping, scale, opacity, time text, names on bars, and whether to draw the bar border, the bar background and the icon frame. Options that do not apply to what the group shows are greyed out, and say why when you hover them.
 
-Debuffs are listed only where they can be followed: on your target. A debuff on you cannot be tracked by spell on this client, and the game's own debuff frame is the only thing that shows those during a fight.
+Only buffs on you are listed. Nothing on this client can follow an aura on another unit through a fight, and a debuff on you cannot be tracked by spell at all, so the game's own debuff frame is what shows those.
 
-Per **tracker**: on **you** or on **your target** (a target tracker hides with no target); show when the aura is **active**, when it is **missing**, or **always** (turning red while missing); a warn window in seconds (with "missing": also shows while the aura has that long or less left, in red; with "always": the border turns red that early); match by name (any rank) or exact spell ID; buff, debuff or either; only when cast by you; a custom bar label; a Blizzard sound when the aura is applied, when it runs out, and when the tracker appears.
+Per **tracker**: show when the aura is **active**, when it is **missing**, or **always** (turning red while missing); a warn window in seconds (with "missing": also shows while the aura has that long or less left, in red; with "always": the border turns red that early); match by name (any rank) or exact spell ID; only when cast by you; a custom bar label; a Blizzard sound when the aura is applied, when it runs out, and when the tracker appears.
 
 **Conditions**, on both groups and trackers (a tracker must pass its own and its group's):
 
