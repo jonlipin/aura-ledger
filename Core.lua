@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.11.1"
+ns.VERSION = "1.11.2"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0 }
 ns.auras = {}
@@ -490,7 +490,8 @@ function ns.Find(t)
 	if not list then return nil end
 	local best
 	for _, e in ipairs(list) do
-		if (t.kind == "any" or not t.kind or e.kind == t.kind) and (not t.mine or e.mine) then
+		-- "Cast by me" is unknown (nil) for an aura recognised from a frame icon; that passes.
+		if (t.kind == "any" or not t.kind or e.kind == t.kind) and (not t.mine or e.mine ~= false) then
 			if not best then
 				best = e
 			elseif best.expires > 0 and (e.expires == 0 or e.expires > best.expires) then
@@ -720,9 +721,10 @@ end
 local function ReconcileWithFrames()
 	local shown = {}
 	frameIconStats.reads = frameIconStats.reads + 1
-	local any = CollectFrameIcons(BuffFrame, "BuffButton", "buff", shown)
-	any = CollectFrameIcons(DebuffFrame, "DebuffButton", "debuff", shown) or any
-	if not any or not frameIconStats.readable then return false end
+	CollectFrameIcons(BuffFrame, "BuffButton", "buff", shown)
+	CollectFrameIcons(DebuffFrame, "DebuffButton", "debuff", shown)
+	-- Readable sticks once an icon has been read; from then on an empty frame means no auras.
+	if not frameIconStats.readable then return false end
 	local changed = false
 	local now = GetTime()
 	local auras = ns.auras
@@ -770,7 +772,7 @@ local function ReconcileWithFrames()
 				auras[key] = {
 					key = key, name = best.name, id = best.id, icon = file, count = 0,
 					duration = duration, expires = duration > 0 and (now + duration) or 0, kind = kind, unit = "player",
-					mine = false, synth = true, estimated = true, stale = true,
+					mine = nil, synth = true, estimated = true, stale = true, -- caster unknown
 				}
 				frameIconStats.added = frameIconStats.added + 1
 				changed = true

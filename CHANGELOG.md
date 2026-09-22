@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.11.2
+
+- Fixed: a tracker with "Only when it was cast by me" kept showing the aura as missing after it was reapplied in combat. An aura recognised from the buff frame's icon has no caster information, and that was being read as "cast by someone else"; it now counts as yours until the real data is readable again.
+- Fixed: the last buff or debuff on you running out in combat was not noticed, because an empty buff frame was treated as unreadable. Once the frames have been read successfully, empty means empty.
+
 ## 1.11.1
 
 - In combat, an icon appearing on the buff or debuff frame is matched against your trackers first, then the ledger, then the pre-built book, so a tracked debuff is recognised the first time it ever lands on you.
