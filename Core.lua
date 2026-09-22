@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.27.0"
+ns.VERSION = "1.27.1"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -154,6 +154,7 @@ function ns.InitDB()
 		g.trackers = type(g.trackers) == "table" and g.trackers or {}
 		g.cond = type(g.cond) == "table" and g.cond or {}
 		g.liveOnlyMine = nil -- retired: the combat question covers this properly
+		g.watch = nil -- retired: the ~ in front of a carried time already says it
 		-- Retired conditions: resting, mounted and having a target were rarely what anyone meant.
 		for _, key in ipairs({ "resting", "mounted", "target" }) do
 			if g.cond then g.cond[key] = nil end
@@ -318,7 +319,7 @@ function ns.NewTracker(h)
 end
 
 -- The look of a group, copied when a tracker is pulled out into a group of its own.
-ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "watch", "live", "liveOnlyMine", "gameDrawn" }
+ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "live", "liveOnlyMine", "gameDrawn" }
 
 -- What a game-drawn group can show: Blizzard's aura filters for the player.
 -- What the game can fill a group with. Only the two worth having are offered: the rest repeated

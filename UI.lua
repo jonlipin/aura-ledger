@@ -1510,10 +1510,6 @@ local function BuildGroupPanel(width)
 		function(v) local g = G() if g then g.background = v GroupChanged() end end,
 		"The dark plate behind the fill. Untick to see through the empty part of a bar.")
 	b:AppliesWhen(IsBars)
-	b:Check("Pocket watch on carried timers", function() local g = G() return g and g.watch ~= false end,
-		function(v) local g = G() if g then g.watch = v GroupChanged() end end,
-		"In combat the client hides aura details from addons, so timers are carried on from the last clean read. The small watch marks those. Untick to hide it.")
-	b:AppliesWhen(function() return not IsGameDrawn() end)
 	b:Check("Icon frame", function() local g = G() return g and g.iconFrame ~= false end,
 		function(v) local g = G() if g then g.iconFrame = v GroupChanged() end end,
 		"The decorative frame around each icon, when the client has one.")

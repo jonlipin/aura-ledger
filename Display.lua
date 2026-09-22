@@ -472,10 +472,6 @@ local function CreateWidget(parent)
 	w.duration:SetFont(FONT, 11, "OUTLINE")
 	w.duration:SetJustifyH("RIGHT")
 	-- Shown while the state is carried or estimated because the client is hiding auras.
-	w.stale = overlay:CreateTexture(nil, "OVERLAY")
-	w.stale:SetTexture("Interface\\Icons\\INV_Misc_PocketWatch_01")
-	w.stale:SetTexCoord(0.08, 0.92, 0.08, 0.92)
-	w.stale:Hide()
 
 	-- The action-button hover glow, on the icon only so a whole bar is not washed out.
 	w:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
@@ -503,7 +499,6 @@ local function ConfigureWidget(w, g)
 	w.icon:ClearAllPoints()
 	w.time:ClearAllPoints()
 	w.count:ClearAllPoints()
-	w.stale:ClearAllPoints()
 	w.name:ClearAllPoints()
 	w.duration:ClearAllPoints()
 	if g.style == "bars" then
@@ -545,8 +540,6 @@ local function ConfigureWidget(w, g)
 		w.time:Hide()
 		w.count:SetFont(FONT, max(7, floor(H * 0.45)), "OUTLINE")
 		w.count:SetPoint("BOTTOMRIGHT", w.icon, "BOTTOMRIGHT", -1, 1)
-		w.stale:SetSize(max(7, H * 0.34), max(7, H * 0.34))
-		w.stale:SetPoint("BOTTOMLEFT", w.icon, "BOTTOMLEFT", 1, 1)
 	else
 		local S = g.size
 		w:SetSize(S, S)
@@ -564,8 +557,6 @@ local function ConfigureWidget(w, g)
 		w.time:SetPoint("CENTER", w.icon, "CENTER", 0, 0)
 		w.count:SetFont(FONT, max(7, floor(S * 0.3)), "OUTLINE")
 		w.count:SetPoint("BOTTOMRIGHT", w.icon, "BOTTOMRIGHT", -1, 1)
-		w.stale:SetSize(max(7, S * 0.26), max(7, S * 0.26))
-		w.stale:SetPoint("BOTTOMLEFT", w.icon, "BOTTOMLEFT", 1, 1)
 	end
 end
 
@@ -624,7 +615,6 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 		end
 	end
 	w.count:SetText((isActive and entry.count and entry.count > 1) and entry.count or "")
-	w.stale:SetShown(g.watch ~= false and isActive and (entry.stale or entry.estimated) and true or false)
 
 	if g.style == "bars" then
 		if w.edge then
@@ -655,7 +645,9 @@ local function TickWidget(w, g, now)
 	if not w.timed or not w.entry then return end
 	local e = w.entry
 	local rem = max(0, e.expires - now)
-	local text = g.timers ~= false and ((e.estimated and "~" or "") .. ns.FormatTime(rem)) or ""
+	-- The ~ is the one mark for a time the addon is carrying rather than reading: either it was
+	-- guessed, or it is the last clean read counting on.
+	local text = g.timers ~= false and (((e.estimated or e.stale) and "~" or "") .. ns.FormatTime(rem)) or ""
 	if g.style == "bars" then
 		local frac = e.duration > 0 and min(1, rem / e.duration) or 1
 		SetFill(w, frac)

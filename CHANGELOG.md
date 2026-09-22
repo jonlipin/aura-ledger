@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.27.1
+
+- The little pocket watch on carried timers is gone, along with its option. The ~ in front of a time now marks every carried time, not just a guessed one, so there is one mark for it instead of two and a tick box.
+
 ## 1.27.0
 
 - Groundwork for having Blizzard's Cooldown Manager draw the trackers that must stay right in a fight. The manager can read auras in combat because it is the game's own code, so the addon can put a tracker's spell into the manager's layout and use the frame the manager makes for it. This release writes that layout: /auraledger debug cdmapply builds one named "Aura Ledger (spec)" holding the spells of every tracker whose group asked the game to draw it, icons and bars in their own rows, and says which trackers the manager has no entry for. /auraledger debug cdmrestore hands the manager back to whatever was in charge before.
