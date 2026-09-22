@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.18.1
+
+- Fixed: game-drawn bars were black with a thin line; the bar's fill was given the whole texture sheet instead of the Cooldown Manager's fill strip.
+- Debuffs on you cannot be drawn per spell: the game only matches spell IDs for buffs on friendly units and debuffs on enemies (a rule in Blizzard's container code). Such trackers in a game-drawn group are drawn by the addon as before; "Contents: Debuffs on me" remains the way to see every debuff on you in combat. Debuff trackers set to "On: My target" do get game-drawn slots, so your own DoTs on the target can be followed in combat.
+- Target containers are refreshed when the target changes.
+
 ## 1.18.0
 
 - Trackers drawn by the game. Blizzard's AuraContainer has aura slots: one game-owned frame that shows a single aura matching a spell list, current in combat. A group's new "Trackers drawn by the game" option gives every tracker such a slot (filtered to every rank the ledger knows for it, and to your own casts when "only when cast by me" is on), anchored over the tracker's cell and drawn above the addon's own art. While the aura is on you the game shows the slot; when it is gone the game hides it and the cell shows the addon's "missing" art (or nothing, for "show when active"). So both active and missing trackers stay right in combat, with the game's icon, countdown, swipe, stack count and dispel border, in our bar or icon art. Every tracker keeps its cell, the warn window does not apply, and a tracker the ledger has no spell ID for is drawn by the addon as before. Slots are built out of combat.

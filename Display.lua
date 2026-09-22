@@ -304,6 +304,7 @@ local function BuildSkin()
 	end
 	-- Resolve the fill to a file + coords so it can be cropped as it drains.
 	if s.fill.atlas then
+		s.fillAtlas = s.fill.atlas
 		local info = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(s.fill.atlas)
 		if info and info.file then
 			s.fill = { file = info.file, coords = { info.leftTexCoord or 0, info.rightTexCoord or 1, info.topTexCoord or 0, info.bottomTexCoord or 1 }, blend = s.fill.blend }
@@ -907,7 +908,19 @@ local function InitSlotFrame(g)
 			local bar = CreateFrame("StatusBar", nil, button)
 			bar:SetPoint("TOPLEFT", icon, "TOPRIGHT", 2, 0)
 			bar:SetPoint("BOTTOMRIGHT")
-			if s.fill.stretch then bar:SetStatusBarTexture(s.fill.atlas) else bar:SetStatusBarTexture(s.fill.file) end
+			-- The fill is a strip inside a sheet: the bar's texture needs the atlas (or the crop), not the sheet.
+			bar:SetStatusBarTexture(s.fill.file or BAR_TEXTURE)
+			local fillTex = bar:GetStatusBarTexture()
+			if fillTex then
+				if s.fillAtlas then
+					fillTex:SetAtlas(s.fillAtlas)
+				elseif s.fill.coords then
+					local c2 = s.fill.coords
+					fillTex:SetTexCoord(c2[1], c2[2], c2[3], c2[4])
+				end
+				if s.fill.blend then fillTex:SetBlendMode(s.fill.blend) end
+			end
+			if s.tint then bar:SetStatusBarColor(0.2, 0.8, 0.3) end
 			local bg = bar:CreateTexture(nil, "BACKGROUND")
 			bg:SetAllPoints()
 			bg:SetColorTexture(0, 0, 0, g.background ~= false and 0.55 or 0)
@@ -980,7 +993,15 @@ local function TrackerSlots(f, g, t, ids)
 	local unit = t.unit or "player"
 	local c = SlotContainer(f, g, unit)
 	if not c then return nil end
-	local kinds = (t.kind == "buff" and { "HELPFUL" }) or (t.kind == "debuff" and { "HARMFUL" }) or { "HELPFUL", "HARMFUL" }
+	-- The game only matches spell ids for helpful auras on friendly units and harmful ones on
+	-- enemies, so a debuff on you cannot have a slot; the addon draws that tracker as before.
+	local kinds
+	if unit == "player" then
+		if t.kind == "debuff" then return nil end
+		kinds = { "HELPFUL" }
+	else
+		kinds = (t.kind == "buff" and { "HELPFUL" }) or (t.kind == "debuff" and { "HARMFUL" }) or { "HELPFUL", "HARMFUL" }
+	end
 	local frames = {}
 	local idsKey = IdsKey(ids)
 	for _, filter in ipairs(kinds) do
@@ -1135,7 +1156,8 @@ local function LayoutGroup(f, g, visible, unlocked)
 	end
 
 	if f.slotC and slots then
-		for _, c in pairs(f.slotC) do
+		for unit, c in pairs(f.slotC) do
+			if unit ~= "player" and c.UpdateAllAuras and not (InCombatLockdown and InCombatLockdown()) then pcall(c.UpdateAllAuras, c) end
 			for key, want in pairs(c.alWant or {}) do
 				if c.alOn == nil then c.alOn = {} end
 				if c.alOn[key] ~= want then
