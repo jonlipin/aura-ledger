@@ -55,6 +55,7 @@ This client hides aura details from addons while addon restrictions are active (
 
 - whatever it knew going in keeps counting down on its own timer
 - removals still arrive and are applied straight away
+- the icons on the default buff and debuff frames are watched: a carried buff whose icon vanishes is dropped, and an icon that appears is recognised from the ledger
 - anything carried or estimated wears a small pocket watch and a `~` in front of its time, and everything is re-read properly the moment the restriction lifts
 
 `/auraledger debug` reports what the client actually allowed, which is the first thing to send with a bug report.

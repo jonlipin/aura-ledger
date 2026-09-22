@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.11.0
+
+- Missing buffs now update in combat. While the client hides aura data, the addon watches the icons the default buff and debuff frames are showing: a carried buff whose icon disappears from them is dropped at once (so "missing" trackers fire mid-fight), and an icon that appears is matched against the ledger and shown as an estimated aura. /auraledger debug reports whether the frame icons are readable on this client and how often this has fired.
+
 ## 1.10.3
 
 - Heading backplates lowered 7px (half way back).

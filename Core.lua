@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.10.3"
+ns.VERSION = "1.11.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0 }
 ns.auras = {}
@@ -677,6 +677,91 @@ local function HandleAuraInfo(unit, info)
 	end
 end
 
+-- ------------------------------------------------------------------
+-- The default buff and debuff frames in combat. Aura data is secret then, but Blizzard's own
+-- frames still draw, and their icon textures may be readable. While restricted, the icons they
+-- show are compared with what we carry: a carried aura whose icon is no longer shown is dropped
+-- (so "missing" trackers fire mid-fight), and an icon that appears with no aura behind it is
+-- looked up in the ledger and shown as an estimated aura. The debug report says whether this works.
+-- ------------------------------------------------------------------
+local frameIconStats = { reads = 0, readable = false, removed = 0, added = 0 }
+ns.frameIconStats = frameIconStats
+
+local function CollectFrameIcons(frame, prefix, kind, into)
+	local any = false
+	local buttons = frame and type(frame.auraFrames) == "table" and frame.auraFrames
+	if buttons then
+		for _, b in pairs(buttons) do
+			if type(b) == "table" and b.IsShown and b:IsShown() then
+				any = true
+				local tex = b.Icon or b.icon
+				local ok, file = pcall(function() return tex and tex:GetTexture() end)
+				file = ok and Clean(file) or nil
+				if file then into[file] = kind frameIconStats.readable = true end
+			end
+		end
+	elseif prefix then
+		for i = 1, 40 do
+			local b = _G[prefix .. i]
+			if not b then break end
+			if b:IsShown() then
+				any = true
+				local tex = _G[prefix .. i .. "Icon"] or b.Icon
+				local ok, file = pcall(function() return tex and tex:GetTexture() end)
+				file = ok and Clean(file) or nil
+				if file then into[file] = kind frameIconStats.readable = true end
+			end
+		end
+	end
+	return any
+end
+
+-- Returns true when something changed.
+local function ReconcileWithFrames()
+	local shown = {}
+	frameIconStats.reads = frameIconStats.reads + 1
+	local any = CollectFrameIcons(BuffFrame, "BuffButton", "buff", shown)
+	any = CollectFrameIcons(DebuffFrame, "DebuffButton", "debuff", shown) or any
+	if not any or not frameIconStats.readable then return false end
+	local changed = false
+	local now = GetTime()
+	local auras = ns.auras
+	-- Carried auras whose icon is gone from the frames are gone.
+	for key, e in pairs(auras) do
+		if (e.stale or e.estimated) and e.icon and not shown[e.icon] then
+			auras[key] = nil
+			frameIconStats.removed = frameIconStats.removed + 1
+			changed = true
+		end
+	end
+	-- Icons shown with nothing behind them: the ledger knows what they are.
+	local have = {}
+	for _, e in pairs(auras) do if e.icon then have[e.icon] = true end end
+	for file, kind in pairs(shown) do
+		if not have[file] then
+			local best
+			for _, h in pairs(ns.db.history) do
+				if h.icon == file and h.name and (h.kind == kind or h.kind == "any") then
+					if not best or (h.last or 0) > (best.last or 0) then best = h end
+				end
+			end
+			if best then
+				local duration = best.duration or 0
+				local key = "f:" .. kind .. ":" .. tostring(best.id or best.name)
+				auras[key] = {
+					key = key, name = best.name, id = best.id, icon = file, count = 0,
+					duration = duration, expires = duration > 0 and (now + duration) or 0, kind = kind, unit = "player",
+					mine = false, synth = true, estimated = true, stale = true,
+				}
+				frameIconStats.added = frameIconStats.added + 1
+				changed = true
+			end
+		end
+	end
+	return changed
+end
+ns.ReconcileWithFrames = ReconcileWithFrames
+
 -- Combat log: only consulted while auras are unreadable, to catch applications and removals on
 -- you or on your target.
 local AURA_EVENTS = {
@@ -901,6 +986,8 @@ function ns.OnUpdate(elapsed)
 				if (e.stale or e.estimated) and e.expires > 0 and now > e.expires then ns.dirty = true break end
 			end
 		end
+		-- While auras are secret, the default buff frames' icons are the only live word we get.
+		if ns.restricted and ReconcileWithFrames() then ns.dirty = true end
 	end
 end
 events:SetScript("OnUpdate", function(_, elapsed) ns.OnUpdate(elapsed) end)
@@ -1143,6 +1230,9 @@ local function Debug()
 		s.scans, s.partial, s.blocked, s.removedById, s.estimated))
 	Print(("  combat log: %s, aura events %d, used while restricted %d"):format(
 		registered.COMBAT_LOG_EVENT_UNFILTERED and "registered" or "not registered (forbidden on this client; /auraledger combatlog to try)", s.cleu, s.cleuUsed))
+	local fi = ns.frameIconStats
+	Print(("  buff frame icons while restricted: readable %s, reads %d, carried auras dropped %d, auras recognised from icons %d"):format(
+		YesNo(fi.readable), fi.reads, fi.removed, fi.added))
 	local live, carried = 0, 0
 	for _, e in pairs(ns.auras) do live = live + 1 if e.stale or e.estimated then carried = carried + 1 end end
 	local onTarget = 0
