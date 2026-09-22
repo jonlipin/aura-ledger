@@ -1203,6 +1203,7 @@ local function LayoutGroup(f, g, visible, unlocked)
 		local item = visible[k]
 		widget:SetAlpha(1)
 		if widget:GetParent() ~= cellParent then widget:SetParent(cellParent) end
+		widget.alBorrowed = item.borrowed
 		if item.borrowed then
 			-- The manager draws the aura itself. The cell underneath carries the missing art, for
 			-- when the manager is not showing it.

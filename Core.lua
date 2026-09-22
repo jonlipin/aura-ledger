@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.34.0"
+ns.VERSION = "1.34.1"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -2336,7 +2336,13 @@ SlashCmdList.AURALEDGER = function(msg)
 					end
 					for i, w in ipairs(f.widgets) do
 						if w:IsShown() then
-							Print(("    cell %d: %s, alpha %.1f, parent %s"):format(i, w.tracker and (w.tracker.name or "?") or "-", w:GetAlpha(), w:GetParent() == f.gate and "gate" or "group"))
+							local b = w.alBorrowed
+							local borrowed = "drawn by the addon"
+							if b then
+								local okS, sh = pcall(b.IsShown, b)
+								borrowed = ("borrowed cooldown %s, the game is showing it: %s"):format(tostring(b.cooldownID), okS and S(sh) or "cannot say")
+							end
+							Print(("    cell %d: %s, alpha %.1f, %s"):format(i, w.tracker and (w.tracker.name or "?") or "-", w:GetAlpha(), borrowed))
 						end
 					end
 				end

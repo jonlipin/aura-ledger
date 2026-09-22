@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.34.1
+
+- /auraledger debug gd now says, for each tracker in a group the game draws, whether it borrowed a Cooldown Manager frame, which cooldown that frame is for, and whether the game is currently showing it.
+
 ## 1.34.0
 
 - The groups the game filled are gone, and with them the Contents question. A group whose contents the game chose could not honour the list you put in it, which is the one thing this addon is for: you would drag auras into a group and watch it show something else. Every group is now the trackers you put there, and the only question left about a group is who draws them, which lives with the combat condition. Any group that was set to one of the filled kinds becomes an ordinary group of its own trackers.
