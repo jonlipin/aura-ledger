@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.42.3"
+ns.VERSION = "1.43.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -2060,7 +2060,9 @@ end
 -- should keep its own corners.
 function ns.SetIconMask(frame, tex, on, size)
 	if not tex then return false end
-	if on and ns.db and ns.db.maskOff then
+	-- Not unless it is asked for: the shape this client's mask cuts is a tab, rounded along the top
+	-- and flat along the bottom, which is not what an icon should look like.
+	if on and not (ns.db and ns.db.maskOn) then
 		on = false
 	end
 	if on then
@@ -2095,6 +2097,12 @@ function ns.ClearMaskDiagnostics()
 	if ns.db and not ns.db.maskDiagCleared then
 		ns.db.maskDiagCleared = true
 		ns.db.maskShift, ns.db.maskOff = nil, nil
+	end
+	-- 1.43.0: the frame this client offers is the shape of a tab, so a tracker wears a clean edge
+	-- unless something else was asked for after this.
+	if ns.db and not ns.db.cleanEdgeDefault then
+		ns.db.cleanEdgeDefault = true
+		ns.db.iconBorder, ns.db.maskOff, ns.db.maskOn = nil, nil, nil
 	end
 end
 
@@ -2368,25 +2376,25 @@ SlashCmdList.AURALEDGER = function(msg)
 			return
 		end
 		if word == "" then
-			Print(("Icon border: %s, out %.3f, up %.3f."):format(tostring(ns.db.iconBorder or "client"), ns.FRAME_OVER, ns.FRAME_SHIFT))
-			Print("|cffffd000/auraledger iconborder client|r draws the frame this client puts round its own icons, |cffffd000cdm|r copies the Cooldown Manager's overlay, |cffffd000none|r draws no frame, |cffffd000size <out> <up>|r sets how far past the icon it is drawn and how far up.")
+			Print(("Icon border: %s, out %.3f, up %.3f."):format(tostring(ns.db.iconBorder or "clean"), ns.FRAME_OVER, ns.FRAME_SHIFT))
+			Print("|cffffd000clean|r is a thin dark line, the way an icon is edged everywhere else. |cffffd000client|r draws this client's own frame art, |cffffd000cdm|r copies the Cooldown Manager's overlay, |cffffd000none|r draws nothing. |cffffd000size <out> <up>|r is for the client frame.")
 			Print("  in hand: " .. tostring(ns.report["icon frame"] or "not tried yet"))
-		elseif word == "client" or word == "cdm" or word == "none" then
-			ns.db.iconBorder = (word ~= "client") and word or nil
+		elseif word == "clean" or word == "client" or word == "cdm" or word == "none" then
+			ns.db.iconBorder = (word ~= "clean") and word or nil
 			ns.MASK_EPOCH = ns.MASK_EPOCH + 1
 			if ns.Display then ns.Display:Rebuild() end
 			Print("Icon border: " .. word .. ". The window follows after a /reload.")
 		else
-			Print("Icon border: client, cdm or none.")
+			Print("Icon border: clean, client, cdm or none.")
 		end
 	elseif cmd == "iconmask" then
 		local word = strlower(rest or "")
 		if word == "off" or word == "on" then
-			ns.db.maskOff = (word == "off") or nil
+			ns.db.maskOn = (word == "on") or nil
 			ns.MASK_EPOCH = ns.MASK_EPOCH + 1
-			local off = ns.db.maskOff and ns.ClearAllMasks() or 0
+			local off = (not ns.db.maskOn) and ns.ClearAllMasks() or 0
 			if ns.Display then ns.Display:Rebuild() end
-			Print("Icon mask: " .. (ns.db.maskOff and ("off, icons keep their own corners; " .. off .. " taken off what is on screen") or "on")
+			Print("Icon mask: " .. (ns.db.maskOn and "on" or ("off, icons keep their own corners; " .. off .. " taken off what is on screen"))
 				.. ". The window follows after a /reload.")
 			return
 		end
@@ -2402,7 +2410,7 @@ SlashCmdList.AURALEDGER = function(msg)
 			Print(("Icon mask: out %.3f, up %.3f. %d mask%s moved; the book follows after a /reload."):format(
 				ns.MASK_OVER, ns.MASK_SHIFT, n, n == 1 and "" or "s"))
 		else
-			Print(("Icon mask: %s, out %.3f, up %.3f."):format(ns.db.maskOff and "|cffff5050off|r" or "on", ns.MASK_OVER, ns.MASK_SHIFT))
+			Print(("Icon mask: %s, out %.3f, up %.3f."):format(ns.db.maskOn and "on" or "off (this client's mask is the shape of a tab)", ns.MASK_OVER, ns.MASK_SHIFT))
 			Print("|cffffd000/auraledger iconmask <out> <up>|r, both as a share of the icon: out is how far past the icon the mask art is drawn, up moves the shape against the icon. |cffffd000/auraledger iconmask off|r leaves icons their own square corners.")
 		end
 	elseif cmd == "atlases" then

@@ -348,12 +348,21 @@ end
 
 local skin
 
+-- How an icon is edged. "clean" is a thin dark line drawn by the addon, which is what an icon wears
+-- everywhere else in the game; the client's own frame atlas and the Cooldown Manager's overlay are
+-- both, on this client, the shape of a tab, rounded along the top and flat along the bottom.
+local function BorderMode()
+	local m = ns.db and ns.db.iconBorder
+	if m == "client" or m == "cdm" or m == "none" then return m end
+	return "clean"
+end
+
 -- The frame this client draws round its own icons, if it has one. It is drawn by its own two
 -- numbers, not the mask's: the mask is a shape that has to be grown by about a quarter before it
 -- fits an icon, while this is art that sits on one with a thin border.
 local clientFrame, clientFrameTried
 local function ClientIconFrame()
-	if ns.db and ns.db.iconBorder == "cdm" then return nil end
+	if BorderMode() ~= "client" then return nil end
 	if not clientFrameTried then
 		clientFrameTried = true
 		for _, atlas in ipairs(ns.ICON_FRAMES or {}) do
@@ -362,6 +371,27 @@ local function ClientIconFrame()
 		ns.report["icon frame"] = clientFrame or "none on this client, the Cooldown Manager's overlay is used"
 	end
 	return clientFrame
+end
+
+-- A thin dark line round the icon, the way the game edges an icon that has no frame of its own.
+local function PlaceCleanEdge(w, ref, size, want)
+	local on = (want ~= false) and BorderMode() == "clean"
+	local tex = w.cleanEdge
+	if not on then
+		if tex then tex:Hide() end
+		return false
+	end
+	if not tex then
+		tex = (w.under or w):CreateTexture(nil, "BACKGROUND", nil, -6)
+		w.cleanEdge = tex
+	end
+	local px = max(1, floor(size / 24 + 0.5))
+	tex:SetColorTexture(0, 0, 0, 0.9)
+	tex:ClearAllPoints()
+	tex:SetPoint("TOPLEFT", ref, "TOPLEFT", -px, px)
+	tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", px, -px)
+	tex:Show()
+	return true
 end
 
 -- Draws it on "w" around "ref", at the size the mask is drawn at, and says whether it could.
@@ -477,6 +507,7 @@ local function BuildSkin()
 end
 Display.BuildSkin = BuildSkin
 Display.IconCrop = IconCrop
+Display.BorderMode = BorderMode
 Display.EvenOverhang = EvenOverhang
 Display.IconInset = IconInset
 
@@ -508,6 +539,7 @@ end
 function Display:IconReport(emit)
 	local s = BuildSkin()
 	emit("icon art from: " .. tostring(s.iconSource or s.source))
+	emit("icon edge: " .. BorderMode())
 	local fi = ClientIconFrame()
 	local fa = fi and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(fi)
 	emit(("icon frame: %s%s, drawn out %.3f and up %.3f of the icon"):format(
@@ -744,7 +776,7 @@ local function ConfigureWidget(w, g)
 		-- corners off. Only where there is no mask is it pulled in under the art instead. The mask
 		-- is told the size it clips, because the icon has not been given one yet.
 		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false, IS)
-		local inset = (masked or ClientIconFrame()) and 0 or IconInset(s, true, IS, g.iconFrame ~= false)
+		local inset = (masked or BorderMode() ~= "cdm") and 0 or IconInset(s, true, IS, g.iconFrame ~= false)
 		-- The widget is as tall as the taller of the two, and both the icon and the bar hold its
 		-- middle, so scaling the icon moves neither off the other's line.
 		local WH = max(H, IS)
@@ -758,7 +790,10 @@ local function ConfigureWidget(w, g)
 		w.bar:SetPoint("LEFT", w, "LEFT", IS + 2, 0)
 		w.bar:Show()
 		PlaceDecor(w, s.decor, "decor", w.bar, H, wantBar)
-		if PlaceClientFrame(w, w.icon, IS, g.iconFrame ~= false) then
+		-- Both are asked every time: the one that is not wanted takes itself off screen.
+		local edged = PlaceCleanEdge(w, w.icon, IS, g.iconFrame ~= false)
+		local framed = PlaceClientFrame(w, w.icon, IS, g.iconFrame ~= false)
+		if edged or framed then
 			PlaceDecor(w, {}, "iconArt", w.icon, IS, wantIcon, true)
 		else
 			PlaceDecor(w, IconArt(s, true), "iconArt", w.icon, IS, wantIcon, true)
@@ -792,7 +827,7 @@ local function ConfigureWidget(w, g)
 	else
 		local S = g.size
 		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false, S)
-		local inset = (masked or ClientIconFrame()) and 0 or IconInset(s, false, S, g.iconFrame ~= false)
+		local inset = (masked or BorderMode() ~= "cdm") and 0 or IconInset(s, false, S, g.iconFrame ~= false)
 		w:SetSize(S, S)
 		w.icon:SetSize(S - inset * 2, S - inset * 2)
 		w.icon:SetPoint("CENTER")
@@ -800,7 +835,9 @@ local function ConfigureWidget(w, g)
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		w.bar:Hide()
 		PlaceDecor(w, {}, "decor", w.bar, S)
-		if PlaceClientFrame(w, w.icon, S, g.iconFrame ~= false) then
+		local edged = PlaceCleanEdge(w, w.icon, S, g.iconFrame ~= false)
+		local framed = PlaceClientFrame(w, w.icon, S, g.iconFrame ~= false)
+		if edged or framed then
 			PlaceDecor(w, {}, "iconArt", w.icon, S, wantIcon, true)
 		else
 			PlaceDecor(w, IconArt(s, false), "iconArt", w.icon, S, wantIcon, true)
@@ -1007,7 +1044,7 @@ local function InitSlotFrame(g, mode, filter, store)
 		local c = IconCrop((bars and s.iconCoords) or s.soloIconCoords or s.iconCoords)
 		icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		local masked = g.iconFrame ~= false and ns.SetIconMask(button, icon, true, IS)
-		local inset = (masked or ClientIconFrame()) and 0 or IconInset(s, bars, IS, g.iconFrame ~= false)
+		local inset = (masked or BorderMode() ~= "cdm") and 0 or IconInset(s, bars, IS, g.iconFrame ~= false)
 		local IW = IS - inset * 2
 		-- The container takes the icon and anchors it to the button, which is not always square, so
 		-- the picture is put back on its own square afterwards.
@@ -1056,8 +1093,10 @@ local function InitSlotFrame(g, mode, filter, store)
 			if not pcall(button.SetDurationBar, button, bar, dir ~= nil and { direction = dir } or nil) then pcall(button.SetDurationBar, button, bar) end
 			local w = { under = button, over = button, decor = {}, iconArt = {} }
 			PlaceDecor(w, s.decor, "decor", bar, H, function(dd) if dd.under then return g.background ~= false else return g.border ~= false end end)
-			if g.iconFrame ~= false and not PlaceClientFrame(w, icon, IS, true) then
-				PlaceDecor(w, IconArt(s, true), "iconArt", icon, IS, nil, true)
+			if g.iconFrame ~= false then
+				local e1 = PlaceCleanEdge(w, icon, IS, true)
+				local e2 = PlaceClientFrame(w, icon, IS, true)
+				if not e1 and not e2 then PlaceDecor(w, IconArt(s, true), "iconArt", icon, IS, nil, true) end
 			end
 			local px = max(8, min(14, floor(H * 0.52)))
 			local textHolder = CreateFrame("Frame", nil, button)
@@ -1092,9 +1131,9 @@ local function InitSlotFrame(g, mode, filter, store)
 			end
 			if g.iconFrame ~= false then
 				local w = { under = button, over = button, decor = {}, iconArt = {} }
-				if not PlaceClientFrame(w, icon, H, true) then
-					PlaceDecor(w, IconArt(s, false), "iconArt", icon, H, nil, true)
-				end
+				local e1 = PlaceCleanEdge(w, icon, H, true)
+				local e2 = PlaceClientFrame(w, icon, H, true)
+				if not e1 and not e2 then PlaceDecor(w, IconArt(s, false), "iconArt", icon, H, nil, true) end
 			end
 		end
 		pcall(button.SetMouseMotionEnabled, button, true)

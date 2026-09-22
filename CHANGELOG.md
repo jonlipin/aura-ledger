@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.43.0
+
+- Icons are clean. Both the frame atlas this client offers and the mask cut to go with it are the shape of a tab, rounded along the top and flat along the bottom, which is why drawing them evenly never made them look right: that is what the art is. A tracker now wears a trimmed spell icon with a thin dark line round it, the way an icon is edged everywhere else in the game, and is not masked unless asked.
+- /auraledger iconborder takes clean, client, cdm or none: the thin dark line, this client's own frame art, the Cooldown Manager's overlay, or nothing. /auraledger iconmask on puts the client's mask back if it is wanted.
+
 ## 1.42.3
 
 - Spell icons are trimmed again everywhere. A spell icon has a dark border baked into its outer edge, which is why every frame in the game cuts one off, and 1.42.0 kept the whole picture wherever the addon was masking: a mask rounds the corners of what it is given, border and all, so that border was on show underneath the addon's own frame.
