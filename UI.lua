@@ -2065,12 +2065,12 @@ local function Build()
 	BuildTrackerPanel(optionsWidth)
 
 	-- ---- Minimize: full -> groups and trackers only -> header bar only ----
-	local editButton = MakeButton(frame, "Edit trackers", 110)
-	editButton:SetPoint("TOPLEFT", body, "TOPLEFT", 8, 6)
+	local editButton = MakeButton(frame, "Edit layout", 100)
+	editButton:SetPoint("RIGHT", searchBox, "LEFT", -8, 0)
 	editButton:SetFrameLevel((frame.CloseButton and frame.CloseButton:GetFrameLevel() or frame:GetFrameLevel()) + 1)
 	editButton:SetScript("OnClick", function() UI:SetEditMode(not ns.db.unlocked, true) end)
 	editButton:SetScript("OnEnter", function(self)
-		TextTooltip(self, "Edit trackers", "Turns on arranging: trackers become draggable wherever they are on screen, and clicking one opens its settings. It stays on when this window is closed, so you can place things while you play.")
+		TextTooltip(self, "Edit layout", "Puts this window out of the way and lets you arrange the trackers on screen: drag them where you want them, and click one to change its settings. The window comes back when you are done.")
 	end)
 	editButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	UI.editButton = editButton
@@ -2531,7 +2531,7 @@ local function GetEditBar()
 	end
 	local text = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	text:SetPoint("LEFT", 14, 0)
-	text:SetText("Arranging trackers: drag them about, click one to change it")
+	text:SetText("Arranging the layout: drag trackers about, click one to change it")
 	text:SetTextColor(1, 0.82, 0)
 	local done = MakeButton(f, "Done", 70)
 	done:SetPoint("RIGHT", -10, 0)
@@ -2546,11 +2546,22 @@ function UI:SetEditMode(on, quiet)
 	on = on and true or false
 	ns.db.unlocked = on
 	GetEditBar():SetShown(on)
+	-- The window covers the things being arranged, so it steps aside for the duration and comes
+	-- back afterwards, but only if it was open to begin with.
+	if on then
+		if frame and frame:IsShown() then
+			UI.editReopen = true
+			frame:Hide()
+		end
+	elseif UI.editReopen then
+		UI.editReopen = nil
+		UI:SetMode(ns.db.openMode or "full")
+	end
 	if ns.Display then ns.Display:Rebuild() end
 	UI:SyncToolbar()
 	if not quiet then
-		ns.Print(on and "Edit mode on: drag trackers where you want them, and click one to change it. Click Done, or type /auraledger edit again, when you have finished."
-			or "Edit mode off.")
+		ns.Print(on and "Editing the layout: drag trackers where you want them, and click one to change it. Click Done, or type /auraledger edit again, when you have finished."
+			or "Layout editing finished.")
 	end
 end
 
@@ -2561,7 +2572,7 @@ end
 function UI:SyncToolbar()
 	if editBar then editBar:SetShown(ns.db.unlocked and true or false) end
 	if UI.editButton then
-		UI.editButton:SetText(ns.db.unlocked and "Done editing" or "Edit trackers")
+		UI.editButton:SetText(ns.db.unlocked and "Done editing" or "Edit layout")
 	end
 end
 

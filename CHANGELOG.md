@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.36.0
+
+- The edit button now sits beside the search box at the top of the window and is called "Edit layout". Clicking it puts the window out of the way, since it covers the very things you are arranging, and clicking Done brings it back. If editing was turned on with the window already closed, Done leaves it closed.
+
 ## 1.34.1
 
 - /auraledger debug gd now says, for each tracker in a group the game draws, whether it borrowed a Cooldown Manager frame, which cooldown that frame is for, and whether the game is currently showing it.
