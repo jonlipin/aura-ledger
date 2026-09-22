@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.18.5"
+ns.VERSION = "1.18.6"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -51,7 +51,7 @@ end
 ns.LogLine = LogLine
 -- Every line that reaches the main chat frame, from anyone, colour codes stripped.
 local function ChatLine(text)
-	if type(text) ~= "string" then return end
+	if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) then return end
 	Append(ns.db, "chat", pendingChat, CHAT_CAP, Stamp((text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", ""))))
 end
 if hooksecurefunc and DEFAULT_CHAT_FRAME then
@@ -66,6 +66,7 @@ local function YesNo(v) return v and "|cff40ff40yes|r" or "|cffff5050no|r" end
 ns.YesNo = YesNo
 
 local function Print(msg)
+	if issecretvalue and issecretvalue(msg) then msg = "(secret value)" end
 	msg = tostring(msg)
 	DEFAULT_CHAT_FRAME:AddMessage("|cff00ccffAura Ledger:|r " .. msg)
 	LogLine((msg:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")))
@@ -2121,6 +2122,7 @@ SlashCmdList.AURALEDGER = function(msg)
 			if found == 0 then Print("nothing documented under that name (try the exact name from /api search)") end
 		end
 	elseif cmd == "gd" then
+		local function S(v) if issecretvalue and issecretvalue(v) then return "secret" end return tostring(v) end
 		Print("game-drawn groups (secret: " .. YesNo(AurasSecret()) .. ", attribute drivers " .. YesNo(RegisterAttributeDriver) .. ", mask " .. (ns.db.noMask and "off" or "on") .. "):")
 		local any = false
 		for _, g in ipairs(ns.profile.groups) do
@@ -2134,11 +2136,11 @@ SlashCmdList.AURALEDGER = function(msg)
 					for unit, c in pairs(f.slotC or {}) do
 						local okS, shown = pcall(c.IsShown, c)
 						local okV, vis = pcall(c.IsVisible, c)
-						Print(("    container %s: shown %s, visible %s, driver %s, level %s"):format(unit, okS and tostring(shown) or "?", okV and tostring(vis) or "?", tostring(c.alDriven), tostring(c:GetFrameLevel())))
+						Print(("    container %s: shown %s, visible %s, driver %s, level %s"):format(unit, okS and S(shown) or "?", okV and S(vis) or "?", tostring(c.alDriven), S(select(2, pcall(c.GetFrameLevel, c)))))
 						for key, fr in pairs(c.alSlots) do
 							local okF, fs2 = pcall(fr.IsShown, fr)
 							Print(("      slot %s: on %s, wanted %s, anchored to cell %s, mask %s, shown %s"):format(key, tostring(c.alOn and c.alOn[key]), tostring(c.alWant and c.alWant[key]),
-								tostring(fr.alAnchor), tostring(c.alStore[key] and c.alStore[key].mask ~= nil), okF and tostring(fs2) or "secret"))
+								S(fr.alAnchor), tostring(c.alStore[key] and c.alStore[key].mask ~= nil), okF and S(fs2) or "error"))
 						end
 					end
 					for i, w in ipairs(f.widgets) do

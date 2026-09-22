@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.18.6
+
+- Fixed: /auraledger gd raised an error when a game-owned slot answered with a hidden value; hidden values are now printed as "secret", and the chat mirror skips any hidden line.
+
 ## 1.18.5
 
 - The file sound labelled "Soft bells" is an explosion; it is now called Explosion. Trackers using it keep it.
