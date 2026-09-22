@@ -564,8 +564,16 @@ function Builder:Conditions(getCond, onChange, draw)
 	self:Note("Class (none ticked = any class):")
 	local classes = {}
 	for _, class in ipairs(ns.CLASSES) do
+		-- Class colours are picked to sit on a dark bar; on the book's parchment the pale ones
+		-- vanish, so they are darkened until they read against it.
 		local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
 		local hex = color and color.colorStr or nil
+		if hex and PARCHMENT then
+			local rr, gg, bb = hex:match("^%x%x(%x%x)(%x%x)(%x%x)$")
+			if rr then
+				hex = ("ff%02x%02x%02x"):format(floor(tonumber(rr, 16) * 0.45), floor(tonumber(gg, 16) * 0.45), floor(tonumber(bb, 16) * 0.45))
+			end
+		end
 		classes[#classes + 1] = { class, (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[class]) or class, hex }
 	end
 	self:CheckGrid(classes, 3, SetGetters("class"))
@@ -1414,7 +1422,7 @@ function UI:RefreshLayout()
 end
 
 function UI:ShowSelection(open)
-	if open and frame and not frame:IsShown() then frame:Show() end
+	if open and frame and not frame:IsShown() then UI:SetMode(ns.db.openMode or "full") end
 	if not frame or not frame:IsShown() then return end
 	self:RefreshTree()
 	SyncOptions()
@@ -1720,6 +1728,42 @@ local function Build()
 		local s = self:GetEffectiveScale() / UIParent:GetEffectiveScale()
 		ns.db.window = { x = self:GetLeft() * s, y = self:GetTop() * s }
 	end)
+	-- The window is a book: its art is drawn at fixed sizes, so the grip sizes the whole thing
+	-- rather than reflowing it, which keeps the page, the tabs and the icons in proportion.
+	if ns.db.windowScale then frame:SetScale(max(0.55, min(1.6, ns.db.windowScale))) end
+	local grip = CreateFrame("Button", nil, frame)
+	grip:SetSize(16, 16)
+	grip:SetPoint("BOTTOMRIGHT", -4, 4)
+	grip:SetFrameLevel(frame:GetFrameLevel() + 20)
+	grip:SetNormalTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Up")
+	grip:SetHighlightTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Highlight")
+	grip:SetPushedTexture("Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-Down")
+	grip:SetScript("OnEnter", function(self) TextTooltip(self, "Size", "Drag to make the window bigger or smaller. Double-click to put it back.") end)
+	grip:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	grip:RegisterForClicks("LeftButtonUp")
+	grip:SetScript("OnMouseDown", function(self)
+		local cx = GetCursorPosition()
+		self.fromX, self.fromScale = cx, frame:GetScale() or 1
+		self.fromW = max(50, (frame:GetWidth() or FRAME_W) * self.fromScale)
+		self:SetScript("OnUpdate", function()
+			local nx = GetCursorPosition()
+			local scale = self.fromScale * ((self.fromW + (nx - self.fromX)) / self.fromW)
+			frame:SetScale(max(0.55, min(1.6, scale)))
+		end)
+	end)
+	local function StopSizing(self)
+		self:SetScript("OnUpdate", nil)
+		ns.db.windowScale = frame:GetScale()
+		if ns.UI and ns.UI.SyncHeaderBar then ns.UI:SyncHeaderBar() end
+	end
+	grip:SetScript("OnMouseUp", StopSizing)
+	grip:SetScript("OnHide", StopSizing)
+	grip:SetScript("OnDoubleClick", function(self)
+		frame:SetScale(1)
+		ns.db.windowScale = nil
+		StopSizing(self)
+	end)
+	UI.grip = grip
 	frame:Hide()
 	tinsert(UISpecialFrames, "AuraLedgerFrame")
 
@@ -2479,8 +2523,8 @@ local function Build()
 			frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", ns.db.window.x, ns.db.window.y)
 		end
 		UI:SyncToolbar()
-		local mode = ns.db.openMode or "full"
-		if ns.db.windowMode ~= mode then UI:SetMode(mode) end
+		-- Always: the page art is anchored in here, and a stale anchor shows as a flash.
+		UI:SetMode(ns.db.openMode or "full")
 		ns.Display:Rebuild()
 		UI:RefreshHistory()
 		UI:RefreshLayout()

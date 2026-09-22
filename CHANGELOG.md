@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.32.0
+
+- A grip in the bottom right corner sizes the window. The window is a book and its art is drawn at fixed sizes, so the grip sizes the whole thing in proportion rather than stretching the page; double-click the grip to put it back. The size is remembered.
+- Fixed: the parchment on the right of the window flashed each time it opened. Opening it from a selection skipped the step that anchors the page art, so the previous layout was drawn for a frame before being put right.
+- The class names in the condition list are legible on the parchment. Class colours are chosen to sit on a dark bar, and the pale ones disappeared against the page, so they are darkened until they read.
+
 ## 1.31.0
 
 - Removed the in-combat guesswork that the Cooldown Manager route made pointless. Four ways in were tried before it and each was refused by the client: polling the default buff frames' icons, which turn hidden the moment the frame refreshes; asking for aura instance ids, which is refused while an addon is involved; asking by spell, which answers nothing; and reading the Cooldown Manager through its children, whose item frames actually live in a frame pool. All four had been proven inert in game, so they were only costing reading. The debug report and the diagnostic commands lose the lines that went with them.
