@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.42.1"
+ns.VERSION = "1.42.2"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1606,6 +1606,7 @@ local function Startup()
 	if loaded then return end
 	loaded = true
 	ns.InitDB()
+	ns.ClearMaskDiagnostics()
 	ns.ApplyMaskSettings()
 	ns.playerGUID = UnitGUID and UnitGUID("player")
 	ns.targetGUID = UnitGUID and Clean(UnitGUID("target")) or nil
@@ -1968,6 +1969,9 @@ ns.MASK_OVER, ns.MASK_SHIFT = 0.26, 0
 -- wears it, so do the spellbook and the buff bar. The Cooldown Manager's overlay is a different
 -- shape and was what this addon used to copy. In the order they are looked for.
 ns.ICON_FRAMES = { "UI-HUD-ActionBar-IconFrame", "UI-HUD-ActionBar-IconFrame-Slot", "UI-HUD-ActionBar-IconFrame-Border" }
+-- The frame is not the mask and is not drawn like it: it is art with a thin border round the icon,
+-- not a shape that has to be grown to fit. Its own two numbers, set by /auraledger iconborder size.
+ns.FRAME_OVER, ns.FRAME_SHIFT = 0.115, 0
 -- Bumped whenever the mask changes, so every widget knows to dress itself again.
 ns.MASK_EPOCH = 0
 
@@ -2081,6 +2085,17 @@ end
 function ns.ApplyMaskSettings()
 	ns.MASK_OVER = tonumber(ns.db and ns.db.maskOver) or 0.26
 	ns.MASK_SHIFT = tonumber(ns.db and ns.db.maskShift) or 0
+	ns.FRAME_OVER = tonumber(ns.db and ns.db.frameOver) or 0.115
+	ns.FRAME_SHIFT = tonumber(ns.db and ns.db.frameShift) or 0
+end
+
+-- 1.42.2: the mask shift and the mask being off were both diagnostics aimed at a layer that turned
+-- out to be innocent, and the shift is what bent the frame out of shape. Cleared once.
+function ns.ClearMaskDiagnostics()
+	if ns.db and not ns.db.maskDiagCleared then
+		ns.db.maskDiagCleared = true
+		ns.db.maskShift, ns.db.maskOff = nil, nil
+	end
 end
 
 ns.DIAG_ORDER = { "log", "api", "gd", "cdm2", "cdmapply", "cdmrestore", "probe", "atlases", "icon", "combatlog" }
@@ -2341,9 +2356,20 @@ SlashCmdList.AURALEDGER = function(msg)
 		Print("Combat log source " .. (ns.db.combatLog and "on (if the client shows the blocked dialog, turn it off again)." or "off. Type /reload to finish turning it off."))
 	elseif cmd == "iconborder" then
 		local word = strlower(rest or "")
+		local sizeA, sizeB = word:match("^size%s+(%S+)%s*(%S*)$")
+		if sizeA then
+			local over, shift = tonumber(sizeA), tonumber(sizeB)
+			if over then ns.db.frameOver = over end
+			if shift then ns.db.frameShift = shift end
+			ns.ApplyMaskSettings()
+			ns.MASK_EPOCH = ns.MASK_EPOCH + 1
+			if ns.Display then ns.Display:Rebuild() end
+			Print(("Icon border: out %.3f, up %.3f of the icon."):format(ns.FRAME_OVER, ns.FRAME_SHIFT))
+			return
+		end
 		if word == "" then
-			Print("Icon border: " .. tostring(ns.db.iconBorder or "client")
-				.. ". |cffffd000/auraledger iconborder client|r draws the frame this client puts round its own icons, |cffffd000cdm|r copies the Cooldown Manager's overlay as before, |cffffd000none|r draws no frame.")
+			Print(("Icon border: %s, out %.3f, up %.3f."):format(tostring(ns.db.iconBorder or "client"), ns.FRAME_OVER, ns.FRAME_SHIFT))
+			Print("|cffffd000/auraledger iconborder client|r draws the frame this client puts round its own icons, |cffffd000cdm|r copies the Cooldown Manager's overlay, |cffffd000none|r draws no frame, |cffffd000size <out> <up>|r sets how far past the icon it is drawn and how far up.")
 			Print("  in hand: " .. tostring(ns.report["icon frame"] or "not tried yet"))
 		elseif word == "client" or word == "cdm" or word == "none" then
 			ns.db.iconBorder = (word ~= "client") and word or nil

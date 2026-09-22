@@ -347,8 +347,9 @@ end
 
 local skin
 
--- The frame this client draws round its own icons, if it has one. Cut for the same mask, so it is
--- drawn to the same size and sits exactly where the mask's shape does.
+-- The frame this client draws round its own icons, if it has one. It is drawn by its own two
+-- numbers, not the mask's: the mask is a shape that has to be grown by about a quarter before it
+-- fits an icon, while this is art that sits on one with a thin border.
 local clientFrame, clientFrameTried
 local function ClientIconFrame()
 	if ns.db and ns.db.iconBorder == "cdm" then return nil end
@@ -375,7 +376,7 @@ local function PlaceClientFrame(w, ref, size, want)
 		w.clientFrame = tex
 	end
 	tex:SetAtlas(atlas)
-	local over, shift = ns.MASK_OVER, ns.MASK_SHIFT * size
+	local over, shift = ns.FRAME_OVER, ns.FRAME_SHIFT * size
 	tex:ClearAllPoints()
 	tex:SetPoint("TOPLEFT", ref, "TOPLEFT", -over * size, over * size + shift)
 	tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", over * size, -over * size + shift)
@@ -506,7 +507,12 @@ end
 function Display:IconReport(emit)
 	local s = BuildSkin()
 	emit("icon art from: " .. tostring(s.iconSource or s.source))
-	emit("icon frame: " .. tostring(ClientIconFrame() or ("none, falling back to " .. tostring(s.iconSource or s.source))))
+	local fi = ClientIconFrame()
+	local fa = fi and C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(fi)
+	emit(("icon frame: %s%s, drawn out %.3f and up %.3f of the icon"):format(
+		tostring(fi or ("none, falling back to " .. tostring(s.iconSource or s.source))),
+		fa and (" (" .. (fa.width or 0) .. "x" .. (fa.height or 0) .. ")") or "",
+		ns.FRAME_OVER, ns.FRAME_SHIFT))
 	emit("icon mask: " .. tostring(ns.report["icon mask"] or "not tried yet"))
 	local mi = C_Texture and C_Texture.GetAtlasInfo and C_Texture.GetAtlasInfo(ns.ICON_MASK)
 	emit(("  mask art: %s, drawn out %.3f and up %.3f of the icon"):format(
