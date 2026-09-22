@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.14.1
+
+- The secret index reads from 1.14.0 are removed: on this client they fail with "Auras cannot be accessed when secret while tainted", so they learned nothing and only raised errors.
+- New: /auraledger container builds one of Blizzard's AuraContainer widgets (the way GODMODE_GTFO shows auras in combat) with several group shapes and prints what the container and its buttons expose, in or out of combat.
+
 ## 1.14.0
 
 - The aura reader now asks the client for every aura index even while it is marked secret, the way GODMODE_GTFO does on this client. The answer is a table whose fields are hidden, but the table itself and its aura instance id are not, so in combat the addon can see which aura instances are on you. A carried buff whose instance disappears is dropped at once (clicking it off, a dispel, or it running out), a spell you cast binds to the instance that appears, and instances nothing claims are kept as "Unknown buff" / "Unknown debuff" entries.

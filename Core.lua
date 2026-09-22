@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.14.0"
+ns.VERSION = "1.14.1"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 ns.auras = {}
@@ -522,29 +522,16 @@ local function MakeEntry(a, kind, key, unit)
 	}
 end
 
-local shadowStats = { reads = 0, tables = 0, instances = 0, errors = 0, removed = 0, bound = 0, unknown = 0 }
-ns.shadowStats = shadowStats
-
--- Reads one filter on one unit into "out". Returns how many auras could not be read. Secret
--- indices are still asked for: the client hands back a table with secret fields, and what is
--- plain in it (the instance id, so far) goes into "shadow".
-local function ReadFilter(unit, filter, kind, out, shadow)
+-- Reads one filter on one unit into "out". Returns how many auras could not be read. A secret
+-- index is never asked for: on this client the call fails with "cannot be accessed when secret
+-- while tainted", so nothing is learned by trying.
+local function ReadFilter(unit, filter, kind, out)
 	local unreadable, secretRun = 0, 0
 	if C_UnitAuras and C_UnitAuras.GetAuraDataByIndex then
 		for i = 1, MAX_INDEX do
 			if IndexSecret(unit, i, filter) then
 				unreadable = unreadable + 1
 				secretRun = secretRun + 1
-				local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, filter)
-				if ok and a == nil then break end
-				if ok and type(a) == "table" and not (issecretvalue and issecretvalue(a)) then
-					shadowStats.tables = shadowStats.tables + 1
-					local inst = Clean(a.auraInstanceID)
-					if type(inst) == "number" then shadowStats.instances = shadowStats.instances + 1 end
-					if shadow then shadow[#shadow + 1] = { inst = type(inst) == "number" and inst or nil, raw = a, kind = kind, index = i } end
-				elseif not ok then
-					shadowStats.errors = shadowStats.errors + 1
-				end
 				if secretRun > 40 then break end
 			else
 				local ok, a = pcall(C_UnitAuras.GetAuraDataByIndex, unit, i, filter)
@@ -633,68 +620,15 @@ local firstScan = true
 
 -- One unit's scan: read what can be read, carry the rest forward. Returns the new table and whether
 -- anything was unreadable.
--- What the secret indices still tell us: which instance ids are on the unit right now.
-local function ApplyShadow(unit, fresh, shadow, now)
-	local present, any = {}, false
-	for _, sh in ipairs(shadow) do
-		if sh.inst then present[sh.inst] = sh any = true end
-	end
-	if not any then return end
-	shadowStats.reads = shadowStats.reads + 1
-	local claimed = {}
-	-- Carried entries: still there, or gone.
-	for key, e in pairs(fresh) do
-		if e.inst then
-			if present[e.inst] then
-				claimed[e.inst] = true
-				e.probed = true -- confirmed by instance; the frame icons get no say
-			elseif e.stale or e.estimated then
-				fresh[key] = nil
-				shadowStats.removed = shadowStats.removed + 1
-			end
-		end
-	end
-	-- Your recent casts: bind each to the newest unclaimed instance of its kind.
-	local synths = {}
-	for _, e in pairs(fresh) do
-		if e.synth and not e.inst and not e.unknown and e.createdAt and now - e.createdAt < 3 then synths[#synths + 1] = e end
-	end
-	table.sort(synths, function(a, b) return a.createdAt > b.createdAt end)
-	for _, e in ipairs(synths) do
-		local best
-		for inst, sh in pairs(present) do
-			if not claimed[inst] and sh.kind == e.kind and (not best or inst > best) then best = inst end
-		end
-		if best then
-			e.inst = best
-			claimed[best] = true
-			shadowStats.bound = shadowStats.bound + 1
-		end
-	end
-	-- Instances nobody knows: kept as unknown entries so the count is right and a later cast can
-	-- still bind to them; their icon is secret but can be handed straight to a texture.
-	for inst, sh in pairs(present) do
-		if not claimed[inst] then
-			local key = "u:" .. unit .. ":" .. tostring(inst)
-			if not fresh[key] then
-				fresh[key] = { key = key, inst = inst, name = sh.kind == "buff" and "Unknown buff" or "Unknown debuff", icon = ns.QUESTION,
-					secretIcon = sh.raw.icon, count = 0, duration = 0, expires = 0, kind = sh.kind, unit = unit,
-					synth = true, estimated = true, stale = true, probed = true, unknown = true }
-				shadowStats.unknown = shadowStats.unknown + 1
-			end
-		end
-	end
-end
-
 local function ScanUnit(unit, old, quiet)
 	local now = GetTime()
-	local fresh, unreadable, shadow = {}, 0, {}
+	local fresh, unreadable = {}, 0
 	local stats = ns.stats
 	if AurasSecret() and not (C_Secrets and C_Secrets.ShouldUnitAuraIndexBeSecret) then
 		unreadable = 1
 		stats.blocked = stats.blocked + 1
 	else
-		unreadable = ReadFilter(unit, "HELPFUL", "buff", fresh, shadow) + ReadFilter(unit, "HARMFUL", "debuff", fresh, shadow)
+		unreadable = ReadFilter(unit, "HELPFUL", "buff", fresh) + ReadFilter(unit, "HARMFUL", "debuff", fresh)
 		if unreadable > 0 then stats.partial = stats.partial + 1 end
 	end
 	local historyChanged = false
@@ -717,7 +651,6 @@ local function ScanUnit(unit, old, quiet)
 				end
 			end
 		end
-		ApplyShadow(unit, fresh, shadow, now)
 	end
 	return fresh, unreadable > 0, historyChanged
 end
@@ -1145,6 +1078,144 @@ local function ReconcileWithViewers()
 	return changed
 end
 ns.ReconcileWithViewers = ReconcileWithViewers
+
+-- ------------------------------------------------------------------
+-- Blizzard's AuraContainer widget: the sanctioned way to show auras while they are secret.
+-- Blizzard writes icon, name and countdown into regions we hand it and shows or hides each
+-- button itself. /auraledger container builds one with several group shapes and reports what
+-- the container and its buttons expose, so the real API can be read off the client.
+-- ------------------------------------------------------------------
+local probeContainer
+local probeButtons = {}
+local probeGroupResults = {}
+
+local function MethodNames(obj, pattern)
+	local names = {}
+	local ok = pcall(function()
+		local mt = getmetatable(obj)
+		local idx = mt and mt.__index
+		if type(idx) == "table" then
+			for k in pairs(idx) do
+				if type(k) == "string" and (not pattern or k:find(pattern)) then names[#names + 1] = k end
+			end
+		end
+	end)
+	table.sort(names)
+	return names, ok
+end
+
+local function InitProbeButton(groupId)
+	return function(button)
+		if not button then return end
+		probeButtons[#probeButtons + 1] = { group = groupId, button = button }
+		pcall(button.SetSize, button, 32, 32)
+		local icon = button:CreateTexture(nil, "ARTWORK")
+		icon:SetAllPoints(button)
+		if button.SetIcon then pcall(button.SetIcon, button, icon) end
+		local name = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		name:SetPoint("TOP", button, "BOTTOM", 0, -1)
+		if button.SetNameText then pcall(button.SetNameText, button, name) elseif button.SetSpellName then pcall(button.SetSpellName, button, name) end
+		local dur = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+		dur:SetPoint("TOP", name, "BOTTOM", 0, -1)
+		if button.SetDurationText then pcall(button.SetDurationText, button, dur) end
+		button.alIcon, button.alName, button.alDur = icon, name, dur
+	end
+end
+
+local function BuildProbeContainer()
+	local ok, c = pcall(CreateFrame, "AuraContainer", "AuraLedgerProbeContainer", UIParent, "CustomAuraContainerTemplate")
+	if not ok or not c then
+		Print("AuraContainer: cannot create (" .. tostring(c) .. ")")
+		return nil
+	end
+	c:SetSize(600, 200)
+	c:SetPoint("TOP", UIParent, "TOP", 0, -200)
+	c:SetFrameStrata("HIGH")
+	local firstId
+	for _, g in ipairs(ns.profile.groups) do
+		for _, t in ipairs(g.trackers) do
+			if t.id and not firstId then firstId = t.id end
+		end
+	end
+	firstId = firstId or 687
+	local layout = { elementWidth = 32, elementHeight = 56, elementSpacing = 4, lineSpacing = 4 }
+	local shapes = {
+		{ "help", "HELPFUL", { maxFrameCount = 24, initializeFrame = InitProbeButton("help"), layout = layout } },
+		{ "harm", "HARMFUL", { maxFrameCount = 24, initializeFrame = InitProbeButton("harm"), layout = layout } },
+		{ "mine", "HELPFUL|PLAYER", { maxFrameCount = 24, initializeFrame = InitProbeButton("mine"), layout = layout } },
+		{ "spellA", "HELPFUL", { maxFrameCount = 4, initializeFrame = InitProbeButton("spellA"), layout = layout, candidateFilters = { { spellID = firstId } } } },
+		{ "spellB", "HELPFUL", { maxFrameCount = 4, initializeFrame = InitProbeButton("spellB"), layout = layout, spellIDs = { firstId } } },
+		{ "spellC", "HELPFUL", { maxFrameCount = 4, initializeFrame = InitProbeButton("spellC"), layout = layout, spellID = firstId } },
+		{ "spellD", "HELPFUL", { maxFrameCount = 4, initializeFrame = InitProbeButton("spellD"), layout = layout, candidateFilters = { firstId } } },
+	}
+	for _, sh in ipairs(shapes) do
+		local id, filter, settings = sh[1], sh[2], sh[3]
+		local okG, err
+		if c.AddAuraGroup then
+			okG, err = pcall(c.AddAuraGroup, c, "al_" .. id, filter, settings)
+		elseif c.AddAuraFilter then
+			okG, err = pcall(c.AddAuraFilter, c, filter, settings)
+		else
+			okG, err = false, "no AddAuraGroup/AddAuraFilter"
+		end
+		probeGroupResults[#probeGroupResults + 1] = ("%s (%s): %s"):format(id, filter, okG and ("ok " .. tostring(err)) or ("error " .. tostring(err)))
+	end
+	if c.SetUnit then
+		local okU, err = pcall(c.SetUnit, c, "player")
+		probeGroupResults[#probeGroupResults + 1] = "SetUnit(player): " .. (okU and "ok" or ("error " .. tostring(err)))
+	end
+	c:Show()
+	return c
+end
+
+function ns.ProbeContainer()
+	Print("AuraContainer probe (secret: " .. YesNo(AurasSecret()) .. ", spell id used: first tracker's):")
+	if not probeContainer then
+		probeContainer = BuildProbeContainer()
+		if not probeContainer then return end
+		Print("  container methods: " .. table.concat((MethodNames(probeContainer, "Aura") ), ", "))
+		Print("  container methods (Unit/Group/Filter): " .. table.concat((MethodNames(probeContainer, "Unit") ), ", ") .. " | " .. table.concat((MethodNames(probeContainer, "Group") ), ", ") .. " | " .. table.concat((MethodNames(probeContainer, "Filter") ), ", "))
+		for _, line in ipairs(probeGroupResults) do Print("  group " .. line) end
+	end
+	local function D(v) if issecretvalue and issecretvalue(v) then return "secret" end return tostring(v) end
+	local perGroup = {}
+	for _, pb in ipairs(probeButtons) do
+		local b = pb.button
+		local okS, shown = pcall(b.IsShown, b)
+		local okV, vis = pcall(b.IsVisible, b)
+		local okT, tex = pcall(function() return b.alIcon and b.alIcon:GetTexture() end)
+		local okN, txt = pcall(function() return b.alName and b.alName:GetText() end)
+		local g = perGroup[pb.group] or { total = 0, shown = 0, lines = {} }
+		perGroup[pb.group] = g
+		g.total = g.total + 1
+		if okS and shown == true then g.shown = g.shown + 1 end
+		if #g.lines < 3 then
+			g.lines[#g.lines + 1] = ("shown %s, visible %s, icon %s, name %s"):format(okS and D(shown) or "error", okV and D(vis) or "error", okT and D(tex) or "error", okN and D(txt) or "error")
+		end
+	end
+	for id, g in pairs(perGroup) do
+		Print(("  %s: %d buttons made, %d plainly shown; %s"):format(id, g.total, g.shown, table.concat(g.lines, " / ")))
+	end
+	if #probeButtons > 0 then
+		local b = probeButtons[1].button
+		Print("  button methods: " .. table.concat((MethodNames(b, "Aura") ), ", ") .. " | " .. table.concat((MethodNames(b, "Spell") ), ", ") .. " | " .. table.concat((MethodNames(b, "Set") ), ", "))
+	else
+		Print("  no buttons were initialised yet (nothing matched, or the groups failed)")
+	end
+	local children = { probeContainer:GetChildren() }
+	Print(("  container children: %d, shown: %s"):format(#children, D(select(2, pcall(probeContainer.IsShown, probeContainer)))))
+	-- sounds: the enum and the registration call
+	local trig = Enum and Enum.UnitAuraSoundTrigger
+	if trig then
+		local keys = {}
+		for k, v in pairs(trig) do keys[#keys + 1] = tostring(k) .. "=" .. tostring(v) end
+		table.sort(keys)
+		Print("  Enum.UnitAuraSoundTrigger: " .. table.concat(keys, ", "))
+	else
+		Print("  Enum.UnitAuraSoundTrigger: missing")
+	end
+	Print("  C_UnitAuras.AddAuraSound " .. YesNo(C_UnitAuras and C_UnitAuras.AddAuraSound) .. ", RemoveAuraSound " .. YesNo(C_UnitAuras and C_UnitAuras.RemoveAuraSound))
+end
 
 -- Combat log: only consulted while auras are unreadable, to catch applications and removals on
 -- you or on your target.
@@ -1624,9 +1695,6 @@ local function Debug()
 	if #fi.sample > 0 then Print("    frame icons seen: " .. table.concat(fi.sample, "; ")) end
 	Print(("  your casts: %d seen, %d turned into auras while restricted (spell cast events %s)"):format(
 		s.casts, s.castsUsed, registered.UNIT_SPELLCAST_SUCCEEDED and "registered" or "not registered"))
-	local sh = ns.shadowStats
-	Print(("  secret index reads: scans %d, tables %d (plain instance %d, errors %d), removed by instance %d, casts bound %d, unknown auras %d"):format(
-		sh.reads, sh.tables, sh.instances, sh.errors, sh.removed, sh.bound, sh.unknown))
 	local vs = ns.viewerStats
 	Print(("  Cooldown Manager buff viewers while restricted: reads %d, items %d (plain %d, secret %d), buffs seen present %d, seen gone %d"):format(
 		vs.reads, vs.items, vs.plain, vs.secret, vs.present, vs.absent))
@@ -1756,6 +1824,8 @@ SlashCmdList.AURALEDGER = function(msg)
 				end
 			end
 		end
+	elseif cmd == "container" then
+		ns.ProbeContainer()
 	elseif cmd == "probe" then
 		Print("asking by spell right now (secret: " .. YesNo(AurasSecret()) .. "; APIs: BySpellName " .. YesNo(C_UnitAuras and C_UnitAuras.GetAuraDataBySpellName)
 			.. ", PlayerBySpellID " .. YesNo(C_UnitAuras and C_UnitAuras.GetPlayerAuraBySpellID) .. "):")
@@ -1773,7 +1843,7 @@ SlashCmdList.AURALEDGER = function(msg)
 			end
 		end
 		if n == 0 then Print("  no trackers") end
-		Print("raw index reads on you (GetAuraDuration " .. YesNo(C_UnitAuras and C_UnitAuras.GetAuraDuration) .. "):")
+		Print("raw index reads on you, expected to fail with a taint message while secret (GetAuraDuration " .. YesNo(C_UnitAuras and C_UnitAuras.GetAuraDuration) .. "):")
 		local function D(v) if issecretvalue and issecretvalue(v) then return "secret" end return tostring(v) end
 		for _, filter in ipairs({ "HELPFUL", "HARMFUL" }) do
 			local shownLines = 0
