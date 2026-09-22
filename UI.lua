@@ -66,7 +66,7 @@ end
 
 -- On parchment everything is written in ink: dark text, no shadow. PARCHMENT is set once the art is known.
 local PARCHMENT = false
-local INK = { text = { 0.15, 0.08, 0.02 }, head = { 0.33, 0.16, 0.02 }, dim = { 0.36, 0.24, 0.12 } }
+local INK = { text = { 0.18, 0.11, 0.06 }, head = { 0.18, 0.11, 0.06 }, dim = { 0.36, 0.26, 0.16 } }
 local function Ink(fs, kind)
 	if not PARCHMENT or not fs then return fs end
 	local c = INK[kind or "text"]
@@ -76,7 +76,7 @@ local function Ink(fs, kind)
 end
 -- Colour codes for text built from strings.
 local function InkCodes()
-	if PARCHMENT then return "|cff4a2506", "|cff5c4328", "|cff7a6a56" end -- group, dim, off
+	if PARCHMENT then return "|cff2e1c0f", "|cff5c4328", "|cff7a6a56" end -- group, dim, off
 	return "|cffffd100", "|cff909090", "|cff808080"
 end
 
@@ -491,6 +491,14 @@ local function Pane(parent, title, left, right, top, height)
 		p.title = Ink(p:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"), "head")
 		p.title:SetPoint("TOPLEFT", 10, -2)
 		p.title:SetText(title)
+		if STANDARD_TEXT_FONT then p.title:SetFont(STANDARD_TEXT_FONT, 20, "") end
+		if HasAtlas("spellbook-list-backplate") then
+			local plate = p:CreateTexture(nil, "BACKGROUND", nil, 1)
+			plate:SetAtlas("spellbook-list-backplate")
+			plate:SetSize(360, 92)
+			plate:SetAlpha(0.65)
+			plate:SetPoint("TOPLEFT", p.title, "TOPLEFT", -28, 20)
+		end
 		local div = p:CreateTexture(nil, "ARTWORK")
 		div:SetPoint("TOPLEFT", 4, -22)
 		div:SetPoint("TOPRIGHT", -4, -22)
@@ -606,12 +614,14 @@ local function CreateBookButton(parent, onParchment, art)
 		ns.report["book slot art"] = "UI-EmptySlot"
 	end
 	b.name = b:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+	if STANDARD_TEXT_FONT then b.name:SetFont(STANDARD_TEXT_FONT, 16, "") end
 	b.name:SetPoint("TOPLEFT", b.icon, "TOPRIGHT", 12, 1)
 	b.name:SetWidth(236)
 	b.name:SetJustifyH("LEFT")
 	b.name:SetJustifyV("TOP")
 	if b.name.SetMaxLines then b.name:SetMaxLines(2) end
 	b.sub = b:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	if STANDARD_TEXT_FONT then b.sub:SetFont(STANDARD_TEXT_FONT, 12, "") end
 	b.sub:SetPoint("BOTTOMLEFT", b.icon, "BOTTOMRIGHT", 12, -1)
 	b.sub:SetWidth(236)
 	b.sub:SetJustifyH("LEFT")
@@ -635,7 +645,7 @@ local function CreateBookButton(parent, onParchment, art)
 			plate:SetAtlas(art.backplate)
 			plate:SetPoint("TOPLEFT", b, "TOPLEFT", -6, 2)
 			plate:SetPoint("BOTTOMRIGHT", b, "BOTTOMRIGHT", -8, -2)
-			plate:SetAlpha(0.35)
+			plate:SetAlpha(0.25)
 			b.plate = plate
 		end
 	else
@@ -658,7 +668,7 @@ local function CreateBookButton(parent, onParchment, art)
 	b.typeBorder:Hide()
 
 	b:SetScript("OnEnter", function(self) if self.plate then self.plate:SetAlpha(1) end BookTooltip(self) end)
-	b:SetScript("OnLeave", function(self) if self.plate then self.plate:SetAlpha(0.35) end GameTooltip:Hide() end)
+	b:SetScript("OnLeave", function(self) if self.plate then self.plate:SetAlpha(0.25) end GameTooltip:Hide() end)
 	b:SetScript("OnDragStart", function(self)
 		if not self.item then return end
 		self.dragItem = self.item
@@ -706,9 +716,9 @@ local function UpdateBookButton(b, h, tracked)
 	local name = h.name or ("Spell " .. tostring(h.id))
 	local isTracked = h.name and tracked[strlower(h.name)]
 	if b.onParchment then
-		b.name:SetTextColor(0.22, 0.1, 0)
+		b.name:SetTextColor(0.18, 0.11, 0.06)
 		b.name:SetShadowColor(0, 0, 0, 0)
-		b.sub:SetTextColor(0.36, 0.22, 0.08)
+		b.sub:SetTextColor(0.18, 0.11, 0.06)
 		b.sub:SetShadowColor(0, 0, 0, 0)
 		b.name:SetText(name)
 	else
@@ -787,7 +797,6 @@ function UI:RefreshHistory()
 	book.pages = max(1, ceil(#items / PER_PAGE))
 	book.page = max(1, min(book.page, book.pages))
 	book.header:SetText(title)
-	if book.headerGlowTex then book.headerGlowTex:SetSize((book.header:GetStringWidth() or 100) + 90, 46) end
 	local tracked = TrackedNames()
 	local first = (book.page - 1) * PER_PAGE
 	for i = 1, PER_PAGE do UpdateBookButton(book.buttons[i], items[first + i], tracked) end
@@ -841,7 +850,8 @@ local KNOWN_ART = {
 	iconFrame = "spellbook-item-iconframe",            -- 51x48, the square frame with the ribbon
 	iconShadow = "spellbook-item-iconframe-shadow",    -- 54x51
 	iconHover = "spellbook-item-iconframe-hover",      -- 40x40
-	backplate = "spellbook-item-backplate",            -- 255x64, lights up behind a hovered entry
+	backplate = "spellbook-item-backplate",            -- 255x64, 25% behind an entry, full on hover
+	listPlate = "spellbook-list-backplate",            -- 415x106, 65% behind a heading
 	circleFrame = "talents-node-circle-gray",          -- 40x40, what passives wear
 	tab = "spellbook-Tab-Frame-C60",                   -- 43x37
 	tabActive = "spellbook-Tab-Frame-Glow-C60",
@@ -1602,18 +1612,18 @@ local function Build()
 	book.header:SetTextColor(ink[1], ink[2], ink[3])
 	-- The spellbook's heading: larger, dark ink with a light emboss around it.
 	local hf, hs, hflags = book.header:GetFont()
-	if hf then book.header:SetFont(hf, math.max(hs or 20, 24), hflags or "") end
+	if hf then book.header:SetFont(STANDARD_TEXT_FONT or hf, 24, "") end
 	if onParchment then
-		-- The spellbook's heading highlight: a soft light bar behind the word (the classic quest log
-		-- title highlight, a translucent white strip with faded ends), sized to the heading.
+		-- Exactly what the spellbook does behind a heading: its list backplate at 65%, no text shadow.
 		book.header:SetShadowColor(0, 0, 0, 0)
-		local glow = left:CreateTexture(nil, "ARTWORK", nil, -1)
-		glow:SetTexture("Interface\\QuestFrame\\UI-QuestLogTitleHighlight")
-		glow:SetBlendMode("ADD")
-		glow:SetVertexColor(1, 0.96, 0.85, 0.55)
-		glow:SetPoint("CENTER", book.header, "CENTER", 0, 0)
-		glow:SetSize(160, 44)
-		book.headerGlowTex = glow
+		if art and art.listPlate then
+			local plate = left:CreateTexture(nil, "ARTWORK", nil, -1)
+			plate:SetAtlas(art.listPlate)
+			plate:SetSize(415, 106)
+			plate:SetAlpha(0.65)
+			plate:SetPoint("TOPLEFT", book.header, "TOPLEFT", -30, 22)
+			book.headerPlate = plate
+		end
 	else
 		book.header:SetShadowColor(0, 0, 0, 1)
 	end

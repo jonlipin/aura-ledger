@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.10.0
+
+- The heading highlight is now exactly what the spellbook does: its list backplate at 65% behind the heading, the heading in FRIZQT 24 in the spellbook's ink colour with no shadow, and the divider under it. Groups and trackers and Options headings get the same.
+- Book entries use the spellbook's exact text (names at 16, small print at 12, the same ink) and its 25% backplate at rest.
+
 ## 1.9.12
 
 - The spellbook record is taken when the book is seen open (its page contents exist only then), not just at login.
