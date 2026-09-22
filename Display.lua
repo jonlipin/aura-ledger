@@ -641,11 +641,29 @@ local function WidgetTooltip(w)
 		shown = pcall(GameTooltip.SetSpellByID, GameTooltip, t.id) and GameTooltip:NumLines() > 0
 	end
 	if not shown then GameTooltip:SetText(t.name or ("Spell " .. tostring(t.id)), 1, 1, 1) end
-	GameTooltip:AddLine(" ")
-	GameTooltip:AddLine("Drag: move the group", 0.7, 0.7, 0.7)
-	GameTooltip:AddLine("Drag onto another tracker: group them", 0.7, 0.7, 0.7)
-	GameTooltip:AddLine("Shift-drag: pull this one out, reorder, or move it to another group", 0.7, 0.7, 0.7)
-	GameTooltip:AddLine("Click: options", 0.7, 0.7, 0.7)
+	-- What the tracker is saying, which is the whole point of hovering one that is missing: the
+	-- picture alone does not tell you whether it is the aura or its absence being shown.
+	local entry = w.entry
+	if entry then
+		local left = entry.expires and entry.expires > 0 and (entry.expires - GetTime()) or nil
+		if left and left > 0 then
+			GameTooltip:AddLine(("On you, %s left"):format(ns.FormatTime(left)), 0.4, 1, 0.4)
+		else
+			GameTooltip:AddLine("On you", 0.4, 1, 0.4)
+		end
+		if entry.estimated or entry.stale then GameTooltip:AddLine("Carried or guessed: the client hides auras during a fight", 0.7, 0.7, 0.7) end
+	elseif w.group and w.group.gameDrawn and not Display:IsUnlocked() then
+		GameTooltip:AddLine("Not on you, or the game has not drawn it", 1, 0.4, 0.4)
+	else
+		GameTooltip:AddLine("Not on you", 1, 0.4, 0.4)
+	end
+	if Display:IsUnlocked() then
+		GameTooltip:AddLine(" ")
+		GameTooltip:AddLine("Drag: move the group", 0.7, 0.7, 0.7)
+		GameTooltip:AddLine("Drag onto another tracker: group them", 0.7, 0.7, 0.7)
+		GameTooltip:AddLine("Shift-drag: pull this one out, reorder, or move it to another group", 0.7, 0.7, 0.7)
+		GameTooltip:AddLine("Click: options", 0.7, 0.7, 0.7)
+	end
 	GameTooltip:Show()
 end
 
@@ -758,6 +776,8 @@ local function CreateWidget(parent)
 		local okb, edge = pcall(CreateFrame, "Frame", nil, w.over, "BackdropTemplate")
 		if okb and edge and edge.SetBackdrop then w.edge = edge end
 	end
+
+	w.alBaseLevel = w:GetFrameLevel()
 
 	-- Text sits above everything.
 	local overlay = CreateFrame("Frame", nil, w)
@@ -1418,6 +1438,19 @@ local function SavePosition(f, g)
 	if x and y then g.x, g.y = x * s, y * s end
 end
 
+-- A cell is five frames deep: the backing one below it, the bar just above, the art three above and
+-- the text five. Moving the cell alone would leave the others where they were, so they all move.
+local function SetCellLevel(w, base)
+	base = max(1, base or w.alBaseLevel or 1)
+	if w.alLevel == base then return end
+	w.alLevel = base
+	w:SetFrameLevel(base)
+	if w.under then w.under:SetFrameLevel(max(0, base - 1)) end
+	if w.bar then w.bar:SetFrameLevel(base + 1) end
+	if w.over then w.over:SetFrameLevel(base + 3) end
+	if w.overlay then w.overlay:SetFrameLevel(base + 5) end
+end
+
 local function LayoutGroup(f, g, visible, unlocked)
 	local n = #visible
 	local w, h
@@ -1469,8 +1502,12 @@ local function LayoutGroup(f, g, visible, unlocked)
 					end)
 					if ok then sl.frame.alAnchor = k end
 				end
+				-- The game's icon has to cover the cell underneath, edge and all.
+				local lvl = sl.frame.GetFrameLevel and sl.frame:GetFrameLevel()
+				if lvl then SetCellLevel(widget, lvl - 6) end
 			end
 		else
+			SetCellLevel(widget, widget.alBaseLevel)
 			PaintWidget(widget, g, item.t, item.entry, unlocked, item.expiring)
 		end
 		local a, b = (k - 1) % perRow, floor((k - 1) / perRow)
@@ -1480,6 +1517,9 @@ local function LayoutGroup(f, g, visible, unlocked)
 		elseif flow == "DOWN" then widget:SetPoint("TOPLEFT", f, "TOPLEFT", b * stepX, -a * stepY)
 		else widget:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", b * stepX, a * stepY) end
 		widget:EnableMouse(unlocked)
+		-- Motion without clicks: a tooltip on hover during play, with clicks still going past to
+		-- whatever is behind, which is where they belong while the window is shut.
+		if widget.SetMouseMotionEnabled then pcall(widget.SetMouseMotionEnabled, widget, true) end
 		widget:Show()
 	end
 	for k = n + 1, #f.widgets do
