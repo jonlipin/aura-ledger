@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.20.1
+
+- New: /auraledger cdm2 reports the Cooldown Manager the way the Coolinator addon uses it: the viewers' item frame pools, each item's cooldown ID, layout index and shown state, the display widgets it carries, and whether the layout data APIs exist on this client. If they do, a tracker can be pushed into Blizzard's own Cooldown Manager and its frame borrowed, which the game keeps live in combat.
+
 ## 1.20.0
 
 - The addon now offers only what the Forever client allows, and says so where it matters.
