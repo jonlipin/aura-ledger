@@ -229,59 +229,86 @@ local Builder = {}
 Builder.__index = Builder
 
 local function NewBuilder(panel, width)
-	return setmetatable({ panel = panel, y = -4, width = width, syncers = {} }, Builder)
+	return setmetatable({ panel = panel, y = -4, width = width, syncers = {}, rows = {} }, Builder)
+end
+
+-- Every row is built inside its own frame, so a row that does not apply can be hidden and the
+-- ones below it close the gap. Inside a row the cursor starts at zero, so each method's own
+-- offsets are unchanged.
+function Builder:Begin()
+	local r = CreateFrame("Frame", nil, self.panel)
+	r:SetPoint("TOPLEFT", 0, self.y)
+	r:SetPoint("TOPRIGHT", 0, self.y)
+	r:SetHeight(1)
+	self.rowFrame, self.rowTop = r, self.y
+	self.y = 0
+	return r
+end
+
+function Builder:End()
+	local r = self.rowFrame
+	if not r then return end
+	local h = max(1, -self.y)
+	r:SetHeight(h)
+	self.rows[#self.rows + 1] = { frame = r, height = h }
+	self.lastRow = self.rows[#self.rows]
+	self.y = self.rowTop - h
+	self.rowFrame, self.rowTop = nil, nil
+	return r
+end
+
+-- The frame a method should build into: its row while one is open, the panel otherwise.
+function Builder:P()
+	return self.rowFrame or self.panel
+end
+
+-- Marks the row just built as only applying while fn() is true.
+function Builder:AppliesWhen(fn)
+	if self.lastRow then self.lastRow.visible = fn end
+end
+
+-- Stacks the rows that apply, and reports the new bottom so the panel can be resized.
+function Builder:Relayout()
+	local y = -4
+	for _, row in ipairs(self.rows) do
+		local on = (not row.visible) or (row.visible() and true or false)
+		row.frame:SetShown(on)
+		if on then
+			row.frame:ClearAllPoints()
+			row.frame:SetPoint("TOPLEFT", 0, y)
+			row.frame:SetPoint("TOPRIGHT", 0, y)
+			y = y - row.height
+		end
+	end
+	self.bottom = y
+	if self.onRelayout then self.onRelayout(y) end
+	return y
 end
 
 function Builder:Sync()
 	for _, fn in ipairs(self.syncers) do fn() end
-end
-
--- Marks the row just built as only applying while fn() is true. It stays where it is, greyed and
--- unclickable, with a tooltip saying why, so the panel never jumps about as choices change.
-function Builder:AppliesWhen(fn, why)
-	local items = self.last
-	if not items then return end
-	for _, w in ipairs(items) do
-		if w.SetScript and w.GetScript and why then
-			local prevEnter, prevLeave = w:GetScript("OnEnter"), w:GetScript("OnLeave")
-			w:SetScript("OnEnter", function(self2, ...)
-				if fn() then
-					if prevEnter then prevEnter(self2, ...) end
-				else
-					TextTooltip(self2, "Not used here", why)
-				end
-			end)
-			w:SetScript("OnLeave", function(self2, ...)
-				if prevLeave then prevLeave(self2, ...) else GameTooltip:Hide() end
-			end)
-		end
-	end
-	self.syncers[#self.syncers + 1] = function()
-		local on = fn() and true or false
-		for _, w in ipairs(items) do
-			if w.SetEnabled then pcall(w.SetEnabled, w, on) end
-			if w.SetAlpha then w:SetAlpha(on and 1 or 0.35) end
-		end
-	end
-	self.last = nil
+	self:Relayout()
 end
 
 function Builder:Header(text)
+	self:Begin()
 	self.y = self.y - 8
-	local fs = Ink(self.panel:CreateFontString(nil, "OVERLAY", "GameFontNormal"), "head")
+	local fs = Ink(self:P():CreateFontString(nil, "OVERLAY", "GameFontNormal"), "head")
 	fs:SetPoint("TOPLEFT", 6, self.y)
 	fs:SetText(text)
-	local line = self.panel:CreateTexture(nil, "ARTWORK")
+	local line = self:P():CreateTexture(nil, "ARTWORK")
 	if PARCHMENT then line:SetColorTexture(0.35, 0.2, 0.05, 0.5) else line:SetColorTexture(1, 0.82, 0, 0.35) end
 	line:SetHeight(1)
 	line:SetPoint("TOPLEFT", 6, self.y - 15)
 	line:SetPoint("TOPRIGHT", -6, self.y - 15)
 	self.y = self.y - 22
+	self:End()
 	return fs
 end
 
 function Builder:Note(text)
-	local fs = Ink(self.panel:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
+	self:Begin()
+	local fs = Ink(self:P():CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
 	fs:SetPoint("TOPLEFT", 8, self.y)
 	fs:SetPoint("TOPRIGHT", -8, self.y)
 	fs:SetJustifyH("LEFT")
@@ -291,11 +318,13 @@ function Builder:Note(text)
 	-- also estimated from the text length (about 5.5px a character at this font size).
 	local lines = ceil(#text * 5.5 / max(100, self.width - 16))
 	self.y = self.y - max(14, (fs:GetStringHeight() or 0) + 4, lines * 13 + 4)
+	self:End()
 	return fs
 end
 
 function Builder:Slider(label, opts)
-	local panel, y = self.panel, self.y
+	self:Begin()
+	local panel, y = self:P(), self.y
 	local fs = Ink(panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
 	fs:SetPoint("TOPLEFT", 8, y)
 	fs:SetText(label)
@@ -335,13 +364,14 @@ function Builder:Slider(label, opts)
 		syncing = false
 		ShowValue(current)
 	end
-	self.last = { fs, value, sl }
 	self.y = y - 38
+	self:End()
 	return sl
 end
 
 function Builder:Check(label, get, set, tip)
-	local cb = CreateCheck(self.panel)
+	self:Begin()
+	local cb = CreateCheck(self:P())
 	cb:SetPoint("TOPLEFT", 6, self.y)
 	cb.label:SetText(label)
 	cb:SetScript("OnClick", function(self) set(self:GetChecked() and true or false) end)
@@ -350,16 +380,17 @@ function Builder:Check(label, get, set, tip)
 		cb:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	end
 	self.syncers[#self.syncers + 1] = function() cb:SetChecked(get() and true or false) end
-	self.last = { cb }
 	self.y = self.y - 24
+	self:End()
 	return cb
 end
 
 -- A row of small checkboxes laid out in columns. items = { { key, label, colorHex? }, ... }
 function Builder:CheckGrid(items, cols, get, set)
+	self:Begin()
 	local colW = floor((self.width - 12) / cols)
 	for i, item in ipairs(items) do
-		local cb = CreateCheck(self.panel)
+		local cb = CreateCheck(self:P())
 		local col, row = (i - 1) % cols, floor((i - 1) / cols)
 		cb:SetPoint("TOPLEFT", 6 + col * colW, self.y - row * 22)
 		cb.label:SetText((item[3] and ("|c" .. item[3]) or "") .. item[2] .. (item[3] and "|r" or ""))
@@ -370,11 +401,13 @@ function Builder:CheckGrid(items, cols, get, set)
 		self.syncers[#self.syncers + 1] = function() cb:SetChecked(get(item[1]) and true or false) end
 	end
 	self.y = self.y - ceil(#items / cols) * 22 - 4
+	self:End()
 end
 
 -- A labelled button that steps through choices. choices = { { value, text }, ... }
 function Builder:Cycle(label, choices, get, set, tip, buttonWidth)
-	local panel, y = self.panel, self.y
+	self:Begin()
+	local panel, y = self:P(), self.y
 	local fs = Ink(panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
 	fs:SetPoint("TOPLEFT", 8, y - 5)
 	fs:SetText(label)
@@ -404,13 +437,14 @@ function Builder:Cycle(label, choices, get, set, tip, buttonWidth)
 		b:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	end
 	self.syncers[#self.syncers + 1] = Sync
-	self.last = { fs, b }
 	self.y = y - (narrow and 42 or 26)
+	self:End()
 	return b
 end
 
 function Builder:Edit(label, get, set, numeric)
-	local panel, y = self.panel, self.y
+	self:Begin()
+	local panel, y = self:P(), self.y
 	local fs = Ink(panel:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
 	fs:SetPoint("TOPLEFT", 8, y - 5)
 	fs:SetText(label)
@@ -436,6 +470,7 @@ function Builder:Edit(label, get, set, numeric)
 		if not eb:HasFocus() then eb:SetText(get() or "") end
 	end
 	self.y = y - (narrow and 42 or 26)
+	self:End()
 	return eb
 end
 
@@ -1399,17 +1434,17 @@ local function BuildGroupPanel(width)
 		function() local g = G() return g and g.style or "icons" end,
 		function(v) local g = G() if g then g.style = v if v == "bars" and (g.grow == "RIGHT" or g.grow == "LEFT") then ns.Display:SetGrow(g, "DOWN") end GroupChanged() b:Sync() end end,
 		"Icons show the time left as a number on the icon. Bars show an icon, the name and a draining bar.")
-	b:AppliesWhen(function() return not IsCategory() end, "A group the game fills always draws icons.")
+	b:AppliesWhen(function() return not IsCategory() end)
 	b:Cycle("Grow towards", ns.GROWS,
 		function() local g = G() return g and g.grow or "RIGHT" end,
 		function(v) local g = G() if g then ns.Display:SetGrow(g, v) end end,
 		"The direction new trackers are added in. The opposite corner stays where you put it.")
 	b:Slider("Icon size", { min = 16, max = 96, step = 1, get = Num("size", 40), set = SetNum("size") })
-	b:AppliesWhen(function() return not IsBars() end, "Bars take their icon size from the bar height.")
+	b:AppliesWhen(function() return not IsBars() end)
 	b:Slider("Bar width", { min = 80, max = 400, step = 5, get = Num("barW", 190), set = SetNum("barW") })
-	b:AppliesWhen(IsBars, "This group shows icons.")
+	b:AppliesWhen(IsBars)
 	b:Slider("Bar height", { min = 12, max = 48, step = 1, get = Num("barH", 22), set = SetNum("barH") })
-	b:AppliesWhen(IsBars, "This group shows icons.")
+	b:AppliesWhen(IsBars)
 	b:Slider("Spacing", { min = 0, max = 30, step = 1, get = Num("spacing", 4), set = SetNum("spacing") })
 	b:Slider("Trackers per row before wrapping", { min = 1, max = 40, step = 1, get = Num("perRow", 8), set = SetNum("perRow") })
 	b:Slider("Scale", { min = 0.5, max = 2.5, step = 0.05, get = Num("scale", 1), set = SetNum("scale"),
@@ -1420,19 +1455,19 @@ local function BuildGroupPanel(width)
 		function(v) local g = G() if g then g.timers = v GroupChanged() end end)
 	b:Check("Show names on bars", function() local g = G() return g and g.names ~= false end,
 		function(v) local g = G() if g then g.names = v GroupChanged() end end)
-	b:AppliesWhen(IsBars, "This group shows icons.")
+	b:AppliesWhen(IsBars)
 	b:Check("Bar border", function() local g = G() return g and g.border ~= false end,
 		function(v) local g = G() if g then g.border = v GroupChanged() end end,
 		"The frame drawn around each bar. Untick for bare bars.")
-	b:AppliesWhen(IsBars, "This group shows icons.")
+	b:AppliesWhen(IsBars)
 	b:Check("Bar background", function() local g = G() return g and g.background ~= false end,
 		function(v) local g = G() if g then g.background = v GroupChanged() end end,
 		"The dark plate behind the fill. Untick to see through the empty part of a bar.")
-	b:AppliesWhen(IsBars, "This group shows icons.")
+	b:AppliesWhen(IsBars)
 	b:Check("Pocket watch on carried timers", function() local g = G() return g and g.watch ~= false end,
 		function(v) local g = G() if g then g.watch = v GroupChanged() end end,
 		"In combat the client hides aura details from addons, so timers are carried on from the last clean read. The small watch marks those. Untick to hide it.")
-	b:AppliesWhen(function() return not IsGameDrawn() end, "The game draws this group, so no timer is ever carried.")
+	b:AppliesWhen(function() return not IsGameDrawn() end)
 	b:Check("Icon frame", function() local g = G() return g and g.iconFrame ~= false end,
 		function(v) local g = G() if g then g.iconFrame = v GroupChanged() end end,
 		"The decorative frame around each icon, when the client has one.")
@@ -1444,6 +1479,12 @@ local function BuildGroupPanel(width)
 	b:Note("To delete this group, click the X on its row in the Groups and trackers list twice.")
 	groupPanel.height = -b.y
 	groupPanel:SetHeight(groupPanel.height)
+	UI.groupPanel, UI.groupBuilder = groupPanel, b
+	b.onRelayout = function(bottom)
+		groupPanel.height = -bottom
+		groupPanel:SetHeight(groupPanel.height)
+		if optionsChild and groupPanel:IsShown() then optionsChild:SetHeight(groupPanel.height) end
+	end
 end
 
 local function BuildTrackerPanel(width)
@@ -1497,6 +1538,11 @@ local function BuildTrackerPanel(width)
 	end)
 	exportT:SetScript("OnEnter", function(self) TextTooltip(self, "Export this tracker", "Gives you a string holding this tracker (its settings, conditions and sounds) to paste elsewhere.") end)
 	exportT:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	local function TrackerIsAddonDrawn()
+		local t = T()
+		local g = t and ns.FindGroupOf(t)
+		return not (g and (g.gameDrawn or (g.live and g.live ~= "")))
+	end
 	b:Header("Tracker")
 	b:Cycle("Show when", { { "active", "It is active" }, { "missing", "It is missing" }, { "always", "Always (red when missing)" } },
 		function() local t = T() return t and t.show or "active" end,
@@ -1506,12 +1552,9 @@ local function BuildTrackerPanel(width)
 		get = function() local t = T() return t and (t.warn or 0) end,
 		set = function(v) local t = T() if t then t.warn = (v > 0) and v or nil TrackerChanged() end end,
 		format = function(v) return v == 0 and "off" or (v .. "s") end })
-	b:AppliesWhen(function()
-		local t = T()
-		local g = t and ns.FindGroupOf(t)
-		return not (g and (g.gameDrawn or (g.live and g.live ~= "")))
-	end, "This group is drawn by the game, which shows the aura whenever it is active.")
+	b:AppliesWhen(TrackerIsAddonDrawn)
 	b:Note("With Missing: also shows while the aura has this long or less left, with a red border. With Always: the border turns red that early.")
+	b:AppliesWhen(TrackerIsAddonDrawn)
 	b:Cycle("Match by", { { false, "Name (any rank)" }, { true, "Exact spell ID" } },
 		function() local t = T() return t and t.matchId and true or false end,
 		function(v)
@@ -1541,17 +1584,17 @@ local function BuildTrackerPanel(width)
 			b:Sync()
 		end,
 		"On this client a debuff on you cannot be followed by spell; debuff trackers watch your target. For every debuff on you, use a group with Contents: Debuffs on me.")
-	local limitNote = b:Note("Debuff trackers watch your target: a debuff on you cannot be followed by spell on this client. For every debuff on you use a group with Contents: Debuffs on me.")
+	local limitNote = b:Note("Debuff trackers watch your target: a debuff on you cannot be followed by spell on this client. For every debuff on you use a group whose Shows is one of the debuff choices.")
+	b:AppliesWhen(function()
+		local t = T()
+		return (t and (t.kind == "debuff" or ((t.unit or "player") == "player" and t.kind ~= "buff"))) and true or false
+	end)
 	b.syncers[#b.syncers + 1] = function()
 		local t = T()
-		local shown = t and (t.kind == "debuff" or ((t.unit or "player") == "player" and t.kind ~= "buff"))
-		limitNote:SetShown(shown and true or false)
-		if t and t.kind == "buff" then
-			limitNote:SetText("")
-		elseif t and (t.unit or "player") == "player" and t.kind ~= "debuff" then
+		if t and (t.unit or "player") == "player" and t.kind ~= "debuff" then
 			limitNote:SetText("Set to 'Buff or debuff' on you: only the buff side can be followed in combat. Set the type to Buff only, or watch your target for a debuff.")
 		else
-			limitNote:SetText("Debuff trackers watch your target: a debuff on you cannot be followed by spell on this client. For every debuff on you use a group with Contents: Debuffs on me.")
+			limitNote:SetText("Debuff trackers watch your target: a debuff on you cannot be followed by spell on this client. For every debuff on you use a group whose Shows is one of the debuff choices.")
 		end
 	end
 	b:Check("Only when it was cast by me", function() local t = T() return t and t.mine end,
@@ -1593,6 +1636,12 @@ local function BuildTrackerPanel(width)
 	b:Note("To move this tracker to another group, or out into a group of its own, drag it in the Groups and trackers list. To remove it, click the X on its row there twice.")
 	trackerPanel.height = -b.y
 	trackerPanel:SetHeight(trackerPanel.height)
+	UI.trackerPanel, UI.trackerBuilder = trackerPanel, b
+	b.onRelayout = function(bottom)
+		trackerPanel.height = -bottom
+		trackerPanel:SetHeight(trackerPanel.height)
+		if optionsChild and trackerPanel:IsShown() then optionsChild:SetHeight(trackerPanel.height) end
+	end
 end
 
 -- ---- Build -----------------------------------------------------------

@@ -2,7 +2,7 @@
 ## Title: Aura Ledger
 ## Notes: Keeps a history of every buff and debuff you have had. Drag any of them onto the screen to track it as an icon or a bar, group trackers together, and choose when each one shows.|n|cff00ccff/auraledger|r to open.
 ## Author: Jon
-## Version: 1.24.0
+## Version: 1.24.1
 ## LoadSavedVariablesFirst: 1
 ## SavedVariables: AuraLedgerDB
 ## IconTexture: Interface\Icons\INV_Misc_Book_09
