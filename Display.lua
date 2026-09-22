@@ -909,7 +909,7 @@ local function InitSlotFrame(g, mode, filter, store)
 			-- A 1x1 opaque mask sitting just outside the cell; with the clamp-to-black wrap everything
 			-- outside it is treated as transparent, so a masked cell is blanked without needing a file.
 			local mask = button:CreateMaskTexture()
-			mask:SetTexture("Interface\Buttons\WHITE8X8", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
+			mask:SetTexture("Interface\\Buttons\\WHITE8X8", "CLAMPTOBLACKADDITIVE", "CLAMPTOBLACKADDITIVE")
 			mask:SetSize(1, 1)
 			mask:SetPoint("BOTTOMRIGHT", button, "TOPLEFT", -4, 4)
 			store.mask = mask
