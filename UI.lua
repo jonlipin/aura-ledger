@@ -2657,6 +2657,8 @@ local TUNE = {
 	{ label = "Reaches below the bar", key = "plateBottom", step = 0.02, fallback = "even" },
 	{ label = "The bar sits sideways", key = "barOffsetX", step = 0.05, default = 0 },
 	{ label = "The bar sits up", key = "barOffsetY", step = 0.05, default = 0 },
+	{ label = "Frame reaches left of the bar", key = "plateLeft", step = 0.02, default = 0 },
+	{ label = "Frame reaches right of the bar", key = "plateRight", step = 0.02, default = 0 },
 	{ label = "Fill margin, sideways", key = "fillInsetX", step = 0.02, default = 0.18 },
 	{ label = "Fill margin, up and down", key = "fillInsetY", step = 0.02, default = 0.06 },
 	{ head = "The icon" },
@@ -2775,6 +2777,11 @@ local function BuildTuner()
 	f:SetScript("OnShow", f.Sync)
 	tuner = f
 	return f
+end
+
+-- The panel itself, for whoever asked to open it.
+function UI:TunerFrame()
+	return tuner
 end
 
 function UI:ShowTuner()

@@ -579,13 +579,19 @@ local function PlaceBarShape(w, ref, width, height, want)
 		-- plate covers the padding under its bar, so carried over as measured it sits low.
 		local rect = def.rect
 		if def.layer == "BACKGROUND" then
-			-- Sideways the plate is laid on the bar. Up and down it keeps the height it was measured
-			-- with, shared evenly unless told otherwise: where the frame sits inside this art cannot
-			-- be read from outside, so /auraledger barplate sets the reach by eye.
+			-- The plate is laid on the bar and then reaches out by whatever it is told on each of
+			-- the four sides: where the frame sits inside this art cannot be read from outside, so
+			-- the reach is set by eye. Up and down it shares out what was measured until it is.
 			local half = ((rect.t or 0) + (rect.b or 0)) / 2
 			local t = tonumber(ns.db and ns.db.plateTop)
 			local b = tonumber(ns.db and ns.db.plateBottom)
-			rect = { l = 0, r = 0, t = t or half, b = b or half }
+			-- Sideways is scaled by the donor bar's shape when it is drawn, so these are divided by
+			-- it here: on the panel they mean shares of the bar's height, as every other number does.
+			local across = (def.aspect or 1)
+			if across <= 0 then across = 1 end
+			local l = (tonumber(ns.db and ns.db.plateLeft) or 0) / across
+			local r = (tonumber(ns.db and ns.db.plateRight) or 0) / across
+			rect = { l = l, r = r, t = t or half, b = b or half }
 		end
 		ApplyRectWH(tex, ref, rect, (def.aspect or 1) * height, height)
 		tex:Show()
@@ -1162,8 +1168,9 @@ function Display:IconReport(emit)
 		local hh = 20
 		local t = tonumber(ns.db and ns.db.plateTop)
 		local b = tonumber(ns.db and ns.db.plateBottom)
-		emit(("bar plate reach: %s above, %s below (/auraledger barplate <above> <below>, as shares of the bar's height)"):format(
-			t and ("%.3f"):format(t) or "even", b and ("%.3f"):format(b) or "even"))
+		emit(("bar plate reach: %s above, %s below, %.3f left, %.3f right (shares of the bar's height)"):format(
+			t and ("%.3f"):format(t) or "even", b and ("%.3f"):format(b) or "even",
+			tonumber(ns.db and ns.db.plateLeft) or 0, tonumber(ns.db and ns.db.plateRight) or 0))
 	end
 	if Display.BarOffset then
 		local x, y = Display.BarOffset(20)
@@ -1983,6 +1990,8 @@ local function TrackerIds(t)
 	return any and map or nil
 end
 
+Display.TrackerIds = TrackerIds
+
 local function IdsKey(map)
 	local l = {}
 	for id in pairs(map) do l[#l + 1] = id end
@@ -2001,6 +2010,7 @@ local function SlotKey(g)
 		.. ":" .. tostring(ns.MASK_EPOCH or 0) .. ":" .. tostring(ns.db and ns.db.plateTop) .. "," .. tostring(ns.db and ns.db.plateBottom)
 		.. ":" .. tostring(ns.db and ns.db.fillInsetX) .. "," .. tostring(ns.db and ns.db.fillInsetY)
 		.. ":" .. tostring(ns.db and ns.db.barOffsetX) .. "," .. tostring(ns.db and ns.db.barOffsetY)
+		.. ":" .. tostring(ns.db and ns.db.plateLeft) .. "," .. tostring(ns.db and ns.db.plateRight)
 end
 
 local BLANK = "Interface\\AddOns\\AuraLedger\\blank"

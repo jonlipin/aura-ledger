@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.56.0
+
+- The frame round a bar can be moved against the bar rather than only with it. The plate it is drawn on was laid flush to the bar's ends, so a gap between the frame and the fill on one side could only be dealt with by moving the whole bar, which opens a gap at the other end. It reaches out on each side by its own number now, as it already did above and below: "Frame reaches left of the bar" and "Frame reaches right of the bar" in the tuning panel.
+
+## 1.55.1
+
+- /auraledger tune says what it did: that the panel is open, that it is closed again, or, if it could not be built, what went wrong. Asking for it and getting silence left no way to tell whether the command had been reached at all.
+- /auraledger tune here puts the panel back in the middle of the screen, for when it has been dragged somewhere off it.
+
 ## 1.55.0
 
 - The tuning panel can move a bar, not only resize what is drawn in it. A margin grows or shrinks the fill from both ends at once, which is the wrong tool for a bar that is simply sitting too far one way: "The bar sits sideways" and "The bar sits up" move the bar itself, on the addon's bars and the ones the game draws alike, and the readout says where it has ended up.

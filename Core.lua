@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.55.0"
+ns.VERSION = "1.56.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1665,6 +1665,7 @@ local function Startup()
 	ns.UpdateEnv()
 	if ns.Display and ns.Display.Init then ns.Display:Init() end
 	if ns.UI and ns.UI.Init then ns.UI:Init() end
+	if ns.LT and ns.LT.Init then ns.LT:Init() end
 	ns.dirty = true
 	if ns.db.combatLog and not registered.COMBAT_LOG_EVENT_UNFILTERED then SafeRegister("COMBAT_LOG_EVENT_UNFILTERED") end
 end
@@ -2157,7 +2158,7 @@ function ns.ClearMaskDiagnostics()
 	end
 end
 
-ns.DIAG_ORDER = { "log", "api", "gd", "cdm2", "cdmapply", "cdmrestore", "probe", "atlases", "icon", "item", "combatlog" }
+ns.DIAG_ORDER = { "log", "api", "gd", "cdm2", "cdmapply", "cdmrestore", "probe", "atlases", "icon", "item", "combatlog", "lifetap" }
 ns.DIAG = {}
 for _, k in ipairs(ns.DIAG_ORDER) do ns.DIAG[k] = true end
 ns.DIAG.soundtest, ns.DIAG.soundclear = true, true
@@ -2207,6 +2208,7 @@ local function Help()
 	Print("  /auraledger add <spell name or ID> - add an aura and start tracking it")
 	Print("  /auraledger import <string> - import a tracker or group from an export string")
 	Print("  /auraledger edit - turn arranging on or off: drag trackers about and click one to change it")
+	Print("  /auraledger lifetap - the Life Tap panel: health, mana, and whether anything is healing you")
 	Print("  /auraledger minimap - show or hide the minimap button")
 	Print("  /auraledger plainbook - switch the book between parchment and a plain dark page")
 	Print("  /auraledger sound test | clear - play each sound the game can make, or remove the ones registered with it")
@@ -2373,6 +2375,12 @@ SlashCmdList.AURALEDGER = function(msg)
 	if cmd == "debug" and rest ~= "" then
 		local sub, tail = rest:match("^(%S+)%s*(.-)$")
 		sub = strlower(sub or "")
+		-- The Life Tap panel owns a command of its own, so its diagnostic is answered here rather
+		-- than by rewriting cmd, which would send "/auraledger lifetap" to the wrong place.
+		if sub == "lifetap" then
+			if ns.LT then ns.LT:Debug() else Print("The Life Tap panel did not load.") end
+			return
+		end
 		if ns.DIAG[sub] then
 			cmd, rest = sub, tail
 		else
@@ -2402,6 +2410,8 @@ SlashCmdList.AURALEDGER = function(msg)
 			ns.db.unlocked = on
 			if ns.Display then ns.Display:Rebuild() end
 		end
+	elseif cmd == "lifetap" or cmd == "lt" then
+		if ns.LT then ns.LT:Command(rest) else Print("The Life Tap panel did not load.") end
 	elseif cmd == "minimap" then
 		ns.db.minimapShown = not ns.db.minimapShown
 		if ns.UI and ns.UI.UpdateMinimapButton then ns.UI:UpdateMinimapButton() end
@@ -2414,7 +2424,26 @@ SlashCmdList.AURALEDGER = function(msg)
 		if ns.db.combatLog and not registered.COMBAT_LOG_EVENT_UNFILTERED then SafeRegister("COMBAT_LOG_EVENT_UNFILTERED") end
 		Print("Combat log source " .. (ns.db.combatLog and "on (if the client shows the blocked dialog, turn it off again)." or "off. Type /reload to finish turning it off."))
 	elseif cmd == "tune" then
-		if ns.UI and ns.UI.ShowTuner then ns.UI:ShowTuner() else Print("The window is not ready yet.") end
+		if not (ns.UI and ns.UI.ShowTuner) then
+			Print("The tuning panel is not there: this is " .. tostring(ns.VERSION) .. ", and it was added in 1.54.0.")
+		else
+			local ok, err = pcall(function() return ns.UI:ShowTuner() end)
+			if not ok then
+				Print("|cffff5050The tuning panel could not be opened:|r " .. tostring(err))
+			else
+				local f = ns.UI.TunerFrame and ns.UI:TunerFrame()
+				if f and f.IsShown and f:IsShown() then
+					Print("Tuning panel open. |cffffd000/auraledger tune|r again to close it, or drag it by its title.")
+					if f.ClearAllPoints and f.SetPoint and rest == "here" then
+						f:ClearAllPoints()
+						f:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+						Print("Put back in the middle of the screen.")
+					end
+				else
+					Print("Tuning panel closed.")
+				end
+			end
+		end
 	elseif cmd == "barplate" then
 		local a, b = rest:match("^(%S*)%s*(%S*)$")
 		if strlower(a or "") == "even" then
