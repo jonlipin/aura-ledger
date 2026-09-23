@@ -1926,7 +1926,7 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 		else
 			TintFill(w, nil, true)
 			SetFill(w, flagMissing and 1 or 0)
-			if w.underSlot then BarArtShown(w, true) end
+			if w.underSlot then BarArtShown(w, not w.auraKnown) end
 			if w.barPip then w.barPip:Hide() end
 			w.duration:SetText(flagMissing and "Missing" or "")
 			w.bar.spark:Hide()
@@ -1945,7 +1945,7 @@ local function TickWidget(w, g, now)
 	-- guessed, or it is the last clean read counting on.
 	local text = g.timers ~= false and (((e.estimated or e.stale) and "~" or "") .. ns.FormatTime(rem)) or ""
 	if g.style == "bars" then
-		if w.underSlot then BarArtShown(w, false) end
+		if w.underSlot then BarArtShown(w, not w.auraKnown) end
 		local frac = e.duration > 0 and min(1, rem / e.duration) or 1
 		SetFill(w, frac)
 		-- The manager's spark marks where a draining bar has got to. A full bar has nowhere to put
@@ -2104,10 +2104,15 @@ local function InitSlotFrame(g, mode, filter, store)
 			-- The group's own bar height, held in the middle of the cell: a cell is as tall as the
 			-- taller of the bar and the icon, and stretching to it makes this bar the odd one out.
 			local inx, iny = BarInset(H)
-			-- The fill here is the status bar itself, so the bar is what has to sit inside the
-			-- frame: on the addon's own bars it is a texture within the bar and inset there.
+			-- The frame goes round the bar's outer size; the status bar sits inside it, because the
+			-- fill here is the status bar itself rather than a texture within it.
+			local outer = CreateFrame("Frame", nil, button)
+			outer:SetSize(max(8, W - IS - 2), H)
+			outer:EnableMouse(false)
+			button.alOuter = outer
 			bar:SetSize(max(8, W - IS - 2 - inx * 2), max(4, H - iny * 2))
 			local ox, oy = BarOffset(H)
+			outer:SetPoint("LEFT", button, "LEFT", IS + 2 + ox, oy)
 			bar:SetPoint("LEFT", button, "LEFT", IS + 2 + inx + ox, oy)
 			button.alBar = bar
 			button.alBarBg = bg
@@ -2151,10 +2156,10 @@ local function InitSlotFrame(g, mode, filter, store)
 			button.alBarArt = barW
 			-- This slot wears the frame while the game is drawing the aura. The cell underneath wears
 			-- one too, for when it is not, and gives it up while the aura is there: see BarArtShown.
-			if not PlaceBarShape(barW, bar, max(8, W - IS - 2 - inx * 2), H - iny * 2, g.border ~= false) then
-				PlaceDecor(barW, s.decor, "decor", bar, H, function(dd) return BarPieceWanted(dd, g.border ~= false) end)
+			if not PlaceBarShape(barW, outer, max(8, W - IS - 2), H, g.border ~= false) then
+				PlaceDecor(barW, s.decor, "decor", outer, H, function(dd) return BarPieceWanted(dd, g.border ~= false) end)
 			end
-			PlaceBarFrame(barW, bar, H, g.border ~= false and not HaveBarFrame())
+			PlaceBarFrame(barW, outer, H, g.border ~= false and not HaveBarFrame())
 			PlaceBarPip(barW, bar:GetStatusBarTexture(), H, g.border ~= false)
 			if g.iconFrame ~= false then
 				local e1 = PlaceCleanEdge(w, icon, IS, true)
@@ -2477,6 +2482,9 @@ local function LayoutGroup(f, g, visible, unlocked)
 		end
 		local item = visible[k]
 		widget.underSlot = (slots and item.slots) and true or nil
+		-- The cell under a slot is painted with no aura, so that it shows the missing look when the
+		-- game stops drawing. What the group actually knows is kept here, for the frame.
+		widget.auraKnown = (item.entry ~= nil) or nil
 		widget:SetAlpha(1)
 		if widget:GetParent() ~= cellParent then widget:SetParent(cellParent) end
 		if slots and item.slots then

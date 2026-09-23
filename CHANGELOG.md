@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.57.1
+
+- A bar the game draws wears one frame, at the right size. The cell under a slot is painted with no aura on purpose, so that it shows the missing look the moment the game stops drawing; that meant asking the paint whether the aura was known always answered no, and the cell kept its frame beside the slot's. What the group knows is passed to the cell separately now. And the slot's frame was drawn round its status bar, which 1.54.5 inset inside the frame so the fill would not run over it, so the frame came out small: it is drawn round the bar's own outer size, with the status bar inside it.
+
 ## 1.57.0
 
 - New: the Life Tap panel, for deciding whether the health can be spared. `/auraledger lifetap` opens it. It shows your health and mana, what one tap costs and how many taps the floor you set leaves room for, whether anything is healing you, and settles on one of TAP, tap ok, WAIT or no need. Settings are per character, and it keeps out of the way for anyone who is not a warlock until asked for.
