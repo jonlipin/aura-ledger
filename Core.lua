@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.60.0"
+ns.VERSION = "1.61.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -191,8 +191,148 @@ end
 
 -- Something about the layout changed: redraw everything that shows it.
 function ns.Changed()
+	ns.FitAllCells()
 	if ns.Display and ns.Display.Rebuild then ns.Display:Rebuild() end
 	if ns.UI and ns.UI.RefreshLayout then ns.UI:RefreshLayout() end
+end
+
+-- ------------------------------------------------------------------
+-- The shape of an icon group
+-- ------------------------------------------------------------------
+-- A group of icons holds a cell for each of its trackers: c across and r down, in the group's own
+-- flow space, so the same numbers mean the same thing whichever way the group grows. The icons
+-- that are on screen fill the cells in order, which is why a shape that is a plain block of rows
+-- behaves exactly as rows always did, and why a tracker going quiet lets the rest close up.
+-- The list is always kept in reading order, r then c, and the trackers are kept in step with it,
+-- so what the ledger lists top to bottom is what the shape reads left to right.
+
+local function CellKey(c, r) return tostring(r) .. ":" .. tostring(c) end
+local function CellOrder(cell) return (cell.r or 0) * 8192 + (cell.c or 0) end
+
+-- Where the next tracker goes: the first free cell reading across a band of the group's width.
+function ns.NextFreeCell(g)
+	local perRow = max(1, tonumber(g.perRow) or 8)
+	local taken = {}
+	for _, cell in ipairs(g.cells or {}) do taken[CellKey(cell.c, cell.r)] = true end
+	local r = 0
+	while r < 500 do
+		for c = 0, perRow - 1 do
+			if not taken[CellKey(c, r)] then return c, r end
+		end
+		r = r + 1
+	end
+	return 0, 0
+end
+
+-- Which cell a tracker is standing in: the list is in reading order and the trackers fill it in
+-- order, so a tracker's place in the group is its place in the shape.
+function ns.CellOf(g, t)
+	if not g or not g.cells then return nil end
+	for i, other in ipairs(g.trackers) do if other == t then return g.cells[i], i end end
+end
+
+-- Is that cell empty? A tracker does not count as being in its own way.
+function ns.CellFree(g, c, r, except)
+	local skip
+	if except then
+		for i, other in ipairs(g.trackers) do if other == except then skip = i break end end
+	end
+	for i, cell in ipairs(g.cells or {}) do
+		if i ~= skip and cell.c == c and cell.r == r then return false end
+	end
+	return true
+end
+
+-- Puts the shape back into reading order. The cells are places and nothing else, so this moves no
+-- trackers: which tracker stands where is its place in the group's own list.
+function ns.SortCells(g)
+	local cells = g.cells
+	if not cells or #cells < 2 then return end
+	table.sort(cells, function(a, b) return CellOrder(a) < CellOrder(b) end)
+end
+
+-- The shape is held against its own top left corner, so that building upwards or to the left does
+-- not drag the group across the screen.
+function ns.NormalizeCells(g)
+	local cells = g.cells
+	if not cells or #cells == 0 then return end
+	local mc, mr
+	for _, cell in ipairs(cells) do
+		cell.c, cell.r = tonumber(cell.c) or 0, tonumber(cell.r) or 0
+		if not mc or cell.c < mc then mc = cell.c end
+		if not mr or cell.r < mr then mr = cell.r end
+	end
+	if (mc or 0) == 0 and (mr or 0) == 0 then return end
+	for _, cell in ipairs(cells) do cell.c, cell.r = cell.c - mc, cell.r - mr end
+end
+
+-- One cell per tracker, no more and no less. A tracker that has just been added takes the next
+-- free cell; one that has gone takes the last cell of the shape with it, which is what lets the
+-- rest close up.
+function ns.FitCells(g)
+	if not g or g.style == "bars" then return end
+	local n = #g.trackers
+	local cells = g.cells
+	if not cells then cells = {} g.cells = cells end
+	while #cells > n do table.remove(cells) end
+	while #cells < n do
+		local c, r = ns.NextFreeCell(g)
+		cells[#cells + 1] = { c = c, r = r }
+	end
+	ns.SortCells(g)
+	ns.NormalizeCells(g)
+end
+
+function ns.FitAllCells()
+	if not ns.profile then return end
+	for _, g in ipairs(ns.profile.groups) do ns.FitCells(g) end
+end
+
+-- Where a dragged tracker lands. Held against a free cell it takes that cell and nothing else
+-- moves; otherwise it is an ordinary drop at a place in the group's list.
+function ns.DropTracker(t, to, index, c, r)
+	if not t or not to then return false end
+	if c and to.style ~= "bars" then
+		local from = ns.FindGroupOf(t)
+		if from ~= to then ns.MoveTracker(t, to) else ns.FitCells(to) end
+		if ns.PlaceTrackerCell(to, t, c, r) then
+			ns.Changed()
+			return true
+		end
+		return false
+	end
+	ns.MoveTracker(t, to, index)
+	return false
+end
+
+-- Lays the shape out as plain rows again, the group's width wide.
+function ns.ReflowCells(g)
+	if not g then return end
+	g.cells = nil
+	ns.FitCells(g)
+end
+
+-- Gives one tracker a cell of its own. Its old place leaves the shape and the new one joins it, and
+-- because the trackers fill the shape in order the tracker moves up or down the group's list to
+-- wherever that cell ended up. A cell another icon is standing in is refused, so two icons can
+-- never be asked to stand in the same place.
+function ns.PlaceTrackerCell(g, t, c, r)
+	if not g or not t or g.style == "bars" then return false end
+	ns.FitCells(g)
+	if not ns.CellFree(g, c, r, t) then return false end
+	local _, idx = ns.CellOf(g, t)
+	if not idx then return false end
+	local cell = { c = c, r = r }
+	table.remove(g.cells, idx)
+	table.insert(g.cells, cell)
+	ns.SortCells(g)
+	local pos
+	for i, other in ipairs(g.cells) do if other == cell then pos = i break end end
+	ns.NormalizeCells(g)
+	if not pos then return false end
+	table.remove(g.trackers, idx)
+	table.insert(g.trackers, pos, t)
+	return true
 end
 
 -- ------------------------------------------------------------------
@@ -350,6 +490,8 @@ end
 function ns.NewGroupLike(g, x, y)
 	local ng = ns.NewGroup(x or ((g.x or 500) + 30), y or ((g.y or 400) - 60))
 	for _, key in ipairs(ns.GROUP_STYLE_KEYS) do ng[key] = g[key] end
+	-- The look is copied; the shape is not. A new group is a row of its own.
+	ng.cells = nil
 	return ng
 end
 
@@ -1642,6 +1784,7 @@ local function Startup()
 	ns.InitDB()
 	ns.ClearMaskDiagnostics()
 	ns.ClearSettledLook()
+	ns.FitAllCells()
 	ns.ApplyMaskSettings()
 	ns.playerGUID = UnitGUID and UnitGUID("player")
 	ns.targetGUID = UnitGUID and Clean(UnitGUID("target")) or nil

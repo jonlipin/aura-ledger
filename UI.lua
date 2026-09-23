@@ -149,6 +149,22 @@ local function CreateList(name, parent, rowHeight, createRow, updateRow)
 		for i = count + 1, #self.rows do self.rows[i]:Hide() end
 	end
 
+	-- Brings one row into view, without moving if it is already there.
+	function list:ScrollTo(index)
+		if not index or index < 1 then return end
+		local height = scroll:GetHeight() or 0
+		if height <= 0 then return end
+		local range = max(0, #self.data * rowHeight - height)
+		local top = (index - 1) * rowHeight
+		local at = scroll:GetVerticalScroll() or 0
+		local want = at
+		if top < at then want = top
+		elseif top + rowHeight > at + height then want = top + rowHeight - height end
+		want = max(0, min(range, want))
+		if want ~= at then scroll:SetVerticalScroll(want) end
+		self:Update()
+	end
+
 	function list:SetData(data)
 		self.data = data
 		child:SetHeight(max(1, #data * rowHeight))
@@ -424,6 +440,21 @@ function Builder:Cycle(label, choices, get, set, tip, buttonWidth)
 	end
 	self.syncers[#self.syncers + 1] = Sync
 	self.y = y - (narrow and 42 or 26)
+	self:End()
+	return b
+end
+
+function Builder:Button(label, onClick, tip)
+	self:Begin()
+	local panel, y = self:P(), self.y
+	local b = MakeButton(panel, label, self.width - 18)
+	b:SetPoint("TOPLEFT", 8, y - 2)
+	b:SetScript("OnClick", function() onClick() end)
+	if tip then
+		b:SetScript("OnEnter", function(self) TextTooltip(self, label, tip) end)
+		b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	end
+	self.y = y - 28
 	self:End()
 	return b
 end
@@ -795,13 +826,17 @@ local function CreateBookButton(parent, onParchment, art)
 		-- The list is checked before the ghost goes away, while the cursor is still over the row.
 		local _, cursorY = ns.Display.CursorUI()
 		local listGroup, listIndex, kind = UI:TreeDropAt(cursorY)
-		local cancelled, cx, cy, target, index = ns.Display:EndGhost()
+		local cancelled, cx, cy, target, index, cellC, cellR = ns.Display:EndGhost()
 		if kind then
 			ns.TrackHistory(h, listGroup, listIndex)
 		elseif cancelled then
 			return
 		else
-			ns.TrackHistory(h, target, index, cx - 20, cy + 20)
+			-- Held against a cell it goes on the end of the group first, so that the icons already
+			-- there keep their places, and is then moved into the cell it was held against.
+			local held = target and cellC
+			local t = ns.TrackHistory(h, target, held and nil or index, cx - 20, cy + 20)
+			if held and t and ns.PlaceTrackerCell(target, t, cellC, cellR) then ns.Changed() end
 		end
 		UI:ShowSelection()
 		UI:RefreshHistory()
@@ -1271,7 +1306,7 @@ local function CreateTreeRow(parent)
 		if not from then ns.Display:EndGhost() return end
 		local _, cursorY = ns.Display.CursorUI()
 		local listGroup, listIndex, kind, overT = UI:TreeDropAt(cursorY)
-		local cancelled, cx, cy, screenGroup, index = ns.Display:EndGhost()
+		local cancelled, cx, cy, screenGroup, index, cellC, cellR = ns.Display:EndGhost()
 		if kind == "before" or kind == "after" then
 			if overT ~= t then ns.MoveTracker(t, listGroup, listIndex) end
 		elseif kind == "group" then
@@ -1279,7 +1314,7 @@ local function CreateTreeRow(parent)
 		elseif kind == "new" or cancelled then
 			if #from.trackers > 1 then ns.MoveTracker(t, ns.NewGroupLike(from)) end
 		elseif screenGroup then
-			ns.MoveTracker(t, screenGroup, index)
+			ns.DropTracker(t, screenGroup, index, cellC, cellR)
 		else
 			if #from.trackers > 1 then ns.MoveTracker(t, ns.NewGroupLike(from, cx - 18, cy + 18))
 			else from.x, from.y = cx - 18, cy + 18 ns.Display:Rebuild() end
@@ -1413,6 +1448,15 @@ function UI:ShowSelection(open)
 	self:RefreshTree()
 	SyncOptions()
 	if optionsScroll then optionsScroll:SetVerticalScroll(0) end
+	-- Clicking a tracker on screen should land you on its row, however far down the list it is.
+	if treeList and treeList.ScrollTo then
+		local g, t = SelectedGroup(), SelectedTracker()
+		if g then
+			for i, item in ipairs(treeList.data or {}) do
+				if item.g == g and item.t == t then treeList:ScrollTo(i) break end
+			end
+		end
+	end
 	ns.Display:Refresh()
 end
 
@@ -1484,7 +1528,24 @@ local function BuildGroupPanel(width)
 		"How big the icon beside the bar is, against the bar's own height. Above 100% it stands proud of the bar, above and below.")
 	b:AppliesWhen(IsBars)
 	b:Slider("Spacing", { min = 0, max = 30, step = 1, get = Num("spacing", 4), set = SetNum("spacing") })
-	b:Slider("Trackers per row before wrapping", { min = 1, max = 40, step = 1, get = Num("perRow", 8), set = SetNum("perRow") })
+	b:Slider("Trackers per row before wrapping", { min = 1, max = 40, step = 1, get = Num("perRow", 8),
+		set = function(v)
+			local g = G()
+			if not g then return end
+			g.perRow = v
+			-- The number is what a row is worth, so moving it lays the icons out in rows again.
+			if g.style ~= "bars" then ns.ReflowCells(g) end
+			GroupChanged()
+		end })
+	b:Button("Lay the icons out in rows again", function()
+		local g = G()
+		if not g then return end
+		ns.ReflowCells(g)
+		GroupChanged()
+	end, "Puts every icon back into plain rows, as many across as the setting above, undoing a shape built by dragging one icon against another.")
+	b:AppliesWhen(function() return not IsBars() end)
+	b:Note("While arranging, drag one icon against a free side of another to hang it there, and the group keeps that shape. Icons fill the shape in order, so one that is not on screen lets the rest close up.")
+	b:AppliesWhen(function() return not IsBars() end)
 	b:Slider("Scale", { min = 0.5, max = 2.5, step = 0.05, get = Num("scale", 1), set = SetNum("scale"),
 		format = function(v) return ("%d%%"):format(floor(v * 100 + 0.5)) end })
 	b:Slider("Opacity", { min = 0.1, max = 1, step = 0.05, get = Num("alpha", 1), set = SetNum("alpha"),

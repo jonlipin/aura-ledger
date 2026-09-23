@@ -16,6 +16,22 @@ local ANCHOR = { RIGHT = "TOPLEFT", DOWN = "TOPLEFT", LEFT = "TOPRIGHT", UP = "B
 -- Growing from the centre lays the trackers out the same way as its plain direction; only the
 -- pinning differs, which is what makes the group spread rather than march off one way.
 local FLOW = { CENTER_H = "RIGHT", CENTER_V = "DOWN" }
+-- A cell's c and r are the group's own axes; these say which way each one points on screen, so a
+-- side the cursor is held against can be turned into a cell whichever way the group grows.
+local function PointAtCell(obj, f, flow, a, b, stepX, stepY)
+	obj:ClearAllPoints()
+	if flow == "RIGHT" then obj:SetPoint("TOPLEFT", f, "TOPLEFT", a * stepX, -b * stepY)
+	elseif flow == "LEFT" then obj:SetPoint("TOPRIGHT", f, "TOPRIGHT", -a * stepX, -b * stepY)
+	elseif flow == "DOWN" then obj:SetPoint("TOPLEFT", f, "TOPLEFT", b * stepX, -a * stepY)
+	else obj:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", b * stepX, a * stepY) end
+end
+
+local AXIS = {
+	RIGHT = { c = { 1, 0 }, r = { 0, -1 } },
+	LEFT = { c = { -1, 0 }, r = { 0, -1 } },
+	DOWN = { c = { 0, -1 }, r = { 1, 0 } },
+	UP = { c = { 0, 1 }, r = { 1, 0 } },
+}
 ns.GROWS = { { "RIGHT", "Right" }, { "LEFT", "Left" }, { "DOWN", "Down" }, { "UP", "Up" },
 	{ "CENTER_H", "Out from the centre, sideways" }, { "CENTER_V", "Out from the centre, up and down" } }
 
@@ -2481,6 +2497,29 @@ local function LayoutGroup(f, g, visible, unlocked)
 	end
 	local cellParent = slots and f.gate or f
 
+	-- Where each icon stands. Bars are a straight list and have no shape; icons take theirs from
+	-- the group, held against whichever corner of it is actually used, so that a shape built
+	-- upwards or leftwards does not drag the group across the screen when part of it goes quiet.
+	local cellA, cellB, rawA, rawB = {}, {}, {}, {}
+	local minA, minB, maxA, maxB
+	for k = 1, n do
+		local a, b
+		if g.style ~= "bars" then
+			local cell = g.cells and g.cells[k]
+			if cell then a, b = tonumber(cell.c), tonumber(cell.r) end
+		end
+		if not a or not b then a, b = (k - 1) % perRow, floor((k - 1) / perRow) end
+		rawA[k], rawB[k] = a, b
+		if not minA or a < minA then minA = a end
+		if not minB or b < minB then minB = b end
+		if not maxA or a > maxA then maxA = a end
+		if not maxB or b > maxB then maxB = b end
+	end
+	for k = 1, n do cellA[k], cellB[k] = rawA[k] - (minA or 0), rawB[k] - (minB or 0) end
+	-- Kept so that a drop can work out where a cell would land without laying the group out again.
+	f.cellMinA, f.cellMinB, f.cellStepX, f.cellStepY = minA or 0, minB or 0, stepX, stepY
+	f.cellFlow = flow
+
 	for k = 1, n do
 		local widget = f.widgets[k]
 		if not widget then
@@ -2531,12 +2570,8 @@ local function LayoutGroup(f, g, visible, unlocked)
 			SetCellLevel(widget, widget.alBaseLevel)
 			PaintWidget(widget, g, item.t, item.entry, unlocked, item.expiring)
 		end
-		local a, b = (k - 1) % perRow, floor((k - 1) / perRow)
-		widget:ClearAllPoints()
-		if flow == "RIGHT" then widget:SetPoint("TOPLEFT", f, "TOPLEFT", a * stepX, -b * stepY)
-		elseif flow == "LEFT" then widget:SetPoint("TOPRIGHT", f, "TOPRIGHT", -a * stepX, -b * stepY)
-		elseif flow == "DOWN" then widget:SetPoint("TOPLEFT", f, "TOPLEFT", b * stepX, -a * stepY)
-		else widget:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", b * stepX, a * stepY) end
+		widget.cellC, widget.cellR = rawA[k], rawB[k]
+		PointAtCell(widget, f, flow, cellA[k], cellB[k], stepX, stepY)
 		widget:EnableMouse(unlocked)
 		-- Motion without clicks: a tooltip on hover during play, with clicks still going past to
 		-- whatever is behind, which is where they belong while the window is shut. A cell under a
@@ -2562,7 +2597,8 @@ local function LayoutGroup(f, g, visible, unlocked)
 		end
 	end
 
-	local p, q = min(n, perRow), ceil(n / perRow)
+	local p, q = 1, 1
+	if n > 0 then p, q = (maxA - minA) + 1, (maxB - minB) + 1 end
 	if flow == "DOWN" or flow == "UP" then p, q = q, p end
 	f:SetSize(max(1, p * stepX - g.spacing), max(1, q * stepY - g.spacing))
 	f:SetAlpha(g.alpha or 1)
@@ -2772,12 +2808,23 @@ end
 -- ------------------------------------------------------------------
 -- The group under the cursor (UIParent units), ignoring "except".
 function Display:GroupAt(cx, cy, except)
+	local function hit(f, pad, padTop)
+		local s = f:GetScale() or 1
+		local l, r = f:GetLeft() * s - pad, f:GetRight() * s + pad
+		local b, t = f:GetBottom() * s - pad, f:GetTop() * s + padTop
+		return cx >= l and cx <= r and cy >= b and cy <= t
+	end
 	for _, f in pairs(active) do
 		local g = f.group
-		if g and g ~= except and f:IsShown() and f:GetLeft() then
-			local s = f:GetScale() or 1
-			local l, r, b, t = f:GetLeft() * s - 8, f:GetRight() * s + 8, f:GetBottom() * s - 8, f:GetTop() * s + 22
-			if cx >= l and cx <= r and cy >= b and cy <= t then return g, f end
+		if g and g ~= except and f:IsShown() and f:GetLeft() and hit(f, 8, 22) then return g, f end
+	end
+	-- An icon held against the outside of a group is being offered to that group, so a group of
+	-- icons reaches about one cell further out than its own edge.
+	for _, f in pairs(active) do
+		local g = f.group
+		if g and g ~= except and g.style ~= "bars" and f:IsShown() and f:GetLeft() then
+			local pad = ((g.size or 40) + (g.spacing or 4)) * 0.8
+			if hit(f, pad, max(22, pad)) then return g, f end
 		end
 	end
 end
@@ -2805,6 +2852,41 @@ function Display:InsertIndex(f, g, cx, cy)
 	return after and index + 1 or index
 end
 
+-- The cell a dragged icon is being held against: the nearest icon in the group, and the free side
+-- of it the cursor is on. Returns nothing for a group of bars, for a side that is already taken,
+-- and when the cursor is sitting squarely on an icon rather than against one of its sides.
+function Display:DropCell(f, g, cx, cy, dragged)
+	if not f or not g or g.style == "bars" then return end
+	-- A group saved by an older version has no shape until something changes it.
+	if ns.FitCells then ns.FitCells(g) end
+	local axis = AXIS[FLOW[g.grow or "RIGHT"] or g.grow or "RIGHT"]
+	if not axis then return end
+	local s = f:GetScale() or 1
+	local best, bestDist, bestW
+	for _, w in ipairs(f.widgets) do
+		if w:IsShown() and w.tracker and w.cellC then
+			local wx, wy = w:GetCenter()
+			if wx then
+				wx, wy = wx * s, wy * s
+				local dist = (wx - cx) ^ 2 + (wy - cy) ^ 2
+				if not bestDist or dist < bestDist then best, bestDist, bestW = { x = wx, y = wy }, dist, w end
+			end
+		end
+	end
+	if not best then return end
+	local ox, oy = cx - best.x, cy - best.y
+	local reach = max(6, ((g.size or 40) * s) / 2)
+	-- Squarely on an icon is not held against a side of it; that is an ordinary drop.
+	if abs(ox) < reach and abs(oy) < reach then return end
+	local sx, sy = 0, 0
+	if abs(ox) > abs(oy) then sx = (ox > 0) and 1 or -1 else sy = (oy > 0) and 1 or -1 end
+	local dc = sx * axis.c[1] + sy * axis.c[2]
+	local dr = sx * axis.r[1] + sy * axis.r[2]
+	local c, r = bestW.cellC + dc, bestW.cellR + dr
+	if not ns.CellFree(g, c, r, dragged) then return end
+	return c, r, bestW
+end
+
 local highlighted
 local function Highlight(f)
 	if highlighted == f then return end
@@ -2816,6 +2898,39 @@ end
 -- ------------------------------------------------------------------
 -- The drag ghost: an icon on the cursor, used for ledger rows and Shift-dragged trackers.
 -- ------------------------------------------------------------------
+-- The square that says where a dragged icon would settle.
+local dropMark
+local function ShowDropMark(f, g, c, r)
+	if not f or not c then
+		if dropMark then dropMark:Hide() end
+		return
+	end
+	if not dropMark then
+		dropMark = CreateFrame("Frame", nil, UIParent)
+		dropMark.fill = dropMark:CreateTexture(nil, "OVERLAY")
+		dropMark.fill:SetAllPoints()
+		dropMark.fill:SetColorTexture(0.25, 1, 0.4, 0.22)
+		dropMark.lines = {}
+		for i = 1, 4 do
+			local line = dropMark:CreateTexture(nil, "OVERLAY")
+			line:SetColorTexture(0.35, 1, 0.5, 0.9)
+			dropMark.lines[i] = line
+		end
+	end
+	local size = g.size or 40
+	dropMark:SetParent(f)
+	dropMark:SetFrameStrata("HIGH")
+	dropMark:SetSize(size, size)
+	PointAtCell(dropMark, f, f.cellFlow or "RIGHT", c - (f.cellMinA or 0), r - (f.cellMinB or 0), f.cellStepX or size, f.cellStepY or size)
+	local t, b, l, rr = dropMark.lines[1], dropMark.lines[2], dropMark.lines[3], dropMark.lines[4]
+	t:ClearAllPoints() t:SetPoint("TOPLEFT") t:SetPoint("TOPRIGHT") t:SetHeight(2)
+	b:ClearAllPoints() b:SetPoint("BOTTOMLEFT") b:SetPoint("BOTTOMRIGHT") b:SetHeight(2)
+	l:ClearAllPoints() l:SetPoint("TOPLEFT") l:SetPoint("BOTTOMLEFT") l:SetWidth(2)
+	rr:ClearAllPoints() rr:SetPoint("TOPRIGHT") rr:SetPoint("BOTTOMRIGHT") rr:SetWidth(2)
+	dropMark:Show()
+end
+Display.ShowDropMark = ShowDropMark
+
 local ghost
 local function GetGhost()
 	if ghost then return ghost end
@@ -2837,10 +2952,16 @@ local function GetGhost()
 		local g, f
 		if not overWindow then g, f = Display:GroupAt(cx, cy, self.except) end
 		Highlight(f)
+		local cellC, cellR, against
+		if g and not overWindow then cellC, cellR, against = Display:DropCell(f, g, cx, cy, self.dragTracker) end
+		ShowDropMark(cellC and f or nil, g, cellC, cellR)
 		if overWindow then
 			-- Over the window, the list knows best what a drop would do.
 			local label = ns.UI and ns.UI.TreeDropLabel and ns.UI:TreeDropLabel(cy, self.dragTracker)
 			self.text:SetText(label or self.windowText or "|cffff6060Cancel|r")
+		elseif cellC then
+			local name = against and against.tracker and (against.tracker.name or ("spell " .. tostring(against.tracker.id)))
+			self.text:SetText("|cff40ff60Attach to " .. (name or ns.GroupName(g)) .. "|r")
 		elseif g then self.text:SetText("|cff40ff60Add to " .. ns.GroupName(g) .. "|r")
 		else self.text:SetText(self.freeText or "Place here") end
 	end)
@@ -2854,15 +2975,19 @@ function Display:BeginGhost(icon, freeText, except, windowText, dragTracker)
 	gh:Show()
 end
 
--- Ends the drag. Returns cancelled, cursorX, cursorY, targetGroup, insertIndex.
+-- Ends the drag. Returns cancelled, cursorX, cursorY, targetGroup, insertIndex, cellC, cellR.
 function Display:EndGhost()
 	local gh = GetGhost()
 	gh:Hide()
+	ShowDropMark(nil)
 	Highlight(nil)
 	local cx, cy = CursorUI()
 	if ns.UI and ns.UI.frame and ns.UI.frame:IsShown() and ns.UI.frame:IsMouseOver() then return true, cx, cy end
 	local g, f = self:GroupAt(cx, cy, gh.except)
-	if g then return false, cx, cy, g, self:InsertIndex(f, g, cx, cy) end
+	if g then
+		local c, r = self:DropCell(f, g, cx, cy, gh.dragTracker)
+		return false, cx, cy, g, self:InsertIndex(f, g, cx, cy), c, r
+	end
 	return false, cx, cy
 end
 
@@ -2905,33 +3030,31 @@ function Display:GroupDragStop(f)
 	ApplyPosition(f, g)
 end
 
+-- Dragging a tracker moves that tracker, wherever it came from. The group itself is moved by the
+-- titled plate edit mode draws behind it, which is what that plate is for.
 function Display:WidgetDragStart(w)
 	local g, t = w.group, w.tracker
 	if not g or not t or not self:IsUnlocked() then return end
-	local f = active[g.uid]
-	if IsShiftKeyDown and IsShiftKeyDown() and #g.trackers > 1 then
-		w.pulling = true
-		self:BeginGhost(t.icon, "New group here")
-	elseif f then
-		w.movingGroup = f
-		self:GroupDragStart(f)
-	end
+	w.pulling = true
+	-- The tracker goes with the ghost: its own cell must not count as being in its way.
+	self:BeginGhost(t.icon, (#g.trackers > 1) and "Drop it in the open for a place of its own" or "Drop it where you want it", nil, nil, t)
 end
 
 function Display:WidgetDragStop(w)
-	if w.movingGroup then
-		local f = w.movingGroup
-		w.movingGroup = nil
-		self:GroupDragStop(f)
-		return
-	end
 	if not w.pulling then return end
 	w.pulling = false
 	local g, t = w.group, w.tracker
-	local cancelled, cx, cy, target, index = self:EndGhost()
+	local cancelled, cx, cy, target, index, cellC, cellR = self:EndGhost()
 	if cancelled or not g or not t then return end
 	if target then
-		ns.MoveTracker(t, target, index)
+		ns.DropTracker(t, target, index, cellC, cellR)
+	elseif #g.trackers == 1 then
+		-- A tracker on its own is its whole group, so dropping it somewhere just puts the group
+		-- there: making a second group to hold it and throwing the first away moves nothing.
+		g.x, g.y = cx - 18, cy + 18
+		local f = active[g.uid]
+		if f then ApplyPosition(f, g) end
+		ns.Changed()
 	else
 		-- Out on its own: a new group that keeps the look of the one it came from.
 		local ng = ns.NewGroupLike(g, cx - 18, cy + 18)

@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.61.0
+
+- While arranging, dragging a tracker now moves that tracker rather than its whole group. Drop it on another group to join it, or in the open for a place of its own. A tracker that is its whole group simply moves the group, which is what dragging one always did. The group itself is moved by the titled plate arranging draws behind it, which is what that plate is for. Shift is no longer needed for any of it.
+- A group of icons is a shape rather than a count of icons per row. Drag one icon against a free side of another, above, below or to either side, and it hangs there: the side you are holding it against is marked in green while you hold it, and the group keeps that shape. A cluster can be built out in any direction, and a shape that grows upwards or leftwards keeps its own corner where you put it instead of dragging the group across the screen.
+- Icons fill the shape in order, so a tracker that is not on screen lets the rest close up, exactly as rows always did. Nothing changes for a group you have not touched: a shape that is a plain block of rows lays out precisely where it did before.
+- "Trackers per row before wrapping" lays the icons out in rows again when you move it, and there is a "Lay the icons out in rows again" button under it for going back to rows without changing the number.
+- A spell dragged out of the book, or a tracker dragged off its row in the list, can be hung on the side of an icon the same way.
+- Clicking a tracker on screen while arranging now scrolls the Groups and trackers list to its row, instead of leaving you to find it.
+
 ## 1.60.0
 
 - New: a tracker can watch a spell's cooldown instead of a buff. `/auraledger cooldown <spell name or ID>` starts one, and any tracker you already have can be switched over under Watch in its options. A cooldown is not hidden from addons on this client the way an aura is, so a cooldown tracker keeps reading and counting straight through a fight, which is why the addon always draws it itself rather than handing it to the game.
