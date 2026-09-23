@@ -526,7 +526,10 @@ end
 -- The art round a bar, on the bar. Returns whether there was any.
 local function PlaceBarShape(w, ref, width, height, want)
 	local s = skin
-	local pieces = s and s.barShape
+	-- The measurement is right for art that stretches with the bar and wrong for a frame round it,
+	-- and what a bar copies is a frame: the old placement, which reckons everything in pixels off
+	-- the donor's height, is what fits. Kept for comparison, not for the asking.
+	local pieces = (ns.db and ns.db.barArt == "measured") and s and s.barShape or nil
 	local pool = w.barShape or {}
 	w.barShape = pool
 	if not pieces or not want then
@@ -1455,7 +1458,12 @@ local function ConfigureWidget(w, g)
 		if PlaceBarShape(w, w.bar, max(8, g.barW - IS - 2), H, g.border ~= false or g.background ~= false) then
 			PlaceDecor(w, {}, "decor", w.bar, H, wantBar)
 		else
-			PlaceDecor(w, s.decor, "decor", w.bar, H, wantBar)
+			PlaceDecor(w, s.decor, "decor", w.bar, H, function(dd)
+			-- Not the backing: the manager's is sized for its own item, icon and all, and hangs off
+			-- a bar that has its own icon beside it. The bar's own black plate is the backing.
+			if dd.under then return false end
+			return g.border ~= false
+		end)
 		end
 		-- Both are asked every time: the one that is not wanted takes itself off screen.
 		w.ringRef = w.ringHolder
@@ -1848,7 +1856,10 @@ local function InitSlotFrame(g, mode, filter, store)
 			local barW = { under = bar, over = artHolder, decor = {}, iconArt = {} }
 			button.alBarArt = barW
 			if not PlaceBarShape(barW, bar, max(8, W - IS - 2), H, g.border ~= false or g.background ~= false) then
-				PlaceDecor(barW, s.decor, "decor", bar, H, function(dd) if dd.under then return g.background ~= false else return g.border ~= false end end)
+				PlaceDecor(barW, s.decor, "decor", bar, H, function(dd)
+					if dd.under then return false end
+					return g.border ~= false
+				end)
 			end
 			if g.iconFrame ~= false then
 				local e1 = PlaceCleanEdge(w, icon, IS, true)

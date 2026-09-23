@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.49.7"
+ns.VERSION = "1.49.8"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -2362,6 +2362,17 @@ SlashCmdList.AURALEDGER = function(msg)
 		ns.db.combatLog = not ns.db.combatLog
 		if ns.db.combatLog and not registered.COMBAT_LOG_EVENT_UNFILTERED then SafeRegister("COMBAT_LOG_EVENT_UNFILTERED") end
 		Print("Combat log source " .. (ns.db.combatLog and "on (if the client shows the blocked dialog, turn it off again)." or "off. Type /reload to finish turning it off."))
+	elseif cmd == "barart" then
+		local word = strlower(rest or "")
+		if word == "measured" or word == "reckoned" then
+			ns.db.barArt = (word == "measured") and "measured" or nil
+			ns.MASK_EPOCH = ns.MASK_EPOCH + 1
+			if ns.Display then ns.Display:Rebuild() end
+			Print("Bar art: " .. word .. ".")
+		else
+			Print("Bar art: " .. ((ns.db.barArt == "measured") and "measured" or "reckoned")
+				.. ". |cffffd000reckoned|r places a bar's art in pixels off the donor's height, which is what a border wants; |cffffd000measured|r places it by where it sat against the donor's own bar, which stretches with the bar.")
+		end
 	elseif cmd == "shadow" then
 		local n = tonumber(rest)
 		if n then

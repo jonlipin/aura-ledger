@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.49.8
+
+- A bar's border fits it again. The measurement added in 1.49.0 was aimed at the backing, which hung lopsided off the bar; carried over to the border it put the frame inside the bar rather than round it. Bar art goes back to the older placement, which reckons a piece's reach in pixels off the donor's height and is what a frame wants.
+- The manager's backing is not copied onto a bar at all. It is sized for the manager's own item, icon and padding included, so on a bar with its own icon beside it there is nothing it can fit. The bar's own black plate is the backing, and that fits by construction.
+- /auraledger barart measured switches back to the other placement for comparison.
+
 ## 1.49.7
 
 - A bar's border fits the bar. Each piece of copied art is measured in fractions of the manager's own bar, which is right for something that stretches with the bar and wrong for a frame round it: a border measured as a fraction of a short donor bar came out as a wide inset on a long one, which is why it sat inside the bar instead of round it. A piece's reach is carried over as pixels against the bar's height now, the way the icons' art is, so a border is the same thickness whatever width the bar is set to.
