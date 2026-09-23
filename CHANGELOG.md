@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.48.0
+
+- Every tracker has the same shadow. The art the Cooldown Manager lays over its own icons is what gives them their shadow, and a tracker the game drew was getting it twice, its own and the addon's copy on top, while a tracker the addon drew got it once: that is the deep shadow on one and the thin line on the others. How many layers are laid on is one number now, the same however a tracker is drawn, and a slot's own layer counts towards it.
+- /auraledger shadow <0-4> sets it: 0 for none, 1 for exactly what the manager draws, 2 (the default) for the deeper one.
+
 ## 1.47.5
 
 - /auraledger debug icon lists the art copied from the manager as it is actually drawn on a tracker, above and below the picture, with its size and where its corners are pinned, plus the addon's own shadow. A piece that is collected but never appears can now be told apart from one that was never collected.

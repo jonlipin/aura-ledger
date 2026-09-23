@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.47.5"
+ns.VERSION = "1.48.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -2362,6 +2362,17 @@ SlashCmdList.AURALEDGER = function(msg)
 		ns.db.combatLog = not ns.db.combatLog
 		if ns.db.combatLog and not registered.COMBAT_LOG_EVENT_UNFILTERED then SafeRegister("COMBAT_LOG_EVENT_UNFILTERED") end
 		Print("Combat log source " .. (ns.db.combatLog and "on (if the client shows the blocked dialog, turn it off again)." or "off. Type /reload to finish turning it off."))
+	elseif cmd == "shadow" then
+		local n = tonumber(rest)
+		if n then
+			ns.db.shadowLayers = (n ~= 2) and n or nil
+			ns.MASK_EPOCH = ns.MASK_EPOCH + 1
+			if ns.Display then ns.Display:Rebuild() end
+			Print(("Shadow: %d layer%s of the art the Cooldown Manager draws round its own icons."):format(n, n == 1 and "" or "s"))
+		else
+			local cur = tonumber(ns.db.shadowLayers) or 2
+			Print(("Shadow: %d layer%s. |cffffd000/auraledger shadow <0-4>|r: 0 none, 1 what the manager itself draws, 2 the default."):format(cur, cur == 1 and "" or "s"))
+		end
 	elseif cmd == "missing" then
 		local word = strlower(rest or "")
 		if word == "grey" or word == "gray" or word == "red" then

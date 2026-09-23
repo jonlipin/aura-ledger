@@ -612,13 +612,30 @@ end
 
 -- The art the manager draws round its own icon, below the picture and above it, which is what
 -- gives its icons their shadow. Placed by the rectangles measured off that icon.
-local function ShapeArt(w, icon, size, want)
+-- How deep the shadow is: how many times the manager's own art is laid on. One is what the manager
+-- draws; the default is two, which is what a tracker the game drew used to end up with by accident
+-- and what the shadow is supposed to look like. "already" is how many are on there before the addon
+-- draws any, which is one on a slot the game fills, since it draws its own.
+local function ShadowLayers(already)
+	local want = tonumber(ns.db and ns.db.shadowLayers)
+	if want == nil then want = 2 end
+	if want < 0 then want = 0 elseif want > 4 then want = 4 end
+	return max(0, want - (already or 0))
+end
+
+local function ShapeArt(w, icon, size, want, already)
 	local s = skin
 	local shape = s and s.shape
+	local layers = ShadowLayers(already)
 	local lists = { { shape and shape.under, "under" }, { shape and shape.over, "over" } }
 	local drew = false
 	for _, pair in ipairs(lists) do
-		local list, where = pair[1] or {}, pair[2]
+		local base, where = pair[1] or {}, pair[2]
+		-- The art, laid on as many times as the shadow is deep.
+		local list = {}
+		for _ = 1, layers do
+			for _, def in ipairs(base) do list[#list + 1] = def end
+		end
 		local pool = w["shapeArt_" .. where] or {}
 		w["shapeArt_" .. where] = pool
 		for i, def in ipairs(want and list or {}) do
@@ -1008,6 +1025,7 @@ function Display:IconReport(emit)
 	local s = BuildSkin()
 	emit("icon art from: " .. tostring(s.iconSource or s.source))
 	emit("icon edge: " .. BorderMode())
+	emit(("shadow depth: %d layer%s of the manager's own art (/auraledger shadow <0-4>)"):format(ShadowLayers(0), ShadowLayers(0) == 1 and "" or "s"))
 	emit("shadow: " .. ((skin and skin.shape and (#(skin.shape.under or {}) > 0 or #(skin.shape.over or {}) > 0)) and "copied from the manager"
 		or (ShadowArt() and ("drawn by the addon with " .. tostring(ShadowArt())) or "none: " .. tostring(ns.report["icon shadow"]))))
 	emit("icon shape from the manager: " .. tostring(ns.report["icon shape"] or "not looked for yet"))
@@ -1641,7 +1659,7 @@ local function InitSlotFrame(g, mode, filter, store)
 		end
 		SquareUp()
 		ShapeMask(w, icon, IW, g.iconFrame ~= false)
-		ShapeArt(w, icon, IW, g.iconFrame ~= false)
+		ShapeArt(w, icon, IW, g.iconFrame ~= false, 1)
 		ShapeShadow(w, icon, IW, g.iconFrame ~= false)
 		button.alIcon = icon
 		pcall(button.SetIcon, button, icon)
