@@ -2003,15 +2003,9 @@ local function TrackerIds(t)
 			local h = ns.db.history[kind .. ":" .. string.lower(t.name)]
 			if h and h.ids then for id in pairs(h.ids) do map[id] = true any = true end end
 		end
-		-- A rank nobody has cast on you yet is not in the ledger, and a slot the game fills is
-		-- given ids rather than a name, so the written-down ranks go in as well.
-		local ranks = ns.Ranks(t.name)
-		if ranks then for id in pairs(ranks) do map[id] = true any = true end end
 	end
 	return any and map or nil
 end
-
-Display.TrackerIds = TrackerIds
 
 local function IdsKey(map)
 	local l = {}

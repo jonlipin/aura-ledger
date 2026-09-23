@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.59.0
+
+- The Life Tap panel added in 1.57.0 is withdrawn. It has become an addon of its own, Tapline, which is where it belongs: nothing it did needed the ledger, and it was only ever going to get in the way here. `/auraledger lifetap` and `/auraledger debug lifetap` are gone with it, along with the rank tables and the spell-id lists that were added for it. Existing trackers, groups and settings are untouched.
+
 ## 1.58.0
 
 - The look settled by eye is what the addon ships with. A bar's fill keeps 0.22 of the bar's height clear at each end, and the plate the frame is drawn on reaches 0.08 above the bar and 0.35 below, which is where the frame sits inside that art. Nothing changes on screen for anyone who had already nudged to these: they are simply no longer settings, so the tuning panel says "default" and "back to the defaults" comes here.

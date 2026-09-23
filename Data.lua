@@ -278,32 +278,3 @@ function ns.BookStats()
 	end
 	return total, exact, iconOnly, unknown
 end
-
--- ------------------------------------------------------------------
--- Ranks
---
--- The game draws an aura slot only for the spell ids it is handed, and a sound is registered
--- against one id at a time, so a buff somebody else puts on you is invisible unless every rank
--- they might cast is listed. The ids here are written from memory and checked against this client
--- at runtime by ns.Ranks: one that comes back under a different name is dropped, so a wrong guess
--- costs the coverage of that rank and nothing else.
--- ------------------------------------------------------------------
-ns.RANK_IDS = {
-	["Renew"] = { 139, 6074, 6075, 6076, 6077, 6078, 10927, 10928, 10929, 25315 },
-	["Rejuvenation"] = { 774, 1058, 1430, 2090, 2091, 3627, 8910, 9839, 9840, 9841, 25299 },
-	["Regrowth"] = { 8936, 8938, 8939, 8940, 8941, 9750, 9856, 9857, 9858, 26980 },
-	["Life Tap"] = { 1454, 1455, 1456, 11687, 11688, 11689 },
-}
-
--- The heals over time another player can put on you: how long each one runs and how far apart its
--- ticks are. The Life Tap panel uses the period to recognise a run of ticks as one spell and the
--- duration to put a time on it when the auras themselves cannot be read.
-ns.HOTS = {
-	{ name = "Renew", duration = 15, period = 3 },
-	{ name = "Rejuvenation", duration = 12, period = 3 },
-	{ name = "Regrowth", duration = 21, period = 3 },
-}
-
--- What a Life Tap costs in health, by rank. The client's own spell description is asked first and
--- this is the fallback; "/auraledger lifetap cost N" overrides both.
-ns.LIFE_TAP_COST = { [1454] = 30, [1455] = 89, [1456] = 170, [11687] = 290, [11688] = 424, [11689] = 594 }
