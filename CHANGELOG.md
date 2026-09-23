@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.64.1
+
+- Fixed: the walk-through could not be read. Its words were painted the dark brown the book's parchment pages use, on a bubble that is not parchment, and the bubble was left to the client's dialog art for a background, which is nearly clear here, so the world showed straight through it. The bubble paints its own solid background now and sets its own colors.
+- The bubble is as tall as the step it is showing, so the longer steps no longer run their last lines under the buttons, and it is a little wider.
+- Fixed: the |cffffd000?|r button was a lone gold letter beside two plated red buttons, which read as faint and unfinished. It has a plate of its own now: the client's plain red button art if it has any, a bordered box if not. `/auraledger debug` says which it got.
+- Fixed: the walk-through said the book's tabs run down the side. They run along the top.
+
 ## 1.64.0
 
 - New: a walk-through. The |cffffd000?|r button at the top of the window, beside minimize, steps you through the whole thing: the book, following your first buff, groups and trackers, where the settings are, cooldowns and carried items, what happens in a fight, arranging, and building a cluster of icons. Ten steps, and it can be left at any point and started again from that button.

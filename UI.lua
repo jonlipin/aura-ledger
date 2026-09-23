@@ -2230,11 +2230,47 @@ local function Build()
 		b:SetFrameLevel((above:GetFrameLevel() or frame:GetFrameLevel()) + 1)
 		if leftOf then b:SetPoint("RIGHT", leftOf, "LEFT", 0, 0)
 		else b:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -56, -2) end
-		local t = Ink(b:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"), "head")
+		-- A plate behind it, so it sits with the red buttons beside it instead of floating as a
+		-- lone letter. The client's own plain red button first; a bordered box if it has none.
+		local plate = "none"
+		for _, atlas in ipairs({ "RedButton", "UI-RedButton", "RedButton-Condense" }) do
+			if atlas ~= "RedButton-Condense" and HasAtlas(atlas) and b.SetNormalAtlas then
+				b:SetNormalAtlas(atlas)
+				if HasAtlas(atlas .. "-Pressed") then b:SetPushedAtlas(atlas .. "-Pressed") end
+				plate = atlas
+				break
+			end
+		end
+		if plate == "none" then
+			local okb, box = pcall(CreateFrame, "Frame", nil, b, "BackdropTemplate")
+			if okb and box and box.SetBackdrop then
+				box:SetPoint("TOPLEFT", 1, -1)
+				box:SetPoint("BOTTOMRIGHT", -1, 1)
+				box:SetBackdrop({ bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", tile = true, tileSize = 8, edgeSize = 8, insets = { left = 2, right = 2, top = 2, bottom = 2 } })
+				box:SetBackdropColor(0.35, 0.05, 0.05, 1)
+				box:SetBackdropBorderColor(1, 0.82, 0)
+				plate = "bordered box"
+			else
+				local fill = b:CreateTexture(nil, "BACKGROUND")
+				fill:SetPoint("TOPLEFT", 1, -1)
+				fill:SetPoint("BOTTOMRIGHT", -1, 1)
+				fill:SetColorTexture(0.35, 0.05, 0.05, 1)
+				plate = "plain fill"
+			end
+		end
+		ns.report["help button plate"] = plate
+		local t = b:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 		t:SetPoint("CENTER", 0, 0)
 		t:SetText("?")
+		t:SetTextColor(1, 0.92, 0.4)
+		t:SetShadowColor(0, 0, 0, 1)
+		t:SetShadowOffset(1, -1)
 		b.text = t
-		b:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+		if HasAtlas("RedButton-Highlight") and b.SetHighlightAtlas then
+			b:SetHighlightAtlas("RedButton-Highlight")
+		else
+			b:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+		end
 		b:SetScript("OnClick", function() UI:StartTour() end)
 		b:SetScript("OnEnter", function(self)
 			TextTooltip(self, "Show me around", "Walks you through the window a step at a time, pointing at what each part is for. It can be left at any point, and this button brings it back.")
@@ -3117,7 +3153,7 @@ local STEPS = {
 	},
 	{
 		title = "The book",
-		text = "Every spell this client knows, a chapter for each class, plus your racials, consumables, and everything you are carrying that has a use on it.\n\nThe tabs down the side change chapter, and the search box at the top finds anything by name.",
+		text = "Every spell this client knows, a chapter for each class, plus your racials, consumables, and everything you are carrying that has a use on it.\n\nThe row of tabs along the top changes chapter, and the search box finds anything by name.",
 		target = function() return UI.parts and UI.parts.book end,
 	},
 	{
@@ -3189,7 +3225,7 @@ end
 local function TourBubble()
 	if tour.bubble then return tour.bubble end
 	local bubble = TryCreateFrame("Frame", "AuraLedgerTourFrame", UIParent, { { "BackdropTemplate" } })
-	bubble:SetSize(330, 190)
+	bubble:SetSize(360, 200)
 	bubble:SetFrameStrata("FULLSCREEN_DIALOG")
 	bubble:SetFrameLevel(20)
 	bubble:EnableMouse(true)
@@ -3197,34 +3233,56 @@ local function TourBubble()
 	bubble:RegisterForDrag("LeftButton")
 	bubble:SetScript("OnDragStart", function(self) self:StartMoving() end)
 	bubble:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() self.moved = true end)
+	-- Its own solid background, painted rather than left to backdrop art: the art this client draws
+	-- for a dialog is nearly clear, and the world behind it made every word of this unreadable.
+	local bg = bubble:CreateTexture(nil, "BACKGROUND")
+	bg:SetPoint("TOPLEFT", 3, -3)
+	bg:SetPoint("BOTTOMRIGHT", -3, 3)
+	bg:SetColorTexture(0.04, 0.04, 0.07, 0.97)
+	bubble.bg = bg
 	if bubble.SetBackdrop then
 		bubble:SetBackdrop({
-			bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
 			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-			tile = true, tileSize = 16, edgeSize = 14,
-			insets = { left = 4, right = 4, top = 4, bottom = 4 },
+			edgeSize = 14,
 		})
 		bubble:SetBackdropBorderColor(1, 0.82, 0)
-	else
-		local bg = bubble:CreateTexture(nil, "BACKGROUND")
-		bg:SetAllPoints()
-		bg:SetColorTexture(0.05, 0.05, 0.08, 0.95)
+	end
+	-- A plain gold edge as well, so the bubble still has an outline on a client whose border art
+	-- draws nothing.
+	for _, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
+		local line = bubble:CreateTexture(nil, "BORDER")
+		line:SetColorTexture(1, 0.82, 0, 0.8)
+		if side == "TOP" or side == "BOTTOM" then
+			line:SetPoint(side .. "LEFT", 2, side == "TOP" and -2 or 2)
+			line:SetPoint(side .. "RIGHT", -2, side == "TOP" and -2 or 2)
+			line:SetHeight(1)
+		else
+			line:SetPoint("TOP" .. side, side == "LEFT" and 2 or -2, -2)
+			line:SetPoint("BOTTOM" .. side, side == "LEFT" and 2 or -2, 2)
+			line:SetWidth(1)
+		end
 	end
 
-	bubble.title = Ink(bubble:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"), "head")
+	-- The walk-through sets its own colors: Ink paints for the book's parchment, and this is not it.
+	bubble.title = bubble:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 	bubble.title:SetPoint("TOPLEFT", 14, -12)
-	bubble.title:SetPoint("TOPRIGHT", -14, -12)
+	bubble.title:SetPoint("TOPRIGHT", -34, -12)
 	bubble.title:SetJustifyH("LEFT")
+	bubble.title:SetTextColor(1, 0.82, 0)
 
-	bubble.body = Ink(bubble:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
+	bubble.body = bubble:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	bubble.body:SetPoint("TOPLEFT", 14, -38)
 	bubble.body:SetPoint("TOPRIGHT", -14, -38)
 	bubble.body:SetJustifyH("LEFT")
 	bubble.body:SetJustifyV("TOP")
-	bubble.body:SetSpacing(2)
+	bubble.body:SetSpacing(3)
+	bubble.body:SetTextColor(0.95, 0.95, 0.95)
+	bubble.body:SetShadowColor(0, 0, 0, 1)
+	bubble.body:SetShadowOffset(1, -1)
 
-	bubble.count = Ink(bubble:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
-	bubble.count:SetPoint("BOTTOMLEFT", 14, 14)
+	bubble.count = bubble:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	bubble.count:SetPoint("BOTTOMLEFT", 14, 16)
+	bubble.count:SetTextColor(0.7, 0.66, 0.55)
 
 	bubble.next = MakeButton(bubble, "Next", 80)
 	bubble.next:SetPoint("BOTTOMRIGHT", -12, 10)
@@ -3285,6 +3343,14 @@ function UI:TourStep(n)
 	bubble.title:SetText(step.title)
 	bubble.body:SetText(step.text)
 	bubble.count:SetText(("Step %d of %d"):format(n, #STEPS))
+	-- As tall as this step needs. The measured height is not to be trusted before the text has been
+	-- laid out, so the line count is also worked out from the text itself, as the notes do.
+	local plain = step.text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
+	local breaks = 1
+	for _ in plain:gmatch("\n") do breaks = breaks + 1 end
+	local guess = ceil(#plain * 5.4 / 320) + breaks
+	local body = max(bubble.body:GetStringHeight() or 0, guess * 13)
+	bubble:SetHeight(max(170, 38 + body + 52))
 	bubble.back:SetShown(n > 1)
 	bubble.next:SetText(n == #STEPS and "Done" or "Next")
 	bubble:Show()
