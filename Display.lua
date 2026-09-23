@@ -1265,17 +1265,35 @@ function Display:IconReport(emit)
 				if anySlot then
 					emit("      (the game draws these while the window is shut; with it open the addon does)")
 					local sb = anySlot.alBar
-					emit(("      the game's own bar: %s, %.0fx%.0f"):format((sb:IsShown() and "shown" or "hidden"), sb:GetWidth() or 0, sb:GetHeight() or 0))
-					local pts = ""
-					for i = 1, (sb.GetNumPoints and sb:GetNumPoints() or 0) do
-						local p, _, rp, x, y = sb:GetPoint(i)
-						if p then pts = pts .. (" [%s->%s %+.1f %+.1f]"):format(p, tostring(rp), x or 0, y or 0) end
+					-- Anything the game answers here can be a secret value, and a secret cannot even
+					-- be tested, so every reading is taken through a guard and printed as a number
+					-- or not at all.
+					local function Num(get)
+						local ok, v = pcall(get)
+						if ok and type(v) == "number" then return ("%.0f"):format(v) end
+						return "?"
 					end
-					emit("        pinned" .. (pts ~= "" and pts or " nowhere"))
-					emit("        " .. TexLine("its icon", anySlot.alIcon))
+					emit(("      the game's own bar: %s wide, %s tall"):format(
+						Num(function() return sb:GetWidth() end), Num(function() return sb:GetHeight() end)))
+					local pts = ""
+					local okP, n = pcall(function() return sb:GetNumPoints() end)
+					for i = 1, (okP and type(n) == "number" and n or 0) do
+						local okPt, p, _, rp, x, y = pcall(function() return sb:GetPoint(i) end)
+						if okPt and type(p) == "string" then
+							pts = pts .. (" [%s->%s %s %s]"):format(p, tostring(rp),
+								type(x) == "number" and ("%+.1f"):format(x) or "?",
+								type(y) == "number" and ("%+.1f"):format(y) or "?")
+						end
+					end
+					emit("        pinned" .. (pts ~= "" and pts or ": the game will not say"))
+					local okIcon, iconLine = pcall(TexLine, "its icon", anySlot.alIcon)
+					emit("        " .. (okIcon and iconLine or "its icon: the game will not say"))
 					local pool = anySlot.alBarArt and (anySlot.alBarArt.barShape or anySlot.alBarArt.decor) or {}
 					emit(("        its plate: %d piece%s"):format(#pool, #pool == 1 and "" or "s"))
-					for i, tex in ipairs(pool) do emit("          " .. TexLine("piece " .. i, tex)) end
+					for i, tex in ipairs(pool) do
+						local okT, line = pcall(TexLine, "piece " .. i, tex)
+						emit("          " .. (okT and line or ("piece " .. i .. ": the game will not say")))
+					end
 				else
 					emit("      the game's own bar: none on screen")
 				end

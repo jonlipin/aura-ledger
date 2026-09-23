@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.54.3
+
+- Reading a slot's bar in /auraledger debug icon no longer stops the readout. The frames in a slot belong to the game and what they answer can be a secret value, which cannot even be tested: asking whether the bar was shown was enough to end the readout with "attempt to perform boolean test on a secret boolean value". Every reading is taken through a guard now, and a line that cannot be had says so instead.
+
 ## 1.54.2
 
 - The readout finds the bar inside a slot the game fills. A container keeps its frames in one list and its bookkeeping in another, and the reading added in 1.54.1 went looking through the bookkeeping, so it always said there was no such bar.
