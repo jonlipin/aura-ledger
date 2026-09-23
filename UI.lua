@@ -3280,83 +3280,89 @@ local function TourSpot()
 	b:SetPoint("BOTTOMLEFT") b:SetPoint("BOTTOMRIGHT") b:SetHeight(2)
 	l:SetPoint("TOPLEFT") l:SetPoint("BOTTOMLEFT") l:SetWidth(2)
 	r:SetPoint("TOPRIGHT") r:SetPoint("BOTTOMRIGHT") r:SetWidth(2)
+	-- Pulsing, so the eye finds it without it shouting.
+	spot:SetScript("OnUpdate", function(self, elapsed)
+		self.t = (self.t or 0) + elapsed
+		local a = 0.45 + 0.35 * math.sin(self.t * 3)
+		for _, edge in ipairs(self.edges) do edge:SetAlpha(a) end
+	end)
 	tour.spot = spot
 	return spot
 end
 
 local function TourBubble()
 	if tour.bubble then return tour.bubble end
-	local bubble = TryCreateFrame("Frame", "AuraLedgerTourFrame", UIParent, { { "BackdropTemplate" } })
-	bubble:SetSize(360, 200)
+	-- The client's own panel, the same chain Macro Bench's tutorials use: a titled bar, an inset
+	-- page and a close button, all of it opaque, so nothing here has to be painted by hand.
+	local bubble, template = TryCreateFrame("Frame", "AuraLedgerTourFrame", UIParent, {
+		{ "BasicFrameTemplateWithInset", function(x) return x.Inset ~= nil end },
+		{ "BackdropTemplate" },
+	})
+	bubble:SetSize(420, 300)
 	bubble:SetFrameStrata("FULLSCREEN_DIALOG")
-	bubble:SetFrameLevel(20)
 	bubble:EnableMouse(true)
 	bubble:SetMovable(true)
+	bubble:SetClampedToScreen(true)
+	if bubble.SetToplevel then bubble:SetToplevel(true) end
 	bubble:RegisterForDrag("LeftButton")
 	bubble:SetScript("OnDragStart", function(self) self:StartMoving() end)
 	bubble:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() self.moved = true end)
-	-- Its own solid background, painted rather than left to backdrop art: the art this client draws
-	-- for a dialog is nearly clear, and the world behind it made every word of this unreadable.
-	local bg = bubble:CreateTexture(nil, "BACKGROUND")
-	bg:SetPoint("TOPLEFT", 3, -3)
-	bg:SetPoint("BOTTOMRIGHT", -3, 3)
-	bg:SetColorTexture(0.04, 0.04, 0.07, 0.97)
-	bubble.bg = bg
-	if bubble.SetBackdrop then
-		bubble:SetBackdrop({
-			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
-			edgeSize = 14,
-		})
-		bubble:SetBackdropBorderColor(1, 0.82, 0)
-	end
-	-- A plain gold edge as well, so the bubble still has an outline on a client whose border art
-	-- draws nothing.
-	for _, side in ipairs({ "TOP", "BOTTOM", "LEFT", "RIGHT" }) do
-		local line = bubble:CreateTexture(nil, "BORDER")
-		line:SetColorTexture(1, 0.82, 0, 0.8)
-		if side == "TOP" or side == "BOTTOM" then
-			line:SetPoint(side .. "LEFT", 2, side == "TOP" and -2 or 2)
-			line:SetPoint(side .. "RIGHT", -2, side == "TOP" and -2 or 2)
-			line:SetHeight(1)
-		else
-			line:SetPoint("TOP" .. side, side == "LEFT" and 2 or -2, -2)
-			line:SetPoint("BOTTOM" .. side, side == "LEFT" and 2 or -2, 2)
-			line:SetWidth(1)
+	if bubble.SetTitle then bubble:SetTitle("Showing you around")
+	elseif bubble.TitleText then bubble.TitleText:SetText("Showing you around") end
+	if not template or template == "BackdropTemplate" then
+		-- No panel template on this client: the dialog's own art, and a close button of our own.
+		if bubble.SetBackdrop then
+			bubble:SetBackdrop({
+				bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+				edgeFile = "Interface\\DialogFrame\\UI-DialogBox-Border",
+				tile = true, tileSize = 32, edgeSize = 32,
+				insets = { left = 11, right = 12, top = 12, bottom = 11 },
+			})
 		end
 	end
+	-- However it was built, it closes. A panel template that brings its own button is wired up;
+	-- one that does not gets a button of its own.
+	if bubble.CloseButton then
+		bubble.CloseButton:SetScript("OnClick", function() UI:EndTour() end)
+	else
+		local close = CreateFrame("Button", nil, bubble, "UIPanelCloseButton")
+		close:SetPoint("TOPRIGHT", -4, -4)
+		close:SetScript("OnClick", function() UI:EndTour() end)
+		bubble.closeButton = close
+	end
 
-	-- The walk-through sets its own colors: Ink paints for the book's parchment, and this is not it.
-	bubble.title = bubble:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	bubble.title:SetPoint("TOPLEFT", 14, -12)
-	bubble.title:SetPoint("TOPRIGHT", -34, -12)
+	local page = CreateFrame("Frame", nil, bubble)
+	if bubble.Inset then
+		page:SetPoint("TOPLEFT", bubble.Inset, "TOPLEFT", 6, -6)
+		page:SetPoint("BOTTOMRIGHT", bubble.Inset, "BOTTOMRIGHT", -6, 6)
+	else
+		page:SetPoint("TOPLEFT", 16, -34)
+		page:SetPoint("BOTTOMRIGHT", -16, 16)
+	end
+	bubble.page = page
+
+	bubble.title = page:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	bubble.title:SetPoint("TOPLEFT", 4, -2)
+	bubble.title:SetPoint("RIGHT", -4, 0)
 	bubble.title:SetJustifyH("LEFT")
-	bubble.title:SetTextColor(1, 0.82, 0)
 
-	bubble.body = bubble:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	bubble.body:SetPoint("TOPLEFT", 14, -38)
-	bubble.body:SetPoint("TOPRIGHT", -14, -38)
+	bubble.count = page:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	bubble.count:SetPoint("TOPLEFT", 4, -22)
+
+	bubble.body = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	bubble.body:SetPoint("TOPLEFT", 4, -44)
+	bubble.body:SetPoint("RIGHT", -4, 0)
 	bubble.body:SetJustifyH("LEFT")
 	bubble.body:SetJustifyV("TOP")
 	bubble.body:SetSpacing(3)
-	bubble.body:SetTextColor(0.95, 0.95, 0.95)
-	bubble.body:SetShadowColor(0, 0, 0, 1)
-	bubble.body:SetShadowOffset(1, -1)
 
-	bubble.count = bubble:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
-	bubble.count:SetPoint("BOTTOMLEFT", 14, 16)
-	bubble.count:SetTextColor(0.7, 0.66, 0.55)
-
-	bubble.next = MakeButton(bubble, "Next", 80)
-	bubble.next:SetPoint("BOTTOMRIGHT", -12, 10)
-	bubble.next:SetScript("OnClick", function() UI:TourStep(tour.step + 1) end)
-
-	bubble.back = MakeButton(bubble, "Back", 70)
-	bubble.back:SetPoint("RIGHT", bubble.next, "LEFT", -4, 0)
+	bubble.back = MakeButton(page, "Back", 70)
+	bubble.back:SetPoint("BOTTOMLEFT", 2, 2)
 	bubble.back:SetScript("OnClick", function() UI:TourStep(tour.step - 1) end)
 
-	local close = CreateFrame("Button", nil, bubble, "UIPanelCloseButton")
-	close:SetPoint("TOPRIGHT", 2, 2)
-	close:SetScript("OnClick", function() UI:EndTour() end)
+	bubble.next = MakeButton(page, "Next", 90)
+	bubble.next:SetPoint("BOTTOMRIGHT", -2, 2)
+	bubble.next:SetScript("OnClick", function() UI:TourStep(tour.step + 1) end)
 
 	bubble:SetScript("OnUpdate", function(self, elapsed)
 		self.acc = (self.acc or 0) + elapsed
@@ -3364,7 +3370,9 @@ local function TourBubble()
 		self.acc = 0
 		UI:TourTick()
 	end)
+	bubble:HookScript("OnHide", function() if tour.spot then tour.spot:Hide() end end)
 	bubble:Hide()
+	tinsert(UISpecialFrames, "AuraLedgerTourFrame")
 	tour.bubble = bubble
 	return bubble
 end
@@ -3414,9 +3422,10 @@ function UI:TourStep(n)
 	local plain = step.text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")
 	local breaks = 1
 	for _ in plain:gmatch("\n") do breaks = breaks + 1 end
-	local guess = ceil(#plain * 5.4 / 320) + breaks
-	local body = max(bubble.body:GetStringHeight() or 0, guess * 13)
-	bubble:SetHeight(max(170, 38 + body + 52))
+	local guess = ceil(#plain * 5.6 / 380) + breaks
+	local body = max(bubble.body:GetStringHeight() or 0, guess * 14)
+	-- the title, the step count, the text, the buttons, and the panel's own bar and inset
+	bubble:SetHeight(max(220, 44 + body + 34 + 58))
 	bubble.back:SetShown(n > 1)
 	bubble.next:SetText(n == #STEPS and "Done" or "Next")
 	bubble:Show()

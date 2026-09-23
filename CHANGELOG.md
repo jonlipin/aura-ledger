@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.66.0
+
+- The walk-through is dressed the way Macro Bench dresses its tutorials: the client own panel, with a titled bar, an inset page and its own close button, instead of a frame painted by hand. That is also what makes it readable, since the panel brings a solid background and the plain game fonts sit correctly on it.
+- The bubble can still be dragged out of the way, closes with Escape, and is as tall as the step it is showing.
+- The ring drawn round the thing being talked about pulses now, so the eye finds it, which is what Macro Bench does too.
+- A client with no panel template still gets a close button. It used to get one only on the fallback path, so a client whose panel had none of its own would have left the walk-through with no way to close it but Escape.
+
 ## 1.65.1
 
 - Fixed: the window size buttons rode low in the bar along the bottom. They were hung off the size grip, and the grip sits low in that bar rather than in the middle of it. They are centered on the bar itself now, and the hint beside them keeps its own place instead of being dragged about by where they ended up.
