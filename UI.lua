@@ -2644,6 +2644,143 @@ local function GetShare()
 	return f
 end
 
+-- ------------------------------------------------------------------
+-- The tuning panel
+-- ------------------------------------------------------------------
+-- Every number that decides how a tracker is drawn, with a pair of buttons each. These are the
+-- numbers that cannot be read off the client: where the frame sits inside the art it is drawn on,
+-- how far the mask has to be grown before it fits, how deep the shadow goes. A look is the only way
+-- to settle them, so they are nudged by eye rather than typed as commands.
+local TUNE = {
+	{ head = "The bar's frame" },
+	{ label = "Reaches above the bar", key = "plateTop", step = 0.02, fallback = "even" },
+	{ label = "Reaches below the bar", key = "plateBottom", step = 0.02, fallback = "even" },
+	{ label = "Fill margin, sideways", key = "fillInsetX", step = 0.02, default = 0.18 },
+	{ label = "Fill margin, up and down", key = "fillInsetY", step = 0.02, default = 0.06 },
+	{ head = "The icon" },
+	{ label = "Shadow, layers of the game's art", key = "shadowLayers", step = 1, default = 2, whole = true, min = 0, max = 4 },
+	{ label = "Frame reaches past the icon", key = "frameOver", step = 0.01, default = 0.115 },
+	{ label = "Frame sits up", key = "frameShift", step = 0.01, default = 0 },
+	{ label = "Mask drawn larger by", key = "maskOver", step = 0.02, default = 0.26 },
+	{ label = "Mask sits up", key = "maskShift", step = 0.02, default = 0 },
+}
+
+local tuner
+local function TuneValue(row)
+	local v = tonumber(ns.db and ns.db[row.key])
+	if v == nil then return row.default end
+	return v
+end
+
+local function TuneText(row)
+	local v = TuneValue(row)
+	if v == nil then return row.fallback or "default" end
+	if row.whole then return tostring(math.floor(v + 0.5)) end
+	return ("%.2f"):format(v)
+end
+
+local function TuneApply()
+	ns.MASK_EPOCH = (ns.MASK_EPOCH or 0) + 1
+	if ns.ApplyMaskSettings then ns.ApplyMaskSettings() end
+	if ns.Display then ns.Display:Rebuild() end
+	if tuner and tuner.Sync then tuner:Sync() end
+end
+
+local function TuneNudge(row, by)
+	local v = TuneValue(row)
+	if v == nil then v = 0 end
+	v = v + row.step * by
+	if row.min and v < row.min then v = row.min end
+	if row.max and v > row.max then v = row.max end
+	if row.whole then v = math.floor(v + 0.5) end
+	if row.default ~= nil and math.abs(v - row.default) < 0.0001 then
+		ns.db[row.key] = nil
+	else
+		ns.db[row.key] = v
+	end
+	TuneApply()
+end
+
+local function BuildTuner()
+	local f = TryCreateFrame("Frame", "AuraLedgerTuner", UIParent, { { "BasicFrameTemplateWithInset" }, { "ButtonFrameTemplate" } })
+	f:SetSize(330, 40 + #TUNE * 26 + 40)
+	f:SetPoint("CENTER", UIParent, "CENTER", 260, 0)
+	f:SetFrameStrata("DIALOG")
+	f:SetMovable(true)
+	f:EnableMouse(true)
+	f:RegisterForDrag("LeftButton")
+	f:SetScript("OnDragStart", f.StartMoving)
+	f:SetScript("OnDragStop", f.StopMovingOrSizing)
+	if f.TitleText then f.TitleText:SetText("Aura Ledger tuning") end
+	local title = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	title:SetPoint("TOP", 0, -10)
+	title:SetText("Aura Ledger tuning")
+	if f.TitleText then title:Hide() end
+
+	local close = TryCreateFrame("Button", nil, f, { { "UIPanelCloseButton" } })
+	close:SetPoint("TOPRIGHT", -4, -4)
+	close:SetSize(26, 26)
+	if not close.GetNormalTexture or not close:GetNormalTexture() then close:SetText("X") end
+	close:SetScript("OnClick", function() f:Hide() end)
+
+	f.rows = {}
+	local y = -34
+	for i, row in ipairs(TUNE) do
+		if row.head then
+			local h = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+			h:SetPoint("TOPLEFT", 14, y - 4)
+			h:SetText(row.head)
+			y = y - 22
+		else
+			local label = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+			label:SetPoint("TOPLEFT", 18, y)
+			label:SetWidth(190)
+			label:SetJustifyH("LEFT")
+			label:SetText(row.label)
+
+			local value = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+			value:SetPoint("TOPLEFT", 212, y)
+			value:SetWidth(46)
+			value:SetJustifyH("CENTER")
+
+			local down = MakeButton(f, "-", 24)
+			down:SetSize(24, 20)
+			down:SetPoint("TOPLEFT", 258, y + 3)
+			down:SetScript("OnClick", function() TuneNudge(row, -1) end)
+
+			local up = MakeButton(f, "+", 24)
+			up:SetSize(24, 20)
+			up:SetPoint("TOPLEFT", 284, y + 3)
+			up:SetScript("OnClick", function() TuneNudge(row, 1) end)
+
+			f.rows[#f.rows + 1] = { row = row, value = value }
+			y = y - 26
+		end
+	end
+
+	local reset = MakeButton(f, "Back to the defaults", 170)
+	reset:SetPoint("BOTTOM", 0, 14)
+	reset:SetScript("OnClick", function()
+		for _, r in ipairs(TUNE) do
+			if r.key then ns.db[r.key] = nil end
+		end
+		TuneApply()
+	end)
+
+	function f:Sync()
+		for _, r in ipairs(self.rows) do r.value:SetText(TuneText(r.row)) end
+	end
+	f:SetScript("OnShow", f.Sync)
+	tuner = f
+	return f
+end
+
+function UI:ShowTuner()
+	local f = tuner or BuildTuner()
+	if f:IsShown() then f:Hide() else f:Show() f:Sync() end
+	return f
+end
+
 function UI:ShowExport(text, what)
 	local f = GetShare()
 	f.mode = "export"

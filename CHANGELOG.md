@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.54.0
+
+- /auraledger tune opens a small panel for nudging the look, with a pair of buttons on every number: how far the bar's frame reaches above and below the bar, the margins between the fill and that frame, the depth of an icon's shadow, how far the icon's frame reaches and sits, and how much larger the mask is drawn. Each nudge applies at once, and one button puts the lot back to the defaults. These are the numbers that cannot be read off the client, so they are settled by eye.
+
 ## 1.53.3
 
 - Fixed an error that repeated while a game-drawn group of bars was on screen: "calling SetSize on bad self (Attempt to access forbidden object from code tainted by an AddOn)". 1.53.1 tried to lay a slot's bar out again from the addon's own code, and the frames in a slot belong to the game, which refuses that outright.
