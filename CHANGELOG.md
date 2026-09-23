@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.48.1
+
+- A tracker the game draws has one shadow rather than two. The cell underneath a slot draws the shadow, and the icon handed to the slot was drawing another; both reach the same distance past the picture, so in that ring the two stacked and came out twice as deep. The slot leaves the shadow to the cell, and the cell counts the layer the game draws itself towards the depth.
+
 ## 1.48.0
 
 - Every tracker has the same shadow. The art the Cooldown Manager lays over its own icons is what gives them their shadow, and a tracker the game drew was getting it twice, its own and the addon's copy on top, while a tracker the addon drew got it once: that is the deep shadow on one and the thin line on the others. How many layers are laid on is one number now, the same however a tracker is drawn, and a slot's own layer counts towards it.

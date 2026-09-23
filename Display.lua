@@ -1335,7 +1335,7 @@ local function ConfigureWidget(w, g)
 		-- Both are asked every time: the one that is not wanted takes itself off screen.
 		w.ringRef = w.ringHolder
 		ShapeMask(w, w.icon, IS, g.iconFrame ~= false)
-		ShapeArt(w, w.icon, IS, g.iconFrame ~= false)
+		ShapeArt(w, w.icon, IS, g.iconFrame ~= false, w.underSlot and 1 or 0)
 		ShapeShadow(w, w.icon, IS, g.iconFrame ~= false)
 		ShapeCooldown(w, w.cd, IS, g.iconFrame ~= false)
 		local shaped = ShapeBorder(w, w.icon, IS, g.iconFrame ~= false) or (HaveShape() and g.iconFrame ~= false)
@@ -1389,7 +1389,8 @@ local function ConfigureWidget(w, g)
 		PlaceDecor(w, {}, "decor", w.bar, S)
 		w.ringRef = w.ringHolder
 		ShapeMask(w, w.icon, S, g.iconFrame ~= false)
-		ShapeArt(w, w.icon, S, g.iconFrame ~= false)
+		-- Under a slot the game draws one layer of its own, which counts towards the depth.
+		ShapeArt(w, w.icon, S, g.iconFrame ~= false, w.underSlot and 1 or 0)
 		ShapeShadow(w, w.icon, S, g.iconFrame ~= false)
 		ShapeCooldown(w, w.cd, S, g.iconFrame ~= false)
 		local shaped = ShapeBorder(w, w.icon, S, g.iconFrame ~= false) or (HaveShape() and g.iconFrame ~= false)
@@ -1659,7 +1660,9 @@ local function InitSlotFrame(g, mode, filter, store)
 		end
 		SquareUp()
 		ShapeMask(w, icon, IW, g.iconFrame ~= false)
-		ShapeArt(w, icon, IW, g.iconFrame ~= false, 1)
+		-- The cell underneath draws the shadow for this tracker; a second set here would sit exactly
+		-- on top of it and come out twice as deep.
+		ShapeArt(w, icon, IW, false)
 		ShapeShadow(w, icon, IW, g.iconFrame ~= false)
 		button.alIcon = icon
 		pcall(button.SetIcon, button, icon)
