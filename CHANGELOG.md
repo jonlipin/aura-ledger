@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.54.6
+
+- In a fight, the cell under a game-drawn tracker stays under it. The cell is put below its slot by reading where the slot sits, and in combat the game refuses that reading outright, so the cell kept its own place and the "Missing" painted on it drew over the name and the time the game was drawing. The gate the slots hang on belongs to the addon and always answers, and a slot sits three levels above it, so the cell is put below the gate when the slot will not say.
+
 ## 1.54.5
 
 - The fill on a bar the game draws sits inside the frame, as it does on the addon's own. The addon's bar holds a fill texture that is inset within it, and the margin was being applied to that texture; a slot's fill is the status bar itself, so the same margin was applied to its backing and did nothing to the fill, which ran out over the frame. The status bar is inset instead, which is the same margin one step further out.

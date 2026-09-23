@@ -2450,7 +2450,15 @@ local function LayoutGroup(f, g, visible, unlocked)
 				-- The game's icon has to cover the cell underneath, edge and all. The button is the
 				-- game's own and may refuse to be read at all, so nothing is asked of it unguarded.
 				local okL, lvl = pcall(function() return sl.frame:GetFrameLevel() end)
-				if okL and type(lvl) == "number" then SetCellLevel(widget, lvl - 6) end
+				if okL and type(lvl) == "number" then
+					SetCellLevel(widget, lvl - 6)
+				else
+					-- In combat the game refuses to say where its own frame sits. The gate the slots
+					-- hang on is the addon's own and always answers, and a slot is three levels above
+					-- it, so the cell goes far enough below the gate that all of it stays under.
+					local okG, glvl = pcall(function() return (f.gate or f):GetFrameLevel() end)
+					if okG and type(glvl) == "number" then SetCellLevel(widget, glvl - 3) end
+				end
 				-- A cooldown makes its textures the first time it runs, and the game runs these, so
 				-- the mask is asked for again here rather than only when the slot was built.
 				if sl.frame.alW then
