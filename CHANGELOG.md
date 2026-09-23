@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.49.3
+
+- A bar the game draws covers the cell it sits on. That cell is painted as missing on purpose, text and all, so that it shows through the moment the aura goes, and the bar drawn over it was translucent: "Missing" read straight through the name and the time. Its backing is opaque where it covers a cell.
+- The manager's pip is no longer copied onto a bar. It is the bright mark the manager slides along its own fill, and the addon draws its own fill, so copied as a fixed piece it sat at the end of the bar as a gold bookmark.
+
 ## 1.49.2
 
 - A group shown as icons no longer has empty bars beside it. The art measured off the manager's bar in 1.49.0 is drawn from a pool of its own, and the icons branch, which hides the bar and clears the old pool, knew nothing about the new one: the art stayed on screen with nothing in it. It is taken off with the bar now.

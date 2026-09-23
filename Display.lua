@@ -426,7 +426,12 @@ local function BarShapeFromDonor(root, bar, fillTex)
 						local art, rect = ArtOf(r), RelRect(r, bar)
 						local layer, sub = "ARTWORK", 0
 						if r.GetDrawLayer then local okL, l, sl = pcall(r.GetDrawLayer, r) if okL and l then layer, sub = l, sl or 0 end end
-						if art and rect then pieces[#pieces + 1] = { art = art, rect = rect, layer = layer, sub = sub } end
+						-- The pip is the mark the manager slides along its own fill. Copied as a fixed
+						-- piece it is a gold bookmark at the end of the bar, so it is left behind.
+						local name = tostring(art and (art.atlas or art.file) or "")
+						if art and rect and not name:lower():find("pip") then
+							pieces[#pieces + 1] = { art = art, rect = rect, layer = layer, sub = sub }
+						end
 					end
 				end
 			end
@@ -1811,7 +1816,9 @@ local function InitSlotFrame(g, mode, filter, store)
 			if filter == "HARMFUL" then bar:SetStatusBarColor(0.85, 0.22, 0.2) else bar:SetStatusBarColor(0.25, 0.6, 1) end
 			local bg = bar:CreateTexture(nil, "BACKGROUND")
 			bg:SetAllPoints()
-			bg:SetColorTexture(0, 0, 0, g.background ~= false and 0.55 or 0)
+			-- Opaque: the cell under this slot is painted as missing, text and all, and a translucent
+			-- backing lets "Missing" read through the name and the time the game is drawing.
+			bg:SetColorTexture(0, 0, 0, 1)
 			local dir = DrainDirection()
 			if not pcall(button.SetDurationBar, button, bar, dir ~= nil and { direction = dir } or nil) then pcall(button.SetDurationBar, button, bar) end
 			if not PlaceBarShape(w, bar, max(8, W - IS - 2), H, g.border ~= false or g.background ~= false) then
