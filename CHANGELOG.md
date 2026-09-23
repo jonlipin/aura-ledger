@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.49.5
+
+- A bar the game draws is the height the group asks for. It was pinned to the top and bottom of its cell, and a cell is as tall as the taller of the bar and the icon, so in any group whose icon stands proud of its bar the game's bar was stretched to the icon's height while the addon's kept the bar's own: one bar taller than the rest. The slot's bar keeps the group's bar height and holds the middle of its cell, as the addon's has since 1.42.3.
+
 ## 1.49.4
 
 - The dark plate hanging out behind a bar is gone. The manager's backing is measured faithfully, and on its own items that backing reaches well past the bar, because it covers their icon and the padding around it too. Carried onto a bar that has its own icon beside it, that reach is a plate sticking out to the right and below. A piece drawn behind everything is laid exactly on the bar now; the border, and anything else, keeps the reach it was measured with.

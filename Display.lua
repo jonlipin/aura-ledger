@@ -1801,8 +1801,11 @@ local function InitSlotFrame(g, mode, filter, store)
 		pcall(button.AddDispelTypeTexture, button, border)
 		if bars then
 			local bar = CreateFrame("StatusBar", nil, button)
-			bar:SetPoint("TOPLEFT", button, "TOPLEFT", IS + 2, 0)
-			bar:SetPoint("BOTTOMRIGHT")
+			-- The group's own bar height, held in the middle of the cell: a cell is as tall as the
+			-- taller of the bar and the icon, and stretching to it makes this bar the odd one out.
+			bar:SetSize(max(8, W - IS - 2), H)
+			bar:SetPoint("LEFT", button, "LEFT", IS + 2, 0)
+			button.alBar = bar
 			bar:SetFrameLevel(button:GetFrameLevel() + 1)
 			-- The fill is a strip inside a sheet: the bar's texture needs the atlas (or the crop), not the sheet.
 			bar:SetStatusBarTexture(s.fill.file or BAR_TEXTURE)
