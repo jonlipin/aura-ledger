@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.50.0
+
+- Bars have a frame again, drawn by the addon. The readout says this client's Cooldown Manager gives exactly one piece of art for a bar, its background, and no border: its bar items are never shown, so there is nothing to read off them. Rather than leave bars bare, the addon draws the frame itself, four thin lines round the bar, as it does round an icon on a client with no art to copy. Where a client does hand a border over, that one is used and this is not drawn. The Bar border tick still turns it off.
+
 ## 1.49.10
 
 - Bars have their border back. Dropping the manager's backing in 1.49.8 went by the flag the collector sets for anything drawn behind the fill, and that covers the border frame as well as the backing, so the bars lost their frame along with the plate. Only what is drawn in the background layer is dropped now, and the pip with it, as on the other placement.

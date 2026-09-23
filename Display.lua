@@ -1209,6 +1209,7 @@ function Display:IconReport(emit)
 				emit("      fallback border frame: " .. (w.edge and ((w.edge:IsShown() and "shown" or "hidden") .. " (the skin had no art of its own)") or "none"))
 				emit("      " .. TextLine("name", w.name))
 				emit("      " .. TextLine("time", w.duration))
+				emit("      frame: " .. (HaveBarFrame() and "copied from the client" or ("drawn by the addon, " .. #(w.barFrame or {}) .. " lines")))
 				local shaped = w.barShape or {}
 				emit(("      bar art measured off the donor's bar: %d piece%s"):format(#shaped, #shaped == 1 and "" or "s"))
 				for i, tex in ipairs(shaped) do emit("        " .. TexLine("piece " .. i, tex)) end
@@ -1260,6 +1261,55 @@ local function WidgetTooltip(w)
 		GameTooltip:AddLine("Click: options", 0.7, 0.7, 0.7)
 	end
 	GameTooltip:Show()
+end
+
+-- A frame round a bar, drawn as four thin lines, for a client that hands none over. "w" carries the
+-- pool so a bar the addon draws and a bar the game draws each keep their own.
+local function PlaceBarFrame(w, ref, height, want)
+	local pool = w.barFrame or {}
+	w.barFrame = pool
+	if not want then
+		for _, tex in ipairs(pool) do tex:Hide() end
+		return false
+	end
+	local px = max(1, floor(height / 14 + 0.5))
+	for i = 1, 4 do
+		local tex = pool[i]
+		if not tex then
+			tex = (w.over or w):CreateTexture(nil, "OVERLAY", nil, 6)
+			pool[i] = tex
+		end
+		tex:SetColorTexture(0, 0, 0, 0.85)
+		tex:ClearAllPoints()
+		if i == 1 then
+			tex:SetPoint("TOPLEFT", ref, "TOPLEFT", 0, 0)
+			tex:SetPoint("TOPRIGHT", ref, "TOPRIGHT", 0, 0)
+			tex:SetHeight(px)
+		elseif i == 2 then
+			tex:SetPoint("BOTTOMLEFT", ref, "BOTTOMLEFT", 0, 0)
+			tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", 0, 0)
+			tex:SetHeight(px)
+		elseif i == 3 then
+			tex:SetPoint("TOPLEFT", ref, "TOPLEFT", 0, 0)
+			tex:SetPoint("BOTTOMLEFT", ref, "BOTTOMLEFT", 0, 0)
+			tex:SetWidth(px)
+		else
+			tex:SetPoint("TOPRIGHT", ref, "TOPRIGHT", 0, 0)
+			tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", 0, 0)
+			tex:SetWidth(px)
+		end
+		tex:Show()
+	end
+	return true
+end
+
+-- Whether the client gave a bar any frame of its own to wear.
+local function HaveBarFrame()
+	local s = skin
+	for _, dd in ipairs((s and s.decor) or {}) do
+		if dd.layer ~= "BACKGROUND" and not tostring(dd.atlas or dd.file or ""):lower():find("pip") then return true end
+	end
+	return false
 end
 
 -- What a bar keeps of the manager's art: its frame, and not its backing, which is sized for the
@@ -1469,6 +1519,7 @@ local function ConfigureWidget(w, g)
 			PlaceDecor(w, {}, "decor", w.bar, H, wantBar)
 		else
 			PlaceDecor(w, s.decor, "decor", w.bar, H, function(dd) return BarPieceWanted(dd, g.border ~= false) end)
+		PlaceBarFrame(w, w.bar, H, g.border ~= false and not HaveBarFrame())
 		end
 		-- Both are asked every time: the one that is not wanted takes itself off screen.
 		-- Round the icon: the cell's own square here is the icon and the bar together, and a ring
@@ -1527,6 +1578,7 @@ local function ConfigureWidget(w, g)
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		w.bar:Hide()
 		PlaceBarShape(w, w.bar, S, S, false)
+		PlaceBarFrame(w, w.bar, S, false)
 		PlaceDecor(w, {}, "decor", w.bar, S)
 		w.ringRef = w.ringHolder
 		ShapeMask(w, w.icon, S, g.iconFrame ~= false)
@@ -1864,6 +1916,7 @@ local function InitSlotFrame(g, mode, filter, store)
 			button.alBarArt = barW
 			if not PlaceBarShape(barW, bar, max(8, W - IS - 2), H, g.border ~= false or g.background ~= false) then
 				PlaceDecor(barW, s.decor, "decor", bar, H, function(dd) return BarPieceWanted(dd, g.border ~= false) end)
+				PlaceBarFrame(barW, bar, H, g.border ~= false and not HaveBarFrame())
 			end
 			if g.iconFrame ~= false then
 				local e1 = PlaceCleanEdge(w, icon, IS, true)
