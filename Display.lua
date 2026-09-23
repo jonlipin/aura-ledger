@@ -1067,6 +1067,12 @@ function Display:IconReport(emit)
 			emit("    " .. TexLine("picture", w.icon))
 			emit("    " .. TexLine("client frame", w.clientFrame))
 			for i, tex in ipairs(w.iconArt or {}) do emit("    " .. TexLine("copied art " .. i, tex)) end
+			for _, where in ipairs({ "under", "over" }) do
+				local pool = w["shapeArt_" .. where] or {}
+				emit(("    copied %s: %d piece%s"):format(where, #pool, #pool == 1 and "" or "s"))
+				for i, tex in ipairs(pool) do emit("      " .. TexLine(where .. " " .. i, tex)) end
+			end
+			emit("    " .. TexLine("the addon's own shadow", w.shapeShadow))
 			emit("    " .. TexLine("state ring", w.shapeRing))
 			emit("    shape masks on the picture: " .. tostring(w.shapeMasks and #w.shapeMasks or 0))
 			emit("    " .. TexLine("dispel border", w.border))

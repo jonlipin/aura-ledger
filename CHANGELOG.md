@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.47.5
+
+- /auraledger debug icon lists the art copied from the manager as it is actually drawn on a tracker, above and below the picture, with its size and where its corners are pinned, plus the addon's own shadow. A piece that is collected but never appears can now be told apart from one that was never collected.
+
 ## 1.47.4
 
 - The addon's stand-in shadow steps aside for the manager's own. On this client the shadow is UI-HUD-CoolDownManager-IconOverlay, which the manager draws over its icon rather than under it, and the stand-in only gave way to art copied from below the picture: both were being drawn, one on top of the other. Anything copied off the manager now counts.
