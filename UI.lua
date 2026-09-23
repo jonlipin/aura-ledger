@@ -2655,6 +2655,8 @@ local TUNE = {
 	{ head = "The bar's frame" },
 	{ label = "Reaches above the bar", key = "plateTop", step = 0.02, fallback = "even" },
 	{ label = "Reaches below the bar", key = "plateBottom", step = 0.02, fallback = "even" },
+	{ label = "The bar sits sideways", key = "barOffsetX", step = 0.05, default = 0 },
+	{ label = "The bar sits up", key = "barOffsetY", step = 0.05, default = 0 },
 	{ label = "Fill margin, sideways", key = "fillInsetX", step = 0.02, default = 0.18 },
 	{ label = "Fill margin, up and down", key = "fillInsetY", step = 0.02, default = 0.06 },
 	{ head = "The icon" },

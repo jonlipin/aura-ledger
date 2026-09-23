@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.55.0
+
+- The tuning panel can move a bar, not only resize what is drawn in it. A margin grows or shrinks the fill from both ends at once, which is the wrong tool for a bar that is simply sitting too far one way: "The bar sits sideways" and "The bar sits up" move the bar itself, on the addon's bars and the ones the game draws alike, and the readout says where it has ended up.
+
 ## 1.54.6
 
 - In a fight, the cell under a game-drawn tracker stays under it. The cell is put below its slot by reading where the slot sits, and in combat the game refuses that reading outright, so the cell kept its own place and the "Missing" painted on it drew over the name and the time the game was drawing. The gate the slots hang on belongs to the addon and always answers, and a slot sits three levels above it, so the cell is put below the gate when the slot will not say.

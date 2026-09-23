@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.54.6"
+ns.VERSION = "1.55.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -128,6 +128,51 @@ function ns.SpellInfo(idOrName)
 		local ok, icon = pcall(C_Spell.GetSpellTexture, idOrName)
 		if ok and Clean(icon) then return nil, Clean(icon), idOrName end
 	end
+end
+
+-- ------------------------------------------------------------------
+-- Ranks
+--
+-- Every spell id that stands for a named spell: the ranks written down in Data.lua, kept only
+-- where this client agrees the id carries that name, so an id guessed wrongly is simply dropped.
+-- A rank the client has not loaded yet resolves to nothing, so unresolved ids are asked for and
+-- tried again a few times before the answer settles.
+-- ------------------------------------------------------------------
+local rankIndex, rankState = nil, {}
+ns.rankState = rankState
+
+function ns.Ranks(name)
+	if type(name) ~= "string" or type(ns.RANK_IDS) ~= "table" then return nil end
+	if not rankIndex then
+		rankIndex = {}
+		for spell, ids in pairs(ns.RANK_IDS) do rankIndex[strlower(spell)] = { spell = spell, ids = ids } end
+	end
+	local row = rankIndex[strlower(name)]
+	if not row then return nil end
+	local st = rankState[row.spell]
+	if not st then
+		st = { ids = {}, tries = 0, kept = 0, dropped = 0, pending = #row.ids }
+		rankState[row.spell] = st
+	end
+	if st.pending > 0 and st.tries < 4 then
+		st.tries = st.tries + 1
+		st.kept, st.dropped, st.pending = 0, 0, 0
+		local want = strlower(row.spell)
+		for _, id in ipairs(row.ids) do
+			local n = ns.SpellInfo(id)
+			if n and strlower(n) == want then
+				st.ids[id] = true
+				st.kept = st.kept + 1
+			elseif n then
+				st.dropped = st.dropped + 1
+			else
+				st.pending = st.pending + 1
+				if C_Spell and C_Spell.RequestLoadSpellData then pcall(C_Spell.RequestLoadSpellData, id) end
+			end
+		end
+	end
+	if st.kept == 0 then return nil end
+	return st.ids
 end
 
 -- ------------------------------------------------------------------
@@ -1527,6 +1572,10 @@ local function TrackerSpellIds(t)
 			local h = ns.db.history[kind .. ":" .. strlower(t.name)]
 			if h and h.ids then for id in pairs(h.ids) do ids[id] = true end end
 		end
+		-- The ledger only knows the ranks it has seen; the rank list covers the rest, which is what
+		-- a buff cast on you by somebody else needs.
+		local ranks = ns.Ranks(t.name)
+		if ranks then for id in pairs(ranks) do ids[id] = true end end
 		if t.id then ids[t.id] = true end
 	end
 	return ids
@@ -1559,6 +1608,8 @@ function ns.SyncAuraSounds()
 			end
 		end
 	end
+	-- The Life Tap panel asks for its own sounds without a tracker behind them.
+	if ns.LT and ns.LT.WantedSounds then pcall(ns.LT.WantedSounds, ns.LT, wanted, triggers) end
 	for key, regId in pairs(auraSoundRegs) do
 		if not wanted[key] then
 			pcall(C.RemoveAuraSound, regId)

@@ -1165,6 +1165,10 @@ function Display:IconReport(emit)
 		emit(("bar plate reach: %s above, %s below (/auraledger barplate <above> <below>, as shares of the bar's height)"):format(
 			t and ("%.3f"):format(t) or "even", b and ("%.3f"):format(b) or "even"))
 	end
+	if Display.BarOffset then
+		local x, y = Display.BarOffset(20)
+		emit(("bar sits at height 20: %d sideways, %d up (/auraledger tune)"):format(x, y))
+	end
 	if Display.BarInset then
 		local x, y = Display.BarInset(20)
 		emit(("bar fill margin at height 20: %d sideways, %d up and down (/auraledger barfill <x> <y>)"):format(x, y))
@@ -1453,6 +1457,14 @@ function Display:TrySkinAgain()
 	return false
 end
 
+-- How far the bar is moved from where it would otherwise sit: sideways, and up. Shares of its
+-- height, as the margins are.
+local function BarOffset(height)
+	local ox = tonumber(ns.db and ns.db.barOffsetX) or 0
+	local oy = tonumber(ns.db and ns.db.barOffsetY) or 0
+	return floor(height * ox + 0.5), floor(height * oy + 0.5)
+end
+
 -- The margin between what a bar draws and the frame round it, sideways and up and down, each as a
 -- share of the bar's height. They are not the same number: the frame on the manager's plate is
 -- thicker at the ends than along the top and bottom. /auraledger barfill sets them.
@@ -1464,6 +1476,7 @@ local function BarInset(height)
 end
 
 Display.BarInset = function(h) return BarInset(h) end
+Display.BarOffset = function(h) return BarOffset(h) end
 Display.HaveBarFrame = function() return HaveBarFrame() end
 
 -- What a bar keeps of the manager's art: its frame, and not its backing, which is sized for the
@@ -1667,7 +1680,8 @@ local function ConfigureWidget(w, g)
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		w.bar:ClearAllPoints()
 		w.bar:SetSize(max(8, g.barW - IS - 2), H)
-		w.bar:SetPoint("LEFT", w, "LEFT", IS + 2, 0)
+		local ox, oy = BarOffset(H)
+		w.bar:SetPoint("LEFT", w, "LEFT", IS + 2 + ox, oy)
 		-- Inside the plate's frame: the plate is laid on the bar, so anything drawn to the bar's own
 		-- width runs out over the frame the plate draws.
 		local inx, iny = BarInset(H)
@@ -1961,6 +1975,10 @@ local function TrackerIds(t)
 			local h = ns.db.history[kind .. ":" .. string.lower(t.name)]
 			if h and h.ids then for id in pairs(h.ids) do map[id] = true any = true end end
 		end
+		-- A rank nobody has cast on you yet is not in the ledger, and a slot the game fills is
+		-- given ids rather than a name, so the written-down ranks go in as well.
+		local ranks = ns.Ranks(t.name)
+		if ranks then for id in pairs(ranks) do map[id] = true any = true end end
 	end
 	return any and map or nil
 end
@@ -1982,6 +2000,7 @@ local function SlotKey(g)
 		-- and the look itself: the art read off the client, the plate's reach, the fill's margins.
 		.. ":" .. tostring(ns.MASK_EPOCH or 0) .. ":" .. tostring(ns.db and ns.db.plateTop) .. "," .. tostring(ns.db and ns.db.plateBottom)
 		.. ":" .. tostring(ns.db and ns.db.fillInsetX) .. "," .. tostring(ns.db and ns.db.fillInsetY)
+		.. ":" .. tostring(ns.db and ns.db.barOffsetX) .. "," .. tostring(ns.db and ns.db.barOffsetY)
 end
 
 local BLANK = "Interface\\AddOns\\AuraLedger\\blank"
@@ -2061,7 +2080,8 @@ local function InitSlotFrame(g, mode, filter, store)
 			-- The fill here is the status bar itself, so the bar is what has to sit inside the
 			-- frame: on the addon's own bars it is a texture within the bar and inset there.
 			bar:SetSize(max(8, W - IS - 2 - inx * 2), max(4, H - iny * 2))
-			bar:SetPoint("LEFT", button, "LEFT", IS + 2 + inx, 0)
+			local ox, oy = BarOffset(H)
+			bar:SetPoint("LEFT", button, "LEFT", IS + 2 + inx + ox, oy)
 			button.alBar = bar
 			button.alBarBg = bg
 			bar:SetFrameLevel(button:GetFrameLevel() + 1)
