@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.66.1
+
+- The walk-through has a step about drawing a window as a bar, which is the one thing bars plainly do better than icons: a trinket proc, a racial, Bloodlust, the window after a cooldown goes off. The bar drains as the window runs down, so how much is left can be read without reading a number. It says to set a group Show as to Bars with icons, to give those their own group, and to leave them on Active so a bar is on screen only while its window is open.
+- Like the other doing steps, it moves on by itself once a group has actually been set to bars. Eleven steps now.
+
 ## 1.66.0
 
 - The walk-through is dressed the way Macro Bench dresses its tutorials: the client own panel, with a titled bar, an inset page and its own close button, instead of a frame painted by hand. That is also what makes it readable, since the panel brings a solid background and the plain game fonts sit correctly on it.

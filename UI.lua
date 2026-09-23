@@ -3210,7 +3210,7 @@ end
 local STEPS = {
 	{
 		title = "Aura Ledger",
-		text = "This follows the buffs you care about, the cooldowns of your spells, and the things you carry, and draws them where you want them on screen.\n\nThis walk-through has ten steps. Leave it whenever you like: the |cffffd000?|r button at the top of this window brings it back.",
+		text = "This follows the buffs you care about, the cooldowns of your spells, and the things you carry, and draws them where you want them on screen.\n\nThis walk-through has eleven steps. Leave it whenever you like: the |cffffd000?|r button at the top of this window brings it back.",
 		target = function() return frame end,
 	},
 	{
@@ -3245,6 +3245,18 @@ local STEPS = {
 		title = "Cooldowns and what you carry",
 		text = "Under |cffffd000Watch|r, a tracker can follow a spell's cooldown instead of a buff. The |cffffd000What you are carrying|r chapter of the book does the same for a trinket or a potion.\n\nCooldowns are not hidden from addons on this client, so those keep counting right through a fight.",
 		target = function() return UI.parts and UI.parts.options end,
+	},
+	{
+		title = "A window, drawn as a bar",
+		text = "A buff that lasts a little while is the one thing a bar does better than an icon: a trinket proc, a racial, Bloodlust, the window after a cooldown goes off. The bar drains as the window runs down, so how much is left can be read without reading a number.\n\nIn a group's settings, set |cffffd000Show as|r to Bars with icons. Give those their own group so they are not mixed in with your icons, and leave them on |cffffd000Active|r, so a bar is on screen only while its window is open.",
+		target = function() return UI.parts and UI.parts.options end,
+		done = function()
+			if not ns.profile then return false end
+			for _, g in ipairs(ns.profile.groups) do
+				if g.style == "bars" then return true end
+			end
+			return false
+		end,
 	},
 	{
 		title = "In a fight",
