@@ -2057,9 +2057,11 @@ local function InitSlotFrame(g, mode, filter, store)
 			local bar = CreateFrame("StatusBar", nil, button)
 			-- The group's own bar height, held in the middle of the cell: a cell is as tall as the
 			-- taller of the bar and the icon, and stretching to it makes this bar the odd one out.
-			bar:SetSize(max(8, W - IS - 2), H)
-			bar:SetPoint("LEFT", button, "LEFT", IS + 2, 0)
 			local inx, iny = BarInset(H)
+			-- The fill here is the status bar itself, so the bar is what has to sit inside the
+			-- frame: on the addon's own bars it is a texture within the bar and inset there.
+			bar:SetSize(max(8, W - IS - 2 - inx * 2), max(4, H - iny * 2))
+			bar:SetPoint("LEFT", button, "LEFT", IS + 2 + inx, 0)
 			button.alBar = bar
 			button.alBarBg = bg
 			bar:SetFrameLevel(button:GetFrameLevel() + 1)
@@ -2086,8 +2088,7 @@ local function InitSlotFrame(g, mode, filter, store)
 				bar:SetStatusBarColor(1, 1, 1)
 			end
 			local bg = bar:CreateTexture(nil, "BACKGROUND", nil, -8)
-			bg:SetPoint("TOPLEFT", bar, "TOPLEFT", inx, -iny)
-			bg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -inx, iny)
+			bg:SetAllPoints(bar)
 			-- Opaque: the cell under this slot is painted as missing, text and all, and a translucent
 			-- backing lets "Missing" read through the name and the time the game is drawing.
 			bg:SetColorTexture(0, 0, 0, 1)

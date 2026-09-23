@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.54.5
+
+- The fill on a bar the game draws sits inside the frame, as it does on the addon's own. The addon's bar holds a fill texture that is inset within it, and the margin was being applied to that texture; a slot's fill is the status bar itself, so the same margin was applied to its backing and did nothing to the fill, which ran out over the frame. The status bar is inset instead, which is the same margin one step further out.
+
 ## 1.54.4
 
 - A bar the game draws wears one frame rather than two. The readout settled it: the cell underneath and the slot over it are the same size and pinned the same way, so nothing was mis-measured; both were simply drawing the plate the frame sits on, one exactly over the other, and two coats of the same art read as a heavier frame that does not fit. The slot leaves the plate to the cell, whose overhang above and below the bar reaches past the slot's backing and so shows whether the game is drawing the aura or not, while that backing still covers the cell's fill and its "Missing" inside the bar.
