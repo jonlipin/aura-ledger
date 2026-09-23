@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.52.0
+
+- The margin between a bar's fill and the frame round it is two numbers now, sideways and up and down, because the frame on the manager's plate is thicker at the ends than along the top and bottom: one number for both is what made a fill start too far in at the sides and sit too short in the middle. They default to 0.18 and 0.06 of the bar's height, and /auraledger barfill <sideways> <up and down> sets them, with the readout reporting what they come to.
+
 ## 1.51.1
 
 - One spark on a bar, and none on a missing one. The spark marks where a draining bar has got to, and a missing tracker draws a full bar, so it sat at the end; worse, a cell under a game-drawn slot is painted as missing on purpose, so that end-spark showed beside the slot's real one. It is drawn only where the manager draws it: on a bar that is part full.

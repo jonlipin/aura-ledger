@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.51.1"
+ns.VERSION = "1.52.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -2362,6 +2362,17 @@ SlashCmdList.AURALEDGER = function(msg)
 		ns.db.combatLog = not ns.db.combatLog
 		if ns.db.combatLog and not registered.COMBAT_LOG_EVENT_UNFILTERED then SafeRegister("COMBAT_LOG_EVENT_UNFILTERED") end
 		Print("Combat log source " .. (ns.db.combatLog and "on (if the client shows the blocked dialog, turn it off again)." or "off. Type /reload to finish turning it off."))
+	elseif cmd == "barfill" then
+		local a, b = rest:match("^(%S*)%s*(%S*)$")
+		local x, y = tonumber(a), tonumber(b)
+		if x then ns.db.fillInsetX = (x ~= 0.18) and x or nil end
+		if y then ns.db.fillInsetY = (y ~= 0.06) and y or nil end
+		if x or y then
+			ns.MASK_EPOCH = (ns.MASK_EPOCH or 0) + 1
+			if ns.Display then ns.Display:Rebuild() end
+		end
+		Print(("Bar fill margin: %.3f sideways, %.3f up and down, each as a share of the bar's height. |cffffd000/auraledger barfill <sideways> <up and down>|r."):format(
+			tonumber(ns.db.fillInsetX) or 0.18, tonumber(ns.db.fillInsetY) or 0.06))
 	elseif cmd == "barart" then
 		local word = strlower(rest or "")
 		if word == "measured" or word == "reckoned" then

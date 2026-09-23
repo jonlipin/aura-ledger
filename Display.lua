@@ -1148,6 +1148,10 @@ end
 -- the icon. Read by /auraledger debug icon.
 function Display:IconReport(emit)
 	local s = BuildSkin()
+	do
+		local x, y = BarInset(20)
+		emit(("bar fill margin at height 20: %d sideways, %d up and down (/auraledger barfill <x> <y>)"):format(x, y))
+	end
 	emit("bar fill colour: " .. (s.fillColor and ("%.2f %.2f %.2f"):format(s.fillColor[1], s.fillColor[2], s.fillColor[3]) or "as the art came"))
 	emit("bar skin from: " .. tostring(s.source) .. (s.backdrop and " (no art: a plain border is drawn instead)" or ""))
 	for i, def in ipairs(s.barShape or {}) do
@@ -1389,11 +1393,14 @@ function Display:TrySkinAgain()
 	return false
 end
 
--- How thick the frame is on the plate the manager's bars wear, so what is drawn on a bar can sit
--- inside that frame rather than run out over it.
+-- The margin between what a bar draws and the frame round it, sideways and up and down, each as a
+-- share of the bar's height. They are not the same number: the frame on the manager's plate is
+-- thicker at the ends than along the top and bottom. /auraledger barfill sets them.
 local function BarInset(height)
-	if not HaveBarFrame() then return 0 end
-	return max(1, floor(height / 10 + 0.5))
+	if not HaveBarFrame() then return 0, 0 end
+	local fx = tonumber(ns.db and ns.db.fillInsetX) or 0.18
+	local fy = tonumber(ns.db and ns.db.fillInsetY) or 0.06
+	return max(0, floor(height * fx + 0.5)), max(0, floor(height * fy + 0.5))
 end
 
 -- What a bar keeps of the manager's art: its frame, and not its backing, which is sized for the
@@ -1600,15 +1607,15 @@ local function ConfigureWidget(w, g)
 		w.bar:SetPoint("LEFT", w, "LEFT", IS + 2, 0)
 		-- Inside the plate's frame: the plate is laid on the bar, so anything drawn to the bar's own
 		-- width runs out over the frame the plate draws.
-		local inner = BarInset(H)
-		w.fillInset = inner
+		local inx, iny = BarInset(H)
+		w.fillInset, w.fillInsetY = inx, iny
 		w.fill:ClearAllPoints()
-		w.fill:SetPoint("TOPLEFT", w.bar, "TOPLEFT", inner, -inner)
-		w.fill:SetPoint("BOTTOMLEFT", w.bar, "BOTTOMLEFT", inner, inner)
+		w.fill:SetPoint("TOPLEFT", w.bar, "TOPLEFT", inx, -iny)
+		w.fill:SetPoint("BOTTOMLEFT", w.bar, "BOTTOMLEFT", inx, iny)
 		if w.bar.bg then
 			w.bar.bg:ClearAllPoints()
-			w.bar.bg:SetPoint("TOPLEFT", w.bar, "TOPLEFT", inner, -inner)
-			w.bar.bg:SetPoint("BOTTOMRIGHT", w.bar, "BOTTOMRIGHT", -inner, inner)
+			w.bar.bg:SetPoint("TOPLEFT", w.bar, "TOPLEFT", inx, -iny)
+			w.bar.bg:SetPoint("BOTTOMRIGHT", w.bar, "BOTTOMRIGHT", -inx, iny)
 		end
 		w.bar:Show()
 		if PlaceBarShape(w, w.bar, max(8, g.barW - IS - 2), H, g.border ~= false or g.background ~= false) then
@@ -1673,9 +1680,11 @@ local function ConfigureWidget(w, g)
 		w.icon:SetPoint("CENTER")
 		local c = IconCrop(s.soloIconCoords or s.iconCoords)
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
+		-- Everything a bar draws goes off with it: its art, whichever frame it wore, and the spark.
 		w.bar:Hide()
 		PlaceBarShape(w, w.bar, S, S, false)
 		PlaceBarFrame(w, w.bar, S, false)
+		PlaceBarPip(w, nil, S, false)
 		PlaceDecor(w, {}, "decor", w.bar, S)
 		w.ringRef = w.ringHolder
 		ShapeMask(w, w.icon, S, g.iconFrame ~= false)
@@ -1980,7 +1989,7 @@ local function InitSlotFrame(g, mode, filter, store)
 			-- taller of the bar and the icon, and stretching to it makes this bar the odd one out.
 			bar:SetSize(max(8, W - IS - 2), H)
 			bar:SetPoint("LEFT", button, "LEFT", IS + 2, 0)
-			local inner = BarInset(H)
+			local inx, iny = BarInset(H)
 			button.alBar = bar
 			bar:SetFrameLevel(button:GetFrameLevel() + 1)
 			-- The fill is a strip inside a sheet: the bar's texture needs the atlas (or the crop), not the sheet.
@@ -2006,8 +2015,8 @@ local function InitSlotFrame(g, mode, filter, store)
 				bar:SetStatusBarColor(1, 1, 1)
 			end
 			local bg = bar:CreateTexture(nil, "BACKGROUND", nil, -8)
-			bg:SetPoint("TOPLEFT", bar, "TOPLEFT", inner, -inner)
-			bg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -inner, inner)
+			bg:SetPoint("TOPLEFT", bar, "TOPLEFT", inx, -iny)
+			bg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -inx, iny)
 			-- Opaque: the cell under this slot is painted as missing, text and all, and a translucent
 			-- backing lets "Missing" read through the name and the time the game is drawing.
 			bg:SetColorTexture(0, 0, 0, 1)
