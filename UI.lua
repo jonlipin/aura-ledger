@@ -3339,6 +3339,10 @@ function UI:TourStep(n)
 	tour.step = n
 	-- A step that waits for something needs to know where things stood when it began.
 	tour.mark = step.watch and step.watch() or nil
+	-- And it only moves on for something done while you are standing on it. Arranging stays on once
+	-- it is on, so a step waiting for it would otherwise throw you forward the moment you stepped
+	-- back onto it, and Back would do nothing at all.
+	tour.armed = not (step.done and step.done(tour.mark))
 	local bubble = TourBubble()
 	bubble.title:SetText(step.title)
 	bubble.body:SetText(step.text)
@@ -3362,7 +3366,7 @@ function UI:TourTick()
 	local step = STEPS[tour.step]
 	if not step then return end
 	PlaceTour(step.target and step.target() or nil)
-	if step.done and step.done(tour.mark) then UI:TourStep(tour.step + 1) end
+	if step.done and tour.armed and step.done(tour.mark) then UI:TourStep(tour.step + 1) end
 end
 
 function UI:StartTour()

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.64.2
+
+- Fixed: Back did nothing on the last step of the walk-through. The steps that move on by themselves watched for a condition and went forward the moment it was true, and arranging stays on once you have turned it on, so stepping back onto the arranging step found it already true and threw you forward again.
+- A step now only moves on for something done while you are standing on it. Arriving on a step whose thing is already done leaves it alone, so it can be read and left with Next, which also stops the walk-through flashing past a step you happen to have done already.
+
 ## 1.64.1
 
 - Fixed: the walk-through could not be read. Its words were painted the dark brown the book's parchment pages use, on a bubble that is not parchment, and the bubble was left to the client's dialog art for a background, which is nearly clear here, so the world showed straight through it. The bubble paints its own solid background now and sets its own colors.
