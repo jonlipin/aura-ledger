@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.47.3
+
+- Fixed an error that repeated while a game-drawn group was on screen: "calling '?' on bad self (Attempt to access forbidden object from code tainted by an AddOn)". The buttons an aura container hands out belong to the game, and reading a frame level off one from addon code is refused. It was being read on every refresh, to put a cell below its slot. It is asked for safely now, and the cell keeps the level it had when the game will not say.
+
 ## 1.47.2
 
 - The shadow is soft. The one added in 1.47.1 was a flat black copy of the icon's shape, which is a silhouette rather than a shadow. It now uses whichever of the client's own soft shadow atlases it has, drawn larger than the picture, since the softness of such art lives in the part that spreads past what it shadows. Where the client has no such art, none is drawn.

@@ -694,7 +694,7 @@ end
 local function ShapeCooldownsOn(w, frame, size, want)
 	if not frame then return end
 	ShapeCooldown(w, frame.alCd, size, want)
-	if not frame.GetChildren then return end
+	-- The frame may be the game's own, which refuses to be walked; that is not an error worth making.
 	local ok, kids = pcall(function() return { frame:GetChildren() } end)
 	if not ok then return end
 	for _, kid in ipairs(kids) do
@@ -2012,9 +2012,10 @@ local function LayoutGroup(f, g, visible, unlocked)
 					end)
 					if ok then sl.frame.alAnchor = k end
 				end
-				-- The game's icon has to cover the cell underneath, edge and all.
-				local lvl = sl.frame.GetFrameLevel and sl.frame:GetFrameLevel()
-				if lvl then SetCellLevel(widget, lvl - 6) end
+				-- The game's icon has to cover the cell underneath, edge and all. The button is the
+				-- game's own and may refuse to be read at all, so nothing is asked of it unguarded.
+				local okL, lvl = pcall(function() return sl.frame:GetFrameLevel() end)
+				if okL and type(lvl) == "number" then SetCellLevel(widget, lvl - 6) end
 				-- A cooldown makes its textures the first time it runs, and the game runs these, so
 				-- the mask is asked for again here rather than only when the slot was built.
 				if sl.frame.alW then
