@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.50.7
+
+- A bar's fill is the colour the Cooldown Manager gives its own. The fill art is a pale strip that the manager colours itself, so copied and drawn as it comes it is white where the manager's is orange. That colour is read off the manager's bar with the rest of the look and used on the addon's bars and on the ones the game fills. A tracker that is missing, or a debuff, keeps its own colour as before.
+
 ## 1.50.6
 
 - The gold frame is back. The one piece this client gives for a bar is named a background, and it is the framed plate the manager's own bars wear, gold edge and all: dropping it in 1.49.8 as "the backing" is what took the frame away, and the releases after that were looking for a border the client had already handed over. It is drawn again and laid exactly on the bar, which is all it ever needed. It was never the wrong art, only the wrong size.

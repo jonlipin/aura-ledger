@@ -458,6 +458,10 @@ local function SkinFromDonor(root, sourceName)
 	if mid and mid ~= root and mid ~= UIParent then Collect(mid, bar, nil, s.decor, true) end
 	Collect(bar, bar, fillTex, s.decor, false)
 	s.barShape = BarShapeFromDonor(root, bar, fillTex)
+	-- The fill art is a pale strip and the manager colours it: without that colour a bar is white
+	-- where the manager's is orange.
+	local okC, cr, cg, cb = pcall(function() return bar:GetStatusBarColor() end)
+	if okC and cr and (cr < 0.99 or cg < 0.99 or cb < 0.99) then s.fillColor = { cr, cg, cb } end
 	local nameFS, durFS = FindStrings(bar)
 	s.nameFont, s.durFont = DescribeFont(nameFS, bar), DescribeFont(durFS, bar)
 	local iconTex, iconFrame = FindIcon(root)
@@ -1137,6 +1141,7 @@ end
 -- the icon. Read by /auraledger debug icon.
 function Display:IconReport(emit)
 	local s = BuildSkin()
+	emit("bar fill colour: " .. (s.fillColor and ("%.2f %.2f %.2f"):format(s.fillColor[1], s.fillColor[2], s.fillColor[3]) or "as the art came"))
 	emit("bar skin from: " .. tostring(s.source) .. (s.backdrop and " (no art: a plain border is drawn instead)" or ""))
 	for i, def in ipairs(s.barShape or {}) do
 		emit(("  bar art %d: %s (%s %d), reaches l %.3f r %.3f t %.3f b %.3f of the donor's bar"):format(i,
@@ -1659,6 +1664,8 @@ local function TintFill(w, kind, missing)
 		if kind == "debuff" then w.fill:SetVertexColor(0.85, 0.22, 0.2) else w.fill:SetVertexColor(0.25, 0.6, 1) end
 	elseif kind == "debuff" then
 		w.fill:SetVertexColor(1, 0.45, 0.45)
+	elseif skin.fillColor then
+		w.fill:SetVertexColor(skin.fillColor[1], skin.fillColor[2], skin.fillColor[3])
 	else
 		w.fill:SetVertexColor(1, 1, 1)
 	end
@@ -1933,6 +1940,8 @@ local function InitSlotFrame(g, mode, filter, store)
 			-- and only a stand-in fill is tinted, or the two look nothing like each other.
 			if s.tint then
 				if filter == "HARMFUL" then bar:SetStatusBarColor(0.85, 0.22, 0.2) else bar:SetStatusBarColor(0.25, 0.6, 1) end
+			elseif s.fillColor then
+				bar:SetStatusBarColor(s.fillColor[1], s.fillColor[2], s.fillColor[3])
 			else
 				bar:SetStatusBarColor(1, 1, 1)
 			end
