@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.47.2
+
+- The shadow is soft. The one added in 1.47.1 was a flat black copy of the icon's shape, which is a silhouette rather than a shadow. It now uses whichever of the client's own soft shadow atlases it has, drawn larger than the picture, since the softness of such art lives in the part that spreads past what it shadows. Where the client has no such art, none is drawn.
+- /auraledger debug item walks one of the manager's items from top to bottom, every frame and every texture, with the art each wears, its layer, whether it is shown, and where it sits against the icon. Whatever draws the shadow under the game's own icons can be named from that rather than guessed at.
+
 ## 1.47.1
 
 - Trackers have a drop shadow even though the manager hands none over. Whatever draws the shadow under the game's own icons is not on the items the addon can read, so copying it came back empty; instead the addon draws one, a dark copy of the icon's own shape sat behind the picture and a little larger and lower, masked so it is that shape rather than a square behind a rounded corner. Where a client does hand a shadow over, that one is used and this is not drawn. /auraledger debug icon says which.

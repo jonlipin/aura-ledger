@@ -645,10 +645,31 @@ end
 -- A drop shadow: the icon's own shape in black, behind the picture, a little larger and a little
 -- lower. Drawn only where the manager handed none over, and masked so it is the icon's shape
 -- rather than a square behind a rounded corner.
+-- The client's own soft shadows, best first. A flat shape is a silhouette, not a shadow, so one of
+-- these is wanted; without any, none is drawn at all.
+local SHADOW_ATLASES = {
+	"UI-HUD-CoolDownManager-IconShadow",
+	"UI-HUD-ActionBar-IconFrame-Shadow",
+	"spellbook-item-iconframe-shadow",
+	"UI-Frame-IconShadow",
+}
+local shadowAtlas, shadowTried
+local function ShadowArt()
+	if not shadowTried then
+		shadowTried = true
+		for _, a in ipairs(SHADOW_ATLASES) do
+			if HasAtlas(a) then shadowAtlas = a break end
+		end
+		ns.report["icon shadow"] = shadowAtlas or "none of the client's shadow art is present"
+	end
+	return shadowAtlas
+end
+
 local function ShapeShadow(w, icon, size, want)
 	local s = skin
 	local have = s and s.shape and #(s.shape.under or {}) > 0
-	local on = want and HaveShape() and not have
+	local atlas = ShadowArt()
+	local on = want and not have and atlas ~= nil
 	local tex = w.shapeShadow
 	if not on then
 		if tex then tex:Hide() end
@@ -656,20 +677,15 @@ local function ShapeShadow(w, icon, size, want)
 	end
 	if not tex then
 		tex = (w.under or w):CreateTexture(nil, "BACKGROUND", nil, -3)
+		tex:SetAtlas(atlas)
 		w.shapeShadow = tex
-		local def = s.shape.masks[1]
-		local ok, m = pcall(function() return (w.under or w):CreateMaskTexture() end)
-		if ok and m and def then
-			if def.art.atlas then pcall(m.SetAtlas, m, def.art.atlas) else pcall(m.SetTexture, m, def.art.file) end
-			m:SetAllPoints(tex)
-			if not (tex.AddMaskTexture and pcall(tex.AddMaskTexture, tex, m)) then pcall(m.Hide, m) end
-		end
 	end
-	local px = max(1, floor(size / 14 + 0.5))
-	tex:SetColorTexture(0, 0, 0, 0.55)
+	-- Soft art spreads past what it shadows, which is where the softness lives, so it is drawn
+	-- larger than the picture rather than masked to the picture's own shape.
+	local px = max(2, floor(size / 8 + 0.5))
 	tex:ClearAllPoints()
-	tex:SetPoint("TOPLEFT", icon, "TOPLEFT", -px, px - px)
-	tex:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", px, -px - px)
+	tex:SetPoint("TOPLEFT", icon, "TOPLEFT", -px, px)
+	tex:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", px, -px)
 	tex:Show()
 	return true
 end
@@ -936,13 +952,62 @@ local function TexLine(label, tex)
 	return ("%s: %s, %s, %.0fx%.0f%s%s"):format(label, tostring(art), shown, w or 0, h or 0, crop, pts)
 end
 
+-- Every frame and texture on one of the manager's items, with what it wears and where it sits
+-- against the icon. This is how the shadow, or anything else that is wanted, gets named.
+function Display:ProbeItem(emit)
+	local donor
+	for _, v in ipairs({ { "tracked buffs", BuffIconCooldownViewer }, { "essential", EssentialCooldownViewer },
+		{ "utility", UtilityCooldownViewer }, { "tracked bars", BuffBarCooldownViewer } }) do
+		local item = v[2] and ViewerDonor(v[2])
+		if item then donor = { name = v[1], item = item } break end
+	end
+	if not donor then emit("no item of the manager's to look at") return end
+	local iconTex = FindIcon(donor.item)
+	emit("walking a " .. donor.name .. " item" .. (iconTex and "" or " (no icon found on it)"))
+	local function walk(frame, depth, label)
+		if depth > 3 or not frame then return end
+		local pad = string.rep("  ", depth + 1)
+		if frame.GetRegions then
+			local okR, regions = pcall(function() return { frame:GetRegions() } end)
+			for _, r in ipairs(okR and regions or {}) do
+				if IsA(r, "Texture") then
+					local art = ArtOf(r) or {}
+					local layer, sub = "?", 0
+					if r.GetDrawLayer then local okL, l, sl = pcall(r.GetDrawLayer, r) if okL then layer, sub = l, sl or 0 end end
+					local shown = (r.IsShown and r:IsShown()) and "shown" or "hidden"
+					local alpha = (r.GetAlpha and r:GetAlpha()) or 1
+					local rect = iconTex and RelRect(r, iconTex)
+					emit(("%s%s: %s, %s %s, %s, alpha %.2f%s"):format(pad, label, tostring(art.atlas or art.file or "?"),
+						tostring(layer), tostring(sub), shown, alpha,
+						rect and (", reaches l %.3f r %.3f t %.3f b %.3f"):format(rect.l, rect.r, rect.t, rect.b) or ""))
+				end
+			end
+		end
+		if frame.GetChildren then
+			local okC, kids = pcall(function() return { frame:GetChildren() } end)
+			for i, kid in ipairs(okC and kids or {}) do
+				local kind = (kid.GetObjectType and kid:GetObjectType()) or "?"
+				emit(("%schild %d: %s"):format(pad, i, tostring(kind)))
+				walk(kid, depth + 1, "texture")
+			end
+		end
+	end
+	walk(donor.item, 0, "texture")
+	local parent = donor.item.GetParent and donor.item:GetParent()
+	if parent then
+		emit("its display, one level up:")
+		walk(parent, 0, "texture")
+	end
+end
+
 -- What the icon art came out as: the donor, the box it was measured in, and each piece's reach past
 -- the icon. Read by /auraledger debug icon.
 function Display:IconReport(emit)
 	local s = BuildSkin()
 	emit("icon art from: " .. tostring(s.iconSource or s.source))
 	emit("icon edge: " .. BorderMode())
-	emit("shadow: " .. ((skin and skin.shape and #(skin.shape.under or {}) > 0) and "copied from the manager" or (HaveShape() and "drawn by the addon" or "none")))
+	emit("shadow: " .. ((skin and skin.shape and #(skin.shape.under or {}) > 0) and "copied from the manager"
+		or (ShadowArt() and ("drawn by the addon with " .. tostring(ShadowArt())) or "none: " .. tostring(ns.report["icon shadow"]))))
 	emit("icon shape from the manager: " .. tostring(ns.report["icon shape"] or "not looked for yet"))
 	emit("  displays tried: " .. tostring(ns.report["icon shape tried"] or "none"))
 	local sh = skin and skin.shape
