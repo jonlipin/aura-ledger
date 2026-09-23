@@ -1259,10 +1259,11 @@ function Display:IconReport(emit)
 				local f2 = Display.ActiveFrame and Display:ActiveFrame(g.uid)
 				local sc = f2 and f2.slotC and f2.slotC.player
 				local anySlot
-				for _, st in pairs((sc and sc.alStore) or {}) do
-					if st and st.frame and st.frame.alBar then anySlot = st.frame break end
+				for _, fr in pairs((sc and sc.alSlots) or {}) do
+					if fr and fr.alBar then anySlot = fr break end
 				end
 				if anySlot then
+					emit("      (the game draws these while the window is shut; with it open the addon does)")
 					local sb = anySlot.alBar
 					emit(("      the game's own bar: %s, %.0fx%.0f"):format((sb:IsShown() and "shown" or "hidden"), sb:GetWidth() or 0, sb:GetHeight() or 0))
 					local pts = ""

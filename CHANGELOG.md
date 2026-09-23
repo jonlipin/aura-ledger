@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.54.2
+
+- The readout finds the bar inside a slot the game fills. A container keeps its frames in one list and its bookkeeping in another, and the reading added in 1.54.1 went looking through the bookkeeping, so it always said there was no such bar.
+
 ## 1.54.1
 
 - /auraledger debug icon reads out the bar inside a slot the game fills, beside the cell's own: its size, where it is pinned, its icon and the plate drawn on it. The cell is what the addon draws and the slot is what the game draws over it, and when only one of the two is wrong they have to be read side by side.
