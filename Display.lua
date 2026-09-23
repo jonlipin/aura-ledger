@@ -1466,7 +1466,9 @@ local function ConfigureWidget(w, g)
 		end)
 		end
 		-- Both are asked every time: the one that is not wanted takes itself off screen.
-		w.ringRef = w.ringHolder
+		-- Round the icon: the cell's own square here is the icon and the bar together, and a ring
+		-- laid on that is a plate behind the whole row.
+		w.ringRef = nil
 		ShapeMask(w, w.icon, IS, g.iconFrame ~= false)
 		ShapeArt(w, w.icon, IS, g.iconFrame ~= false, w.underSlot and 1 or 0)
 		ShapeShadow(w, w.icon, IS, g.iconFrame ~= false)

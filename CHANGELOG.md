@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.49.9
+
+- A missing tracker on a bar no longer has a grey plate behind the whole row. The ring that carries a tracker's state is laid on the cell's own square, which for a group shown as icons is the picture and for one shown as bars is the icon and the bar together. On a bar it goes round the icon, as it does on an icon.
+
 ## 1.49.8
 
 - A bar's border fits it again. The measurement added in 1.49.0 was aimed at the backing, which hung lopsided off the bar; carried over to the border it put the frame inside the bar rather than round it. Bar art goes back to the older placement, which reckons a piece's reach in pixels off the donor's height and is what a frame wants.
