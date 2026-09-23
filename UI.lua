@@ -696,6 +696,7 @@ local function FileExists(path, assume)
 end
 
 local function ClassLabel(token)
+	if token == "BAGS" then return "What you are carrying" end
 	if token == "ITEMS" then return "Items and food" end
 	if token == "RACIAL" then return "Racials" end
 	if token == "HISTORY" then return "Ledger" end
@@ -720,12 +721,17 @@ local function BookTooltip(b)
 	if not h then return end
 	GameTooltip:SetOwner(b, "ANCHOR_RIGHT")
 	local shown = false
-	if h.id and GameTooltip.SetSpellByID then
+	if h.item and GameTooltip.SetItemByID then
+		shown = pcall(GameTooltip.SetItemByID, GameTooltip, h.item) and GameTooltip:NumLines() > 0
+	end
+	if not shown and h.id and GameTooltip.SetSpellByID then
 		shown = pcall(GameTooltip.SetSpellByID, GameTooltip, h.id) and GameTooltip:NumLines() > 0
 	end
 	if not shown then GameTooltip:SetText(h.name or ("Spell " .. tostring(h.id)), 1, 1, 1) end
 	GameTooltip:AddLine(" ")
-	if h.prebuilt then
+	if h.item then
+		GameTooltip:AddLine((h.note or "In your bags") .. ": its cooldown, which this client lets an addon read straight through a fight.", 0.6, 0.8, 1, true)
+	elseif h.prebuilt then
 		GameTooltip:AddLine((h.note or ClassLabel(h.class)) .. (h.kind == "debuff" and ": debuff" or ": buff") .. ", tracked by name (any rank)", 0.6, 0.8, 1, true)
 	else
 		GameTooltip:AddLine(KIND_WORD[h.kind] or "", 0.6, 0.8, 1)
@@ -942,7 +948,7 @@ local function BookItems()
 		return list, "Search results"
 	end
 	if book.tab ~= "HISTORY" then
-		local titles = { ITEMS = "Items and food", RACIAL = "Racials" }
+		local titles = { ITEMS = "Items and food", RACIAL = "Racials", BAGS = "What you are carrying" }
 		local page = {}
 		for _, item in ipairs(ns.BookPages()[book.tab] or {}) do
 			if not item.unknown then page[#page + 1] = item end
@@ -1118,6 +1124,8 @@ local function CreateBookTab(holder, pane, token, index)
 		icon:SetTexture(ICON)
 	elseif token == "COMMON" then
 		icon:SetTexture("Interface\\Icons\\INV_Misc_Food_15")
+	elseif token == "BAGS" then
+		icon:SetTexture("Interface\\Icons\\INV_Misc_Bag_08")
 	elseif token == "RACIAL" then
 		icon:SetTexture("Interface\\Icons\\Racial_Orc_BerserkerStrength")
 	elseif token == "ITEMS" then
@@ -1191,6 +1199,9 @@ local function CreateBookTab(holder, pane, token, index)
 		elseif token == "COMMON" then
 			GameTooltip:SetText("Common", 1, 1, 1)
 			GameTooltip:AddLine("Food, drink and the usual lockout debuffs.", nil, nil, nil, true)
+		elseif token == "BAGS" then
+			GameTooltip:SetText("What you are carrying", 1, 1, 1)
+			GameTooltip:AddLine("Everything in your bags or worn that has a use on it. A tracker made from one of these follows the item's cooldown, which this client lets an addon read straight through a fight.", 0.8, 0.8, 0.8, true)
 		elseif token == "RACIAL" then
 			GameTooltip:SetText("Racials", 1, 1, 1)
 			GameTooltip:AddLine("The buffs your race gives you, labelled by race.", nil, nil, nil, true)
@@ -1446,7 +1457,8 @@ local function SyncOptions()
 		trackerTitle.icon:SetTexture(t.icon or ns.QUESTION)
 		trackerTitle.name:SetText(t.name or ("Spell " .. tostring(t.id)))
 		local _, dimC = InkCodes()
-		trackerTitle.sub:SetText((t.id and ("Spell ID " .. t.id) or "No spell ID known yet") .. "  " .. dimC .. "in " .. ns.GroupName(g) .. "|r")
+		local what = t.item and ("Item ID " .. t.item) or (t.id and ("Spell ID " .. t.id) or "No spell ID known yet")
+		trackerTitle.sub:SetText(what .. "  " .. dimC .. "in " .. ns.GroupName(g) .. "|r")
 		trackerBuilder:Sync()
 		optionsChild:SetHeight(trackerPanel.height)
 	elseif g then
@@ -1670,11 +1682,16 @@ local function BuildTrackerPanel(width)
 		local g = t and ns.FindGroupOf(t)
 		return not (g and g.gameDrawn)
 	end
+	local function TrackerIsItem()
+		local t = T()
+		return (t and t.item) and true or false
+	end
 	local function TrackerIsCooldown()
 		local t = T()
 		return (t and t.cd) and true or false
 	end
 	local function TrackerIsAura() return not TrackerIsCooldown() end
+	local function TrackerIsSpell() return not TrackerIsItem() end
 	b:Header("Tracker")
 	b:Cycle("Watch", { { false, "The buff on me" }, { true, "This spell's cooldown" } },
 		function() local t = T() return (t and t.cd) and true or false end,
@@ -1687,6 +1704,9 @@ local function BuildTrackerPanel(width)
 			b:Sync()
 		end,
 		"A cooldown is not hidden from addons the way an aura is, so a cooldown tracker keeps counting through a fight, and the addon always draws it itself.")
+	b:AppliesWhen(TrackerIsSpell)
+	b:Note("This tracker follows an item's cooldown. An item has no aura of its own to watch, so there is nothing to choose: to watch the buff it gives, add that buff by name from the book.")
+	b:AppliesWhen(TrackerIsItem)
 	b:Cycle("Show the aura when it is", { { "active", "Active" }, { "missing", "Missing" }, { "always", "Either (red when missing)" } },
 		function() local t = T() return t and t.show or "active" end,
 		function(v) local t = T() if t then t.show = v TrackerChanged() b:Sync() end end,
@@ -1705,7 +1725,9 @@ local function BuildTrackerPanel(width)
 	b:Note("With Missing: also shows while the aura has this long or less left, with a red border. With Always: the border turns red that early.")
 	b:AppliesWhen(TrackerIsAddonDrawn)
 	b:Note("A cooldown shorter than a second and a half is the global cooldown, not this spell's, so it counts as ready.")
-	b:AppliesWhen(TrackerIsCooldown)
+	b:AppliesWhen(function() return TrackerIsCooldown() and not TrackerIsItem() end)
+	b:Note("A cooldown shorter than a second and a half is the little one every use shares, not this item's own, so it counts as ready.")
+	b:AppliesWhen(TrackerIsItem)
 	b:Cycle("Match by", { { false, "Name (any rank)" }, { true, "Exact spell ID" } },
 		function() local t = T() return t and t.matchId and true or false end,
 		function(v)
@@ -1717,7 +1739,7 @@ local function BuildTrackerPanel(width)
 			TrackerChanged()
 		end,
 		"Each rank of a spell has its own ID, so matching by name is usually what you want.")
-	b:AppliesWhen(TrackerIsAura)
+	b:AppliesWhen(function() return TrackerIsAura() and not TrackerIsItem() end)
 	b:Check("Only when it was cast by me", function() local t = T() return t and t.mine end,
 		function(v) local t = T() if t then t.mine = v TrackerChanged() end end,
 		"Ignores the same aura when it comes from someone else.")

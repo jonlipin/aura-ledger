@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.62.0
+
+- New: the book has a "What you are carrying" page. Everything in your bags, and everything you are wearing, that has a use on it is listed there. Drag one onto the screen and you get a tracker that follows that item's cooldown. Like a spell's cooldown, an item's is not hidden from addons on this client, so it keeps counting straight through a fight. `/auraledger useitem <item name>` does the same from the chat box, and `/auraledger bags` lists what was found.
+- The page is read again whenever your bags or your gear change, so a trinket you have just put on turns up without a reload. An item that is on a cooldown of under a second and a half is on the little one every use shares rather than its own, so it counts as ready.
+- Racials: your own race's are now read out of the client's spellbook and added to the Racials page, so a racial this client has that the written list was never told about is there anyway. Only the general line of the spellbook is read, which is where racials sit, and only your own race's can be had this way.
+- `/auraledger racials` reports how the spellbook was read, which line it used, and every racial on the page. If a racial of yours is still missing, or the line it names is the wrong one, that report is the thing to send.
+- The tooltip on a tracker says "On cooldown, 40s left" or "Ready" for a cooldown or an item, rather than talking about auras, and shows the item's own tooltip for an item.
+- Fixed: the hints at the bottom of a tracker's tooltip still described dragging the way it worked before 1.61.0. They now say what dragging actually does: the tracker moves, the titled plate moves the group, and an icon can be held against a free side of another.
+
 ## 1.61.3
 
 - Fixed: in a group's settings, the note about the shape ran over the Scale slider underneath it. A note's row is made as tall as its text when the panel is built, and that note is written when a group is picked rather than when the panel is built, so it was given the room for no text at all.

@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.61.3"
+ns.VERSION = "1.62.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -488,6 +488,7 @@ function ns.NewTracker(h)
 		name = h.name, id = h.id, icon = h.icon,
 		kind = "buff",
 		cd = h.cd or nil,
+		item = h.item or nil,
 		matchId = (idOnly or h.byId) and true or false,
 		show = "active",
 		mine = false,
@@ -745,7 +746,27 @@ end
 -- fight as out of one, which is why a cooldown tracker is never handed to the game.
 -- The global cooldown is not a cooldown worth showing, so anything under two seconds long is
 -- treated as ready.
+-- What is left on an item's cooldown. Items are read by id, so a trinket that is swapped out of a
+-- bag still answers, and the answer is the same in a fight as out of one.
+function ns.ItemCooldownRead(id)
+	local start, duration, enabled
+	if C_Item and C_Item.GetItemCooldown then
+		local ok, a, b, c = pcall(C_Item.GetItemCooldown, id)
+		if ok then start, duration, enabled = a, b, c end
+	end
+	if start == nil and C_Container and C_Container.GetItemCooldown then
+		local ok, a, b, c = pcall(C_Container.GetItemCooldown, id)
+		if ok then start, duration, enabled = a, b, c end
+	end
+	if start == nil and GetItemCooldown then
+		local ok, a, b, c = pcall(GetItemCooldown, id)
+		if ok then start, duration, enabled = a, b, c end
+	end
+	return Clean(start), Clean(duration), Clean(enabled)
+end
+
 function ns.CooldownFor(t)
+	if t.item then return ns.ItemCooldownFor(t) end
 	local key = t.id or t.name
 	if not key then return nil end
 	local start, duration, enabled
@@ -771,7 +792,25 @@ function ns.CooldownFor(t)
 	return { name = t.name, id = t.id, icon = icon, kind = "cooldown", duration = duration, expires = start + duration, mine = true }
 end
 
+-- An item's cooldown, as an entry of the shape everything that draws a tracker already understands.
+function ns.ItemCooldownFor(t)
+	local id = t.item
+	local start, duration, enabled = ns.ItemCooldownRead(id)
+	start, duration = tonumber(start), tonumber(duration)
+	if not start or not duration then return nil end
+	local icon = t.icon or (ns.ItemIcon and ns.ItemIcon(id))
+	local name = t.name or (ns.ItemName and ns.ItemName(id))
+	-- Under two seconds is the little shared cooldown a use shares with everything else, not the
+	-- item's own, so it counts as ready.
+	if duration <= 1.5 or start <= 0 or enabled == false or enabled == 0 then
+		return { name = name, item = id, icon = icon, kind = "cooldown", ready = true, duration = 0, expires = 0, mine = true }
+	end
+	return { name = name, item = id, icon = icon, kind = "cooldown", duration = duration, expires = start + duration, mine = true }
+end
+
 function ns.Find(t)
+	-- An item is only ever its cooldown: there is no aura table to look it up in.
+	if t.item then return ns.ItemCooldownFor(t) end
 	-- A cooldown tracker asks the spell, not the aura table.
 	if t.cd then return ns.CooldownFor(t) end
 	local unit = t.unit or "player"
@@ -1816,6 +1855,7 @@ local function Startup()
 	ns.ClearSettledLook()
 	ns.FitAllCells()
 	ns.MarkShapedGroups()
+	if ns.LearnRacials then pcall(ns.LearnRacials) end
 	ns.ApplyMaskSettings()
 	ns.playerGUID = UnitGUID and UnitGUID("player")
 	ns.targetGUID = UnitGUID and Clean(UnitGUID("target")) or nil
@@ -1897,6 +1937,12 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 	elseif event == "ADDON_RESTRICTION_STATE_CHANGED" then
 		ns.dirty = true
 		if C_Timer and C_Timer.After then C_Timer.After(0.5, function() ns.dirty = true end) end
+	elseif event == "BAG_UPDATE_DELAYED" or event == "PLAYER_EQUIPMENT_CHANGED" then
+		-- What you are carrying has changed, so the page of it is out of date.
+		if ns.RefreshBagPage then ns.RefreshBagPage() end
+	elseif event == "SPELLS_CHANGED" then
+		-- A racial can arrive with a level, or late at login.
+		if ns.LearnRacials then pcall(ns.LearnRacials) end
 	elseif isEnvEvent[event] then
 		ns.UpdateEnv()
 	end
@@ -1911,7 +1957,7 @@ SafeRegister("ADDON_ACTION_FORBIDDEN")
 -- login, which pcall cannot stop). The combat log handler stays for clients that allow it, behind
 -- ns.db.combatLog, which is off by default.
 for _, ev in ipairs({ "UNIT_AURA", "UNIT_SPELLCAST_SUCCEEDED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD",
-	"ADDON_RESTRICTION_STATE_CHANGED" }) do
+	"ADDON_RESTRICTION_STATE_CHANGED", "BAG_UPDATE_DELAYED", "PLAYER_EQUIPMENT_CHANGED", "SPELLS_CHANGED" }) do
 	SafeRegister(ev)
 end
 for _, ev in ipairs(ENV_EVENTS) do SafeRegister(ev) end
@@ -2379,6 +2425,9 @@ local function Help()
 	Print("  /auraledger - open or close the window")
 	Print("  /auraledger add <spell name or ID> - add an aura and start tracking it")
 	Print("  /auraledger cooldown <spell name or ID> - follow a spell's cooldown instead of a buff")
+	Print("  /auraledger useitem <item name> - follow the cooldown of something you are carrying")
+	Print("  /auraledger bags - what you are carrying that has a use on it")
+	Print("  /auraledger racials - the racials this client knows about")
 	Print("  /auraledger import <string> - import a tracker or group from an export string")
 	Print("  /auraledger edit - turn arranging on or off: drag trackers about and click one to change it")
 	Print("  /auraledger minimap - show or hide the minimap button")
@@ -2479,6 +2528,14 @@ local function Debug()
 		.. ", index " .. YesNo(C_Secrets and C_Secrets.ShouldUnitAuraIndexBeSecret)
 		.. ", instance " .. YesNo(C_Secrets and C_Secrets.ShouldUnitAuraInstanceBeSecret)
 		.. "; secret right now: " .. YesNo(AurasSecret()) .. ", last scan partial: " .. YesNo(ns.restricted))
+	local bst = ns.bagStats or {}
+	Print(("  bags: %d slots and %d worn pieces read, %d with a use (C_Container %s, C_Item.GetItemSpell %s, GetItemCooldown %s)"):format(
+		bst.bags or 0, bst.gear or 0, bst.withUse or 0,
+		YesNo(C_Container and C_Container.GetContainerItemID), YesNo(C_Item and C_Item.GetItemSpell),
+		YesNo((C_Item and C_Item.GetItemCooldown) or GetItemCooldown)))
+	local rst = ns.racialStats or {}
+	Print(("  racials from the client: %s, %d lines, %d spells, %s line, %d added"):format(
+		rst.api or "none", rst.lines or 0, rst.scanned or 0, tostring(rst.line or "none"), rst.added or 0))
 	Print("  settling after entering the world: " .. (ns.settleUntil and (("%.1fs left"):format(ns.settleUntil - GetTime())) or "no, finished"))
 	local s = ns.stats
 	Print(("  scans %d (partial %d, blocked %d), removals by id %d, estimated refreshes %d"):format(
@@ -2569,6 +2626,50 @@ SlashCmdList.AURALEDGER = function(msg)
 		ns.TrackHistory(h)
 		Print("Tracking " .. (h.name or ("spell " .. tostring(h.id))) .. ". Open /auraledger to move it or change how it shows.")
 		if ns.UI and ns.UI.RefreshHistory then ns.UI:RefreshHistory() end
+	elseif cmd == "useitem" or cmd == "item2" then
+		if rest == "" then
+			Print("|cffffd000/auraledger useitem <item name>|r follows that item's cooldown. Everything you are carrying with a use on it is also on the bags page of the book.")
+			return
+		end
+		local want, found = strlower(rest), nil
+		for _, row in ipairs(ns.BookPages().BAGS or {}) do
+			if strlower(row.name or "") == want then found = row break end
+		end
+		if not found then
+			for _, row in ipairs(ns.BookPages().BAGS or {}) do
+				if strlower(row.name or ""):find(want, 1, true) then found = row break end
+			end
+		end
+		if not found then
+			Print("Nothing you are carrying is called " .. rest .. ", or it has no use on it. /auraledger bags lists what was found.")
+			return
+		end
+		local t = ns.TrackHistory(found)
+		Print("Following the cooldown of " .. found.name .. ".")
+		if ns.UI and ns.UI.RefreshHistory then ns.UI:RefreshHistory() end
+	elseif cmd == "bags" then
+		if ns.RefreshBagPage then ns.RefreshBagPage() end
+		local page = ns.BookPages().BAGS or {}
+		local st = ns.bagStats or {}
+		Print(("what you are carrying: %d bag slots and %d worn pieces read, %d with a use, %d of those unnamed so far"):format(
+			st.bags or 0, st.gear or 0, st.withUse or 0, st.unnamed or 0))
+		if #page == 0 then
+			Print("  nothing with a use was found. If that is wrong, this client may not be answering one of the bag calls; please report it.")
+		end
+		for _, row in ipairs(page) do
+			Print(("  %s |cff808080(item %d, %s)|r"):format(row.name, row.item, row.note or ""))
+		end
+	elseif cmd == "racials" then
+		if ns.LearnRacials then pcall(ns.LearnRacials) end
+		local st = ns.racialStats or {}
+		Print(("racials: read through %s, %d lines, %d spells seen, the %s line used, %d were candidates, %d added to the page"):format(
+			st.api or "none", st.lines or 0, st.scanned or 0, tostring(st.line or "none"), st.found or 0, st.added or 0))
+		Print("If the line named above is not the one your racials are on, say so and it can be picked differently.")
+		Print("Only your own race's can be read from the client. Send the list below and the rest can be written in for every race.")
+		for _, row in ipairs(ns.BookPages().RACIAL or {}) do
+			Print(("  %s |cff808080(%s%s)|r"):format(row.name, row.listId and ("spell " .. row.listId) or "no id",
+				row.fromClient and ", from this client" or ""))
+		end
 	elseif cmd == "cooldown" or cmd == "cd" then
 		if rest == "" then
 			Print("|cffffd000/auraledger cooldown <spell name or ID>|r follows that spell's cooldown. An aura you already track can be switched over under Watch in its options.")

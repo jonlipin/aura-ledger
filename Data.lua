@@ -212,7 +212,117 @@ ns.BOOK.PVE = {
 -- The Dungeons and raids chapter (mob debuffs on you) is kept in the data but not offered: on this
 -- client a debuff on you cannot be tracked by spell in combat. A group with Contents "Debuffs on me"
 -- shows them all instead.
-ns.BOOK_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID", "RACIAL", "ITEMS" }
+ns.BOOK_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID", "RACIAL", "BAGS", "ITEMS" }
+
+-- ------------------------------------------------------------------
+-- What you are carrying
+-- ------------------------------------------------------------------
+-- Anything in your bags or on your back with a use on it. Only the use matters: an item with no
+-- use has no cooldown to follow. Read again when the bags change, and kept to what the client will
+-- actually tell us, which on a client that hides one of these calls is nothing at all.
+local BAGS = { 0, 1, 2, 3, 4, 5 }
+-- Trinkets first, since they are what anyone is really after, then the rest of the gear that
+-- commonly carries a use.
+local GEAR = { 13, 14, 1, 2, 15, 10, 11, 12, 6, 8, 16, 17 }
+
+local function ItemSpell(id)
+	if C_Item and C_Item.GetItemSpell then
+		local ok, name, spellId = pcall(C_Item.GetItemSpell, id)
+		if ok and (name or spellId) then return name, spellId end
+	end
+	if GetItemSpell then
+		local ok, name, spellId = pcall(GetItemSpell, id)
+		if ok and (name or spellId) then return name, spellId end
+	end
+end
+
+local function ItemName(id)
+	if C_Item and C_Item.GetItemNameByID then
+		local ok, name = pcall(C_Item.GetItemNameByID, id)
+		if ok and name then return name end
+	end
+	if C_Item and C_Item.GetItemInfo then
+		local ok, name = pcall(C_Item.GetItemInfo, id)
+		if ok and name then return name end
+	end
+	if GetItemInfo then
+		local ok, name = pcall(GetItemInfo, id)
+		if ok and name then return name end
+	end
+end
+
+local function ItemIcon(id)
+	if C_Item and C_Item.GetItemIconByID then
+		local ok, icon = pcall(C_Item.GetItemIconByID, id)
+		if ok and icon then return icon end
+	end
+	if GetItemIcon then
+		local ok, icon = pcall(GetItemIcon, id)
+		if ok and icon then return icon end
+	end
+end
+ns.ItemName, ns.ItemIcon, ns.ItemSpell = ItemName, ItemIcon, ItemSpell
+
+local function BagSlots(bag)
+	if C_Container and C_Container.GetContainerNumSlots then
+		local ok, n = pcall(C_Container.GetContainerNumSlots, bag)
+		if ok and type(n) == "number" then return n end
+	end
+	if GetContainerNumSlots then
+		local ok, n = pcall(GetContainerNumSlots, bag)
+		if ok and type(n) == "number" then return n end
+	end
+	return 0
+end
+
+local function BagItem(bag, slot)
+	if C_Container and C_Container.GetContainerItemID then
+		local ok, id = pcall(C_Container.GetContainerItemID, bag, slot)
+		if ok and type(id) == "number" then return id end
+	end
+	if GetContainerItemID then
+		local ok, id = pcall(GetContainerItemID, bag, slot)
+		if ok and type(id) == "number" then return id end
+	end
+end
+
+ns.bagStats = { bags = 0, gear = 0, withUse = 0, unnamed = 0 }
+
+-- The page itself: one row per item you are carrying that has a use on it.
+function ns.BuildBagPage()
+	local list, seen = {}, {}
+	local stats = { bags = 0, gear = 0, withUse = 0, unnamed = 0 }
+	local function offer(id, where)
+		if not id or seen[id] then return end
+		seen[id] = true
+		local useName, useSpell = ItemSpell(id)
+		if not (useName or useSpell) then return end
+		stats.withUse = stats.withUse + 1
+		local name = ItemName(id)
+		if not name then stats.unnamed = stats.unnamed + 1 return end
+		list[#list + 1] = {
+			name = name, icon = ItemIcon(id), item = id, cd = true, kind = "buff",
+			note = where, prebuilt = true, class = "BAGS", resolved = true,
+			useName = useName, useSpell = useSpell,
+		}
+	end
+	for _, bag in ipairs(BAGS) do
+		local n = BagSlots(bag)
+		for slot = 1, n do
+			local id = BagItem(bag, slot)
+			if id then stats.bags = stats.bags + 1 offer(id, "In your bags") end
+		end
+	end
+	if GetInventoryItemID then
+		for _, slot in ipairs(GEAR) do
+			local ok, id = pcall(GetInventoryItemID, "player", slot)
+			if ok and type(id) == "number" then stats.gear = stats.gear + 1 offer(id, "Worn") end
+		end
+	end
+	table.sort(list, function(a, b) return (a.name or "") < (b.name or "") end)
+	ns.bagStats = stats
+	return list
+end
 
 -- Turn the raw rows into objects shaped like ledger rows, once.
 local built
@@ -229,7 +339,136 @@ function ns.BookPages()
 		end
 		built[token] = list
 	end
+	built.BAGS = ns.BuildBagPage()
 	return built
+end
+
+-- Read again when what you are carrying changes.
+function ns.RefreshBagPage()
+	if not built then return end
+	built.BAGS = ns.BuildBagPage()
+	if ns.UI and ns.UI.RefreshHistory then ns.UI:RefreshHistory() end
+end
+
+-- ------------------------------------------------------------------
+-- Racials the client knows about
+-- ------------------------------------------------------------------
+-- The written list above cannot know about a racial this client added after it was written. Your
+-- own race's are in the client's spellbook, so they are read out of it and folded into the page.
+-- Only your own race's can be had this way; /auraledger racials reports what was found so the
+-- written list can be finished for the rest.
+ns.racialStats = { api = "none", line = "none", lines = 0, scanned = 0, found = 0, added = 0 }
+
+local function SpellBookGeneral()
+	-- Returns a list of { name, id }, and the name of the call that worked.
+	local out = {}
+	if C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines and C_SpellBook.GetSpellBookItemInfo then
+		local okN, lines = pcall(C_SpellBook.GetNumSpellBookSkillLines)
+		if okN and type(lines) == "number" then
+			ns.racialStats.lines = lines
+			for line = 1, lines do
+				local okL, info = pcall(C_SpellBook.GetSpellBookSkillLineInfo, line)
+				if okL and type(info) == "table" and info.itemIndexOffset and info.numSpellBookItems then
+					for i = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
+						local okI, item = pcall(C_SpellBook.GetSpellBookItemInfo, i,
+							Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player or 0)
+						if okI and type(item) == "table" and item.name and item.spellID then
+							out[#out + 1] = { name = item.name, id = item.spellID, line = info.name }
+						end
+					end
+				end
+			end
+			if #out > 0 then return out, "C_SpellBook" end
+		end
+	end
+	if GetNumSpellTabs and GetSpellTabInfo and GetSpellBookItemInfo and GetSpellBookItemName then
+		local okN, tabs = pcall(GetNumSpellTabs)
+		if okN and type(tabs) == "number" then
+			ns.racialStats.lines = tabs
+			for tab = 1, tabs do
+				local okT, tabName, _, offset, count = pcall(GetSpellTabInfo, tab)
+				if okT and type(offset) == "number" and type(count) == "number" then
+					for i = offset + 1, offset + count do
+						local okI, name = pcall(GetSpellBookItemName, i, "spell")
+						local _, id = pcall(GetSpellBookItemInfo, i, "spell")
+						if okI and name then out[#out + 1] = { name = name, id = tonumber(id), line = tabName } end
+					end
+				end
+			end
+			if #out > 0 then return out, "GetSpellBookItemName" end
+		end
+	end
+	return out, "none"
+end
+ns.SpellBookGeneral = SpellBookGeneral
+
+-- Everything the book already offers, by lowercased name, so a spell is not listed twice.
+local function BookKnows(pages)
+	local known = {}
+	for _, list in pairs(pages) do
+		for _, item in ipairs(list) do
+			if item.name then known[item.name:lower()] = true end
+		end
+	end
+	return known
+end
+
+-- Names that turn up in the same part of the spellbook as the racials but are not racials.
+local NOT_RACIAL = {
+	["attack"] = true, ["shoot"] = true, ["auto shot"] = true, ["throw"] = true,
+	["cooking"] = true, ["first aid"] = true, ["fishing"] = true, ["riding"] = true,
+	["mining"] = true, ["herbalism"] = true, ["skinning"] = true, ["smelting"] = true,
+	["blacksmithing"] = true, ["leatherworking"] = true, ["alchemy"] = true, ["tailoring"] = true,
+	["enchanting"] = true, ["engineering"] = true, ["jewelcrafting"] = true, ["inscription"] = true,
+	["lockpicking"] = true, ["beast training"] = true, ["defense"] = true, ["dodge"] = true,
+	["parry"] = true, ["block"] = true, ["language"] = true, ["apprentice riding"] = true,
+}
+
+function ns.LearnRacials()
+	local pages = ns.BookPages()
+	local racials = pages.RACIAL
+	if not racials then return end
+	local spells, api = SpellBookGeneral()
+	ns.racialStats.api = api
+	ns.racialStats.scanned = #spells
+	local known = BookKnows(pages)
+	local race = "Yours"
+	if UnitRace then
+		local okR, localised = pcall(UnitRace, "player")
+		if okR and localised then race = localised end
+	end
+	-- Only one line of the spellbook holds the racials: the one named after your race, or the
+	-- general one. Everything else is class spells, which the book has chapters of already. If
+	-- neither name turns up, the first line is the general one on every layout seen so far.
+	local wanted
+	for _, spell in ipairs(spells) do
+		if spell.line and (spell.line == race or spell.line == "General" or (GENERAL and spell.line == GENERAL)) then
+			wanted = spell.line
+			break
+		end
+	end
+	if not wanted and spells[1] then wanted = spells[1].line end
+	ns.racialStats.line = wanted or "none"
+	local found, added = 0, 0
+	for _, spell in ipairs(spells) do
+		local low = spell.name:lower()
+		-- A racial is on that line, is not one of the handful of things that are never racials, and
+		-- is not something the book already offers.
+		if spell.line == wanted and not NOT_RACIAL[low] and not low:find("language", 1, true) then
+			found = found + 1
+			if not known[low] then
+				known[low] = true
+				added = added + 1
+				racials[#racials + 1] = {
+					name = spell.name, listId = spell.id, id = spell.id, kind = "buff",
+					note = race, prebuilt = true, class = "RACIAL", fromClient = true,
+					icon = select(2, ns.SpellInfo(spell.id)),
+				}
+			end
+		end
+	end
+	ns.racialStats.found, ns.racialStats.added = found, added
+	table.sort(racials, function(a, b) return (a.name or "") < (b.name or "") end)
 end
 
 -- Look the spell up in the client. Cheap to call again; stops once it has an answer.

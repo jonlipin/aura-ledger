@@ -1351,15 +1351,27 @@ local function WidgetTooltip(w)
 	if not t then return end
 	GameTooltip:SetOwner(w, "ANCHOR_RIGHT")
 	local shown = false
-	if t.id and GameTooltip.SetSpellByID then
+	if t.item and GameTooltip.SetItemByID then
+		shown = pcall(GameTooltip.SetItemByID, GameTooltip, t.item) and GameTooltip:NumLines() > 0
+	end
+	if not shown and t.id and GameTooltip.SetSpellByID then
 		shown = pcall(GameTooltip.SetSpellByID, GameTooltip, t.id) and GameTooltip:NumLines() > 0
 	end
 	if not shown then GameTooltip:SetText(t.name or ("Spell " .. tostring(t.id)), 1, 1, 1) end
 	-- What the tracker is saying, which is the whole point of hovering one that is missing: the
 	-- picture alone does not tell you whether it is the aura or its absence being shown.
 	local entry = w.entry
-	if entry then
-		local left = entry.expires and entry.expires > 0 and (entry.expires - GetTime()) or nil
+	local cooldown = t.cd or t.item
+	local left = entry and entry.expires and entry.expires > 0 and (entry.expires - GetTime()) or nil
+	if cooldown then
+		if entry and left and left > 0 then
+			GameTooltip:AddLine(("On cooldown, %s left"):format(ns.FormatTime(left or 0)), 1, 0.7, 0.3)
+		elseif entry then
+			GameTooltip:AddLine("Ready", 0.4, 1, 0.4)
+		else
+			GameTooltip:AddLine("This client will not say what its cooldown is", 1, 0.4, 0.4)
+		end
+	elseif entry then
 		if left and left > 0 then
 			GameTooltip:AddLine(("On you, %s left"):format(ns.FormatTime(left)), 0.4, 1, 0.4)
 		else
@@ -1373,9 +1385,12 @@ local function WidgetTooltip(w)
 	end
 	if Display:IsUnlocked() then
 		GameTooltip:AddLine(" ")
-		GameTooltip:AddLine("Drag: move the group", 0.7, 0.7, 0.7)
-		GameTooltip:AddLine("Drag onto another tracker: group them", 0.7, 0.7, 0.7)
-		GameTooltip:AddLine("Shift-drag: pull this one out, reorder, or move it to another group", 0.7, 0.7, 0.7)
+		GameTooltip:AddLine("Drag: move this tracker", 0.7, 0.7, 0.7)
+		GameTooltip:AddLine("Drop it on another group to join it, or in the open for a place of its own", 0.7, 0.7, 0.7)
+		if (w.group and w.group.style or "icons") ~= "bars" then
+			GameTooltip:AddLine("Hold it against a free side of another icon to hang it there", 0.7, 0.7, 0.7)
+		end
+		GameTooltip:AddLine("Drag the titled plate behind the group to move the whole group", 0.7, 0.7, 0.7)
 		GameTooltip:AddLine("Click: options", 0.7, 0.7, 0.7)
 	end
 	GameTooltip:Show()
