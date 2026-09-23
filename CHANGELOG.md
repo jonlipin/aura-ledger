@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.47.4
+
+- The addon's stand-in shadow steps aside for the manager's own. On this client the shadow is UI-HUD-CoolDownManager-IconOverlay, which the manager draws over its icon rather than under it, and the stand-in only gave way to art copied from below the picture: both were being drawn, one on top of the other. Anything copied off the manager now counts.
+
 ## 1.47.3
 
 - Fixed an error that repeated while a game-drawn group was on screen: "calling '?' on bad self (Attempt to access forbidden object from code tainted by an AddOn)". The buttons an aura container hands out belong to the game, and reading a frame level off one from addon code is refused. It was being read on every refresh, to put a cell below its slot. It is asked for safely now, and the cell keeps the level it had when the game will not say.

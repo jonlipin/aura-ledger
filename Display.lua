@@ -667,7 +667,9 @@ end
 
 local function ShapeShadow(w, icon, size, want)
 	local s = skin
-	local have = s and s.shape and #(s.shape.under or {}) > 0
+	-- Anything copied off the manager counts: on this client the shadow is its icon overlay, which
+	-- is drawn over the picture rather than under it.
+	local have = s and s.shape and (#(s.shape.under or {}) > 0 or #(s.shape.over or {}) > 0)
 	local atlas = ShadowArt()
 	local on = want and not have and atlas ~= nil
 	local tex = w.shapeShadow
@@ -1006,7 +1008,7 @@ function Display:IconReport(emit)
 	local s = BuildSkin()
 	emit("icon art from: " .. tostring(s.iconSource or s.source))
 	emit("icon edge: " .. BorderMode())
-	emit("shadow: " .. ((skin and skin.shape and #(skin.shape.under or {}) > 0) and "copied from the manager"
+	emit("shadow: " .. ((skin and skin.shape and (#(skin.shape.under or {}) > 0 or #(skin.shape.over or {}) > 0)) and "copied from the manager"
 		or (ShadowArt() and ("drawn by the addon with " .. tostring(ShadowArt())) or "none: " .. tostring(ns.report["icon shadow"]))))
 	emit("icon shape from the manager: " .. tostring(ns.report["icon shape"] or "not looked for yet"))
 	emit("  displays tried: " .. tostring(ns.report["icon shape tried"] or "none"))
