@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.49.4
+
+- The dark plate hanging out behind a bar is gone. The manager's backing is measured faithfully, and on its own items that backing reaches well past the bar, because it covers their icon and the padding around it too. Carried onto a bar that has its own icon beside it, that reach is a plate sticking out to the right and below. A piece drawn behind everything is laid exactly on the bar now; the border, and anything else, keeps the reach it was measured with.
+
 ## 1.49.3
 
 - A bar the game draws covers the cell it sits on. That cell is painted as missing on purpose, text and all, so that it shows through the moment the aura goes, and the bar drawn over it was translucent: "Missing" read straight through the name and the time. Its backing is opaque where it covers a cell.

@@ -543,7 +543,11 @@ local function PlaceBarShape(w, ref, width, height, want)
 			end
 			pool[i] = tex
 		end
-		ApplyRectWH(tex, ref, def.rect, width, height)
+		-- What is drawn behind everything is the bar's own backing: on the manager's items it reaches
+		-- out to cover their icon as well, which here has a bar of its own to sit beside.
+		local rect = def.rect
+		if def.layer == "BACKGROUND" then rect = { l = 0, r = 0, t = 0, b = 0 } end
+		ApplyRectWH(tex, ref, rect, width, height)
 		tex:Show()
 	end
 	for i = #pieces + 1, #pool do pool[i]:Hide() end
