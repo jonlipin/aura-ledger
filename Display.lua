@@ -1379,7 +1379,7 @@ local function WidgetTooltip(w)
 		end
 		if entry.estimated or entry.stale then GameTooltip:AddLine("Carried or guessed: the client hides auras during a fight", 0.7, 0.7, 0.7) end
 	elseif w.group and w.group.gameDrawn and not Display:IsUnlocked() then
-		GameTooltip:AddLine("Not on you, or the game has not drawn it", 1, 0.4, 0.4)
+		GameTooltip:AddLine("Not on you, or the game is not showing it", 1, 0.4, 0.4)
 	else
 		GameTooltip:AddLine("Not on you", 1, 0.4, 0.4)
 	end

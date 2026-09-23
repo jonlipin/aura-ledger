@@ -294,7 +294,10 @@ end
 
 function Builder:Header(text)
 	self:Begin()
-	self.y = self.y - 8
+	-- Air above, so the eye sees where one section ends and the next begins. The first header on a
+	-- panel sits under the title already, so it only takes the smaller gap.
+	self.y = self.y - (self.headed and 26 or 8)
+	self.headed = true
 	local fs = Ink(self:P():CreateFontString(nil, "OVERLAY", "GameFontNormal"), "head")
 	fs:SetPoint("TOPLEFT", 6, self.y)
 	fs:SetText(text)
@@ -303,8 +306,9 @@ function Builder:Header(text)
 	line:SetHeight(1)
 	line:SetPoint("TOPLEFT", 6, self.y - 15)
 	line:SetPoint("TOPRIGHT", -6, self.y - 15)
-	self.y = self.y - 22
+	self.y = self.y - 26
 	self:End()
+	if self.lastRow then self.lastRow.header = true end
 	return fs
 end
 
@@ -330,6 +334,8 @@ end
 function Builder:DynamicNote(get)
 	local fs = self:Note(" ")
 	local row, builder, showing = self.lastRow, self, nil
+	self.notes = self.notes or {}
+	self.notes[#self.notes + 1] = { fs = fs, row = row }
 	self.syncers[#self.syncers + 1] = function()
 		local text = get() or ""
 		if text == showing then return end
@@ -539,9 +545,9 @@ function Builder:Conditions(getCond, onChange, draw)
 		function(v) Cond().never = v or nil onChange() end,
 		"Switches this off without deleting it.")
 	-- In combat: shown or hidden, and if shown, who draws it. On this client the addon cannot see
-	-- auras during a fight, so "the game keeps it right" is the only way to stay correct.
-	local inChoices = { { "addon", "Shown, the addon draws it" } }
-	if draw then inChoices[#inChoices + 1] = { "game", "Shown, the game keeps it right" } end
+	-- auras during a fight, so handing the group to the game is the only way to stay correct.
+	local inChoices = { { "addon", "Shown, drawn by the addon" } }
+	if draw then inChoices[#inChoices + 1] = { "game", "Shown, drawn by the game" } end
 	inChoices[#inChoices + 1] = { "hide", "Hidden" }
 	self:Cycle("In combat", inChoices,
 		function()
@@ -561,7 +567,7 @@ function Builder:Conditions(getCond, onChange, draw)
 			onChange()
 			self:Sync()
 		end,
-		"On this client the addon cannot see auras during a fight. The game can: each tracker is handed to the game as an aura slot, which the game fills and keeps right through a fight, and whether it is filled is what tells the addon the aura has gone. The game draws these itself, so they wear its own look rather than this group's, the warn window does not apply, and Missing behaves like Either.",
+		"On this client an addon cannot read your auras during a fight. Drawn by the addon, a tracker therefore shows the last reading taken before the fight started and keeps counting down from it, which is right until something changes it. Drawn by the game, each tracker is handed over as an aura slot for the game to fill, so it is correct the whole way through, and whether the slot is filled is what tells the addon the aura has gone. The cost is that the game draws them in its own look rather than this group's, the warn window does not apply, and Missing behaves like Either.",
 		210)
 	self:Cycle("Out of combat", { { "show", "Shown" }, { "hide", "Hidden" } },
 		function() return Cond().combat == "yes" and "hide" or "show" end,
@@ -748,9 +754,9 @@ local function BookTooltip(b)
 	end
 	GameTooltip:AddLine(" ")
 	if ns.CombatTrackable and ns.CombatTrackable(h) then
-		GameTooltip:AddLine("Marked combat: the game can follow this one by spell, so a group set to track in combat keeps it right during a fight.", 0.45, 0.75, 1, true)
+		GameTooltip:AddLine("Marked combat: the game can follow this one by spell, so a group drawn by the game stays correct all through a fight.", 0.45, 0.75, 1, true)
 	else
-		GameTooltip:AddLine("Not marked combat: the game cannot follow this one by spell, so the addon draws it and it updates between fights.", 0.8, 0.7, 0.5, true)
+		GameTooltip:AddLine("Not marked combat: the game cannot follow this one by spell, so the addon draws it, and during a fight it shows the reading taken before the fight started.", 0.8, 0.7, 0.5, true)
 	end
 	GameTooltip:AddLine(" ")
 	GameTooltip:AddLine("Drag onto the screen: track it", 0.4, 1, 0.5)
@@ -1516,7 +1522,7 @@ local function BuildGroupPanel(width)
 	local function IsGameDrawn() local g = G() return (g and g.gameDrawn) and true or false end
 	local function IsBars() local g = G() return (g and g.style == "bars") and true or false end
 	b:Header("Group")
-	b:Note("The addon cannot see auras in combat on this client, so a group either updates between fights or is drawn by the game.")
+	b:Note("On this client an addon cannot read your auras during a fight. A group drawn by the addon shows its last reading until the fight ends; a group drawn by the game stays correct throughout.")
 	b:Edit("Name", function() local g = G() return g and g.name or "" end,
 		function(text) local g = G() if g then g.name = (text ~= "" and text) or nil GroupChanged() end end)
 	-- Two plain questions: what is in the group, and who draws it. The second only comes up for a
@@ -1524,9 +1530,9 @@ local function BuildGroupPanel(width)
 	b:DynamicNote(function()
 		local g = G()
 		if g and g.gameDrawn then
-			return "The game draws these trackers through its Cooldown Manager, so they stay right in a fight, and a tracker shows as missing when the game is not showing the aura."
+			return "The game draws these trackers, through its own Cooldown Manager, so they stay correct all through a fight. A tracker counts as missing whenever the game is not showing its aura."
 		end
-		return "The addon draws these trackers, so they only update between fights. Ask the game to draw them under Only show this group when."
+		return "The addon draws these trackers, so during a fight they show the reading taken before it started. To hand them to the game instead, set In combat under Only show this group when."
 	end)
 	b:Cycle("Show as", { { "icons", "Icons with numbers" }, { "bars", "Bars with icons" } },
 		function() local g = G() return g and g.style or "icons" end,
@@ -1710,7 +1716,7 @@ local function BuildTrackerPanel(width)
 	b:Cycle("Show the aura when it is", { { "active", "Active" }, { "missing", "Missing" }, { "always", "Either (red when missing)" } },
 		function() local t = T() return t and t.show or "active" end,
 		function(v) local t = T() if t then t.show = v TrackerChanged() b:Sync() end end,
-		"Active: on screen while you have it. Missing: on screen only while you do not. Either: on screen both ways, red while missing. In a group the game draws, Missing behaves like Either.")
+		"Active: on screen while you have it. Missing: on screen only while you do not. Either: on screen both ways, red while missing. In a group drawn by the game, Missing behaves like Either.")
 	b:AppliesWhen(TrackerIsAura)
 	b:Cycle("Show the cooldown when it is", { { "active", "Running" }, { "missing", "Ready" }, { "always", "Either" } },
 		function() local t = T() return t and t.show or "active" end,
@@ -3260,7 +3266,7 @@ local STEPS = {
 	},
 	{
 		title = "In a fight",
-		text = "This client hides auras from addons during a fight, which no addon can get around.\n\nSo a group can be handed to the game to draw instead: those stay right the whole way through. The addon's own groups carry their last reading and update between fights. It is set per group, under |cffffd000Only show this group when|r.",
+		text = "This client hides your auras from addons during a fight, and no addon can get around it.\n\nA group |cffffd000drawn by the addon|r therefore shows the reading taken before the fight started, and keeps counting down from it. A group |cffffd000drawn by the game|r is handed over for the game to fill, so it stays correct the whole way through, at the cost of wearing the game's look rather than yours.\n\nIt is set per group, under |cffffd000Only show this group when|r, as In combat.",
 		target = function() return UI.parts and UI.parts.options end,
 	},
 	{

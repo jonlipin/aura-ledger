@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.66.2
+
+- The In combat choices under Only show this group when say who draws the group, which is the thing that actually decides anything: Shown, drawn by the addon and Shown, drawn by the game, in place of Shown, the addon draws it and Shown, the game keeps it right. The old wording asked you to already know what right meant and why it was in doubt.
+- Everywhere else that talked around the same point now says it plainly: what a group drawn by the addon shows during a fight is the reading taken before the fight started, counting down from there, and a group drawn by the game is handed over for the game to fill so it stays correct throughout, at the cost of wearing the game look rather than yours. That covers the notes in a group settings, the tooltip on the setting itself, what the book says about a spell the game can follow, the tooltip on a tracker, and the walk-through step about fights.
+- The sections of the options panels are held apart by a clear gap, so where one ends and the next begins can be seen rather than worked out.
+
 ## 1.66.1
 
 - The walk-through has a step about drawing a window as a bar, which is the one thing bars plainly do better than icons: a trinket proc, a racial, Bloodlust, the window after a cooldown goes off. The bar drains as the window runs down, so how much is left can be read without reading a number. It says to set a group Show as to Bars with icons, to give those their own group, and to leave them on Active so a bar is on screen only while its window is open.
