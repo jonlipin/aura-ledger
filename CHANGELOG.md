@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.51.1
+
+- One spark on a bar, and none on a missing one. The spark marks where a draining bar has got to, and a missing tracker draws a full bar, so it sat at the end; worse, a cell under a game-drawn slot is painted as missing on purpose, so that end-spark showed beside the slot's real one. It is drawn only where the manager draws it: on a bar that is part full.
+- The plate keeps its own height. It is laid on the bar sideways, being sized for the manager's whole item, but squashing it up and down as well flattened the frame drawn on it; it keeps the reach it was measured with there.
+
 ## 1.51.0
 
 - The spark is back, on the leading edge of the fill where the Cooldown Manager slides its own. It was dropped in 1.49.3 because a fixed copy of it sits at the end of the bar as a stalled bookmark; tied to the fill it is the mark it is meant to be.

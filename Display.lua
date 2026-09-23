@@ -573,8 +573,10 @@ local function PlaceBarShape(w, ref, width, height, want)
 		-- the manager's own item: it is laid on the bar rather than given the reach it was measured
 		-- with. Sideways, any other reach is so many pixels of the bar's height, because a frame
 		-- that grows with the bar's width is a fat inset on a long bar and a hairline on a short one.
+		-- Sideways the plate is laid on the bar, because it is sized for the manager's whole item;
+		-- up and down it keeps what it was measured with, or the frame drawn on it is squashed.
 		local rect = def.rect
-		if def.layer == "BACKGROUND" then rect = { l = 0, r = 0, t = 0, b = 0 } end
+		if def.layer == "BACKGROUND" then rect = { l = 0, r = 0, t = rect.t, b = rect.b } end
 		ApplyRectWH(tex, ref, rect, (def.aspect or 1) * height, height)
 		tex:Show()
 	end
@@ -1816,6 +1818,7 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 		else
 			TintFill(w, nil, true)
 			SetFill(w, flagMissing and 1 or 0)
+			if w.barPip then w.barPip:Hide() end
 			w.duration:SetText(flagMissing and "Missing" or "")
 			w.bar.spark:Hide()
 		end
@@ -1835,6 +1838,9 @@ local function TickWidget(w, g, now)
 	if g.style == "bars" then
 		local frac = e.duration > 0 and min(1, rem / e.duration) or 1
 		SetFill(w, frac)
+		-- The manager's spark marks where a draining bar has got to. A full bar has nowhere to put
+		-- it, and a missing tracker draws a full bar, which is what put one at the end.
+		if w.barPip then w.barPip:SetShown(frac > 0 and frac < 1) end
 		w.duration:SetText(text)
 		local width = w.bar:GetWidth() or 0
 		if frac > 0 and frac < 1 and width > 0 and #skin.decor == 0 then
