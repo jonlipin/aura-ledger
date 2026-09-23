@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.65.0
+
+- While arranging, the titled plate behind a group of icons says whether it is a |cff8fd4ffcluster|r or |cff9a9a9arows|r. The two behave differently when a tracker goes quiet, so it is worth being able to see which one you are looking at without opening anything. The Groups and trackers list says "cluster" in place of "icons" for a group you have shaped.
+- The side an icon is being held against is marked with a bright spark laid along that edge, the way the cast bar wears one, instead of a green box drawn round the empty cell. The edge is what the drop is really about, and the icon you are aiming at now lights up rather than the space beside it.
+- New: how big the window is, and a step either way, sit next to the size grip in the bottom corner. The grip can leave the window at 87%, which is awkward to put back by hand, so a step goes to the next whole ten rather than a tenth on from wherever it happens to be. The reading keeps up while the grip is dragged.
+
 ## 1.64.2
 
 - Fixed: Back did nothing on the last step of the walk-through. The steps that move on by themselves watched for a condition and went forward the moment it was true, and arranging stays on once you have turned it on, so stepping back onto the arranging step found it already true and threw you forward again.

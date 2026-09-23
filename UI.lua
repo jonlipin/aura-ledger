@@ -1423,8 +1423,8 @@ local function UpdateTreeRow(row, item)
 		row.text:SetPoint("RIGHT", -24, 0)
 		local off = g.cond and g.cond.never
 		local groupC, dimC, offC = InkCodes()
-		row.text:SetText((off and offC or groupC) .. ns.GroupName(g) .. "|r  " .. dimC
-			.. (off and "off" or (g.style == "bars" and "bars" or "icons")) .. "|r")
+		local what = off and "off" or (g.style == "bars" and "bars" or (g.shaped and "cluster" or "icons"))
+		row.text:SetText((off and offC or groupC) .. ns.GroupName(g) .. "|r  " .. dimC .. what .. "|r")
 		row.sel:SetShown(SelectedGroup() == g and not SelectedTracker())
 	end
 end
@@ -1833,11 +1833,13 @@ local function Build()
 			local nx = GetCursorPosition()
 			local scale = self.fromScale * ((self.fromW + (nx - self.fromX)) / self.fromW)
 			frame:SetScale(max(0.55, min(1.6, scale)))
+			if UI.SyncScale then UI:SyncScale() end
 		end)
 	end)
 	local function StopSizing(self)
 		self:SetScript("OnUpdate", nil)
 		ns.db.windowScale = frame:GetScale()
+		if UI.SyncScale then UI:SyncScale() end
 		if ns.UI and ns.UI.SyncHeaderBar then ns.UI:SyncHeaderBar() end
 	end
 	grip:SetScript("OnMouseUp", StopSizing)
@@ -1848,6 +1850,43 @@ local function Build()
 		StopSizing(self)
 	end)
 	UI.grip = grip
+
+	-- How big the window is, and a step either way. The grip can leave it at 87%, so a step goes to
+	-- the next whole ten rather than a tenth further on from wherever it happens to be.
+	local SCALE_MIN, SCALE_MAX = 0.55, 1.6
+	local scaleText = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	function UI:SyncScale()
+		if not scaleText then return end
+		scaleText:SetText(("%d%%"):format(floor((frame:GetScale() or 1) * 100 + 0.5)))
+	end
+	local function StepScale(dir)
+		local pct = floor((frame:GetScale() or 1) * 100 + 0.5)
+		local target
+		if dir > 0 then target = floor(pct / 10) * 10 + 10 else target = ceil(pct / 10) * 10 - 10 end
+		target = max(SCALE_MIN * 100, min(SCALE_MAX * 100, target))
+		frame:SetScale(target / 100)
+		ns.db.windowScale = (target ~= 100) and (target / 100) or nil
+		UI:SyncScale()
+		if UI.SyncHeaderBar then UI:SyncHeaderBar() end
+	end
+	local function ScaleButton(label, dir, tipTitle, tip)
+		local b = MakeButton(frame, label, 22)
+		b:SetSize(22, 20)
+		b:SetFrameLevel(grip:GetFrameLevel())
+		b:SetScript("OnClick", function() StepScale(dir) end)
+		b:SetScript("OnEnter", function(self) TextTooltip(self, tipTitle, tip) end)
+		b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		return b
+	end
+	local bigger = ScaleButton("+", 1, "Bigger", "Takes the window up to the next whole ten percent.")
+	bigger:SetPoint("RIGHT", grip, "LEFT", -2, 0)
+	scaleText:SetPoint("RIGHT", bigger, "LEFT", -4, 0)
+	scaleText:SetJustifyH("RIGHT")
+	local smaller = ScaleButton("-", -1, "Smaller", "Takes the window down to the next whole ten percent.")
+	smaller:SetPoint("RIGHT", scaleText, "LEFT", -4, 0)
+	UI.scaleText, UI.scaleBigger, UI.scaleSmaller = scaleText, bigger, smaller
+	UI:SyncScale()
+
 	frame:Hide()
 	tinsert(UISpecialFrames, "AuraLedgerFrame")
 
@@ -1905,7 +1944,11 @@ local function Build()
 
 	local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	hint:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 9)
-	hint:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 9)
+	if UI.scaleSmaller then
+		hint:SetPoint("BOTTOMRIGHT", UI.scaleSmaller, "BOTTOMLEFT", -8, -1)
+	else
+		hint:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 9)
+	end
 	hint:SetJustifyH("LEFT")
 	hint:SetWordWrap(false)
 	hint:SetText("Drag an aura from the book onto the screen to track it, or into the list: onto a group to join it, a tracker to sit beside it, empty space for its own group.")

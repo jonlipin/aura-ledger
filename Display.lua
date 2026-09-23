@@ -2638,7 +2638,13 @@ local function LayoutGroup(f, g, visible, unlocked)
 
 	f.chrome:SetShown(unlocked)
 	if unlocked then
-		f.chrome.label:SetText(ns.GroupName(g))
+		-- While arranging, the plate says whether this group holds a shape you built or lays its
+		-- icons out in rows, since the two behave differently when a tracker goes quiet.
+		local shape = ""
+		if g.style ~= "bars" then
+			shape = g.shaped and "  |cff8fd4ffcluster|r" or "  |cff9a9a9arows|r"
+		end
+		f.chrome.label:SetText(ns.GroupName(g) .. shape)
 		local sel = ns.selected and ns.selected.group == g
 		if f.chrome.SetBackdropBorderColor then
 			if sel then f.chrome:SetBackdropBorderColor(0.3, 1, 0.4, 1) else f.chrome:SetBackdropBorderColor(1, 0.82, 0, 0.9) end
@@ -2917,7 +2923,7 @@ function Display:DropCell(f, g, cx, cy, dragged)
 	local dr = sx * axis.r[1] + sy * axis.r[2]
 	local c, r = bestW.cellC + dc, bestW.cellR + dr
 	if not ns.CellFree(g, c, r, dragged) then return end
-	return c, r, bestW
+	return c, r, bestW, sx, sy
 end
 
 local highlighted
@@ -2931,36 +2937,56 @@ end
 -- ------------------------------------------------------------------
 -- The drag ghost: an icon on the cursor, used for ledger rows and Shift-dragged trackers.
 -- ------------------------------------------------------------------
--- The square that says where a dragged icon would settle.
+-- The mark that says where a dragged icon would settle: a bright spark laid along the edge it is
+-- being held against, the way the cast bar wears one. It is put against the icon itself rather
+-- than the empty cell, because the edge is what the drop is really about.
 local dropMark
-local function ShowDropMark(f, g, c, r)
-	if not f or not c then
+local function GetDropMark()
+	if dropMark then return dropMark end
+	local mark = CreateFrame("Frame", nil, UIParent)
+	mark:SetFrameStrata("HIGH")
+	local spark = mark:CreateTexture(nil, "OVERLAY")
+	spark:SetAllPoints()
+	spark:SetBlendMode("ADD")
+	-- The cast bar's own spark if this client draws it, the manager's bar pip if not, and a plain
+	-- bright line as a last resort. No art on this client can be taken on trust.
+	local art = "plain line"
+	if HasAtlas("UI-HUD-CoolDownManager-Bar-Pip") and spark.SetAtlas then
+		spark:SetAtlas("UI-HUD-CoolDownManager-Bar-Pip")
+		art = "cooldown manager pip"
+	else
+		spark:SetTexture("Interface\\CastingBar\\UI-CastingBar-Spark")
+		if spark:GetTexture() then art = "casting bar spark" else spark:SetColorTexture(1, 0.95, 0.4, 0.9) end
+	end
+	spark:SetVertexColor(1, 0.95, 0.45)
+	ns.report["drop mark art"] = art
+	mark.spark = spark
+	mark:Hide()
+	dropMark = mark
+	return mark
+end
+
+local function ShowDropMark(f, g, against, sx, sy)
+	if not f or not against then
 		if dropMark then dropMark:Hide() end
 		return
 	end
-	if not dropMark then
-		dropMark = CreateFrame("Frame", nil, UIParent)
-		dropMark.fill = dropMark:CreateTexture(nil, "OVERLAY")
-		dropMark.fill:SetAllPoints()
-		dropMark.fill:SetColorTexture(0.25, 1, 0.4, 0.22)
-		dropMark.lines = {}
-		for i = 1, 4 do
-			local line = dropMark:CreateTexture(nil, "OVERLAY")
-			line:SetColorTexture(0.35, 1, 0.5, 0.9)
-			dropMark.lines[i] = line
-		end
-	end
+	local mark = GetDropMark()
+	mark:SetParent(f)
+	mark:SetFrameStrata("HIGH")
 	local size = g.size or 40
-	dropMark:SetParent(f)
-	dropMark:SetFrameStrata("HIGH")
-	dropMark:SetSize(size, size)
-	PointAtCell(dropMark, f, f.cellFlow or "RIGHT", c - (f.cellMinA or 0), r - (f.cellMinB or 0), f.cellStepX or size, f.cellStepY or size)
-	local t, b, l, rr = dropMark.lines[1], dropMark.lines[2], dropMark.lines[3], dropMark.lines[4]
-	t:ClearAllPoints() t:SetPoint("TOPLEFT") t:SetPoint("TOPRIGHT") t:SetHeight(2)
-	b:ClearAllPoints() b:SetPoint("BOTTOMLEFT") b:SetPoint("BOTTOMRIGHT") b:SetHeight(2)
-	l:ClearAllPoints() l:SetPoint("TOPLEFT") l:SetPoint("BOTTOMLEFT") l:SetWidth(2)
-	rr:ClearAllPoints() rr:SetPoint("TOPRIGHT") rr:SetPoint("BOTTOMRIGHT") rr:SetWidth(2)
-	dropMark:Show()
+	local thick = max(12, size * 0.5)
+	mark:ClearAllPoints()
+	if sx ~= 0 then
+		mark:SetSize(thick, size + 10)
+		mark:SetPoint("CENTER", against, sx > 0 and "RIGHT" or "LEFT", 0, 0)
+	else
+		mark:SetSize(size + 10, thick)
+		mark:SetPoint("CENTER", against, sy > 0 and "TOP" or "BOTTOM", 0, 0)
+	end
+	-- The spark's own glow runs across it, so it is turned a quarter for a top or bottom edge.
+	if mark.spark.SetRotation then pcall(mark.spark.SetRotation, mark.spark, (sx ~= 0) and 0 or (math.pi / 2)) end
+	mark:Show()
 end
 Display.ShowDropMark = ShowDropMark
 
@@ -2985,9 +3011,9 @@ local function GetGhost()
 		local g, f
 		if not overWindow then g, f = Display:GroupAt(cx, cy, self.except) end
 		Highlight(f)
-		local cellC, cellR, against
-		if g and not overWindow then cellC, cellR, against = Display:DropCell(f, g, cx, cy, self.dragTracker) end
-		ShowDropMark(cellC and f or nil, g, cellC, cellR)
+		local cellC, cellR, against, sx, sy
+		if g and not overWindow then cellC, cellR, against, sx, sy = Display:DropCell(f, g, cx, cy, self.dragTracker) end
+		ShowDropMark(cellC and f or nil, g, cellC and against or nil, sx or 0, sy or 0)
 		if overWindow then
 			-- Over the window, the list knows best what a drop would do.
 			local label = ns.UI and ns.UI.TreeDropLabel and ns.UI:TreeDropLabel(cy, self.dragTracker)
