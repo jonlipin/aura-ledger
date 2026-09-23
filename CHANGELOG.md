@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.61.3
+
+- Fixed: in a group's settings, the note about the shape ran over the Scale slider underneath it. A note's row is made as tall as its text when the panel is built, and that note is written when a group is picked rather than when the panel is built, so it was given the room for no text at all.
+- The note about who draws the group had the same fault, quietly: the longer wording, the one shown when the game draws the group, was running over the row below it too. Both notes work out their own height again whenever their wording changes.
+
 ## 1.61.2
 
 - Fixed: a group of icons whose shape you had built by hand collapsed back into a row as soon as most of its trackers were off screen. Icons filling the shape in order is right for plain rows, which is what a group of icons has always been, but wrong for a cluster: with four of six trackers quiet, the two that were left simply took the first two cells. A group whose shape you have edited now keeps every icon in the cell you gave it, gaps and all, and keeps its whole footprint, so nothing shifts about as buffs come and go.

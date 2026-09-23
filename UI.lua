@@ -324,6 +324,27 @@ function Builder:Note(text)
 	return fs
 end
 
+-- A note whose wording depends on what is selected. Its row is as tall as the text it is showing,
+-- measured again whenever that changes, so a longer wording does not run into the row below it.
+-- Relayout at the end of Sync does the restacking.
+function Builder:DynamicNote(get)
+	local fs = self:Note(" ")
+	local row, builder, showing = self.lastRow, self, nil
+	self.syncers[#self.syncers + 1] = function()
+		local text = get() or ""
+		if text == showing then return end
+		showing = text
+		fs:SetText(text)
+		local lines = ceil(#text * 5.5 / max(100, builder.width - 16))
+		local h = max(14, (fs:GetStringHeight() or 0) + 4, lines * 13 + 4)
+		if row then
+			row.height = h
+			row.frame:SetHeight(h)
+		end
+	end
+	return fs
+end
+
 function Builder:Slider(label, opts)
 	self:Begin()
 	local panel, y = self:P(), self.y
@@ -1488,16 +1509,13 @@ local function BuildGroupPanel(width)
 		function(text) local g = G() if g then g.name = (text ~= "" and text) or nil GroupChanged() end end)
 	-- Two plain questions: what is in the group, and who draws it. The second only comes up for a
 	-- group of your own trackers, because a group the game fills is always drawn by the game.
-	local whoNote = b:Note("The addon draws these trackers, so they only update between fights. Ask the game to draw them under Only show this group when.")
-	b.syncers[#b.syncers + 1] = function()
+	b:DynamicNote(function()
 		local g = G()
-		if not g then return end
-		if g.gameDrawn then
-			whoNote:SetText("The game draws these trackers through its Cooldown Manager, so they stay right in a fight, and a tracker shows as missing when the game is not showing the aura.")
-		else
-			whoNote:SetText("The addon draws these trackers, so they only update between fights. Ask the game to draw them under Only show this group when.")
+		if g and g.gameDrawn then
+			return "The game draws these trackers through its Cooldown Manager, so they stay right in a fight, and a tracker shows as missing when the game is not showing the aura."
 		end
-	end
+		return "The addon draws these trackers, so they only update between fights. Ask the game to draw them under Only show this group when."
+	end)
 	b:Cycle("Show as", { { "icons", "Icons with numbers" }, { "bars", "Bars with icons" } },
 		function() local g = G() return g and g.style or "icons" end,
 		function(v)
@@ -1544,17 +1562,14 @@ local function BuildGroupPanel(width)
 		GroupChanged()
 	end, "Puts every icon back into plain rows, as many across as the setting above, undoing a shape built by dragging one icon against another.")
 	b:AppliesWhen(function() return not IsBars() end)
-	local shapeNote = b:Note("")
-	b:AppliesWhen(function() return not IsBars() end)
-	b.syncers[#b.syncers + 1] = function()
+	b:DynamicNote(function()
 		local g = G()
-		if not g then return end
-		if g.shaped then
-			shapeNote:SetText("This group holds the shape you built: every icon keeps its own place, and one that is not on screen leaves its gap. Drag an icon against a free side of another to move it. The button above goes back to rows.")
-		else
-			shapeNote:SetText("While arranging, drag one icon against a free side of another, above, below or to either side, to hang it there. Until you do, this group is plain rows: whatever is on screen fills them in order and the rest close up.")
+		if g and g.shaped then
+			return "This group holds the shape you built: every icon keeps its own place, and one that is not on screen leaves its gap. Drag an icon against a free side of another to move it. The button above goes back to rows."
 		end
-	end
+		return "While arranging, drag one icon against a free side of another, above, below or to either side, to hang it there. Until you do, this group is plain rows: whatever is on screen fills them in order and the rest close up."
+	end)
+	b:AppliesWhen(function() return not IsBars() end)
 	b:Slider("Scale", { min = 0.5, max = 2.5, step = 0.05, get = Num("scale", 1), set = SetNum("scale"),
 		format = function(v) return ("%d%%"):format(floor(v * 100 + 0.5)) end })
 	b:Slider("Opacity", { min = 0.1, max = 1, step = 0.05, get = Num("alpha", 1), set = SetNum("alpha"),
