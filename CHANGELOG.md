@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.52.1
+
+- Fixed /auraledger debug icon dying with "attempt to call a nil value". The line added in 1.52.0 to report the bar fill margin asks for it from a local that is declared further down the file, and a local is only in scope below where it is declared, so the readout stopped there. It asks through the display instead, which is looked up when it is called rather than when it is written.
+
 ## 1.52.0
 
 - The margin between a bar's fill and the frame round it is two numbers now, sideways and up and down, because the frame on the manager's plate is thicker at the ends than along the top and bottom: one number for both is what made a fill start too far in at the sides and sit too short in the middle. They default to 0.18 and 0.06 of the bar's height, and /auraledger barfill <sideways> <up and down> sets them, with the readout reporting what they come to.

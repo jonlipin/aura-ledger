@@ -1148,8 +1148,8 @@ end
 -- the icon. Read by /auraledger debug icon.
 function Display:IconReport(emit)
 	local s = BuildSkin()
-	do
-		local x, y = BarInset(20)
+	if Display.BarInset then
+		local x, y = Display.BarInset(20)
 		emit(("bar fill margin at height 20: %d sideways, %d up and down (/auraledger barfill <x> <y>)"):format(x, y))
 	end
 	emit("bar fill colour: " .. (s.fillColor and ("%.2f %.2f %.2f"):format(s.fillColor[1], s.fillColor[2], s.fillColor[3]) or "as the art came"))
@@ -1402,6 +1402,8 @@ local function BarInset(height)
 	local fy = tonumber(ns.db and ns.db.fillInsetY) or 0.06
 	return max(0, floor(height * fx + 0.5)), max(0, floor(height * fy + 0.5))
 end
+
+Display.BarInset = function(h) return BarInset(h) end
 
 -- What a bar keeps of the manager's art: its frame, and not its backing, which is sized for the
 -- manager's own item and cannot fit a bar with its own icon beside it, nor its pip, which is the
