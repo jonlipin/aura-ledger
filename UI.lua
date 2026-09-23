@@ -57,7 +57,7 @@ local function Ink(fs, kind)
 	fs:SetShadowColor(0, 0, 0, 0)
 	return fs
 end
--- Colour codes for text built from strings.
+-- Color codes for text built from strings.
 local function InkCodes()
 	if PARCHMENT then return "|cff2e1c0f", "|cff5c4328", "|cff7a6a56" end -- group, dim, off
 	return "|cffffd100", "|cff909090", "|cff808080"
@@ -599,7 +599,7 @@ function Builder:Conditions(getCond, onChange, draw)
 	self:Note("Class (none ticked = any class):")
 	local classes = {}
 	for _, class in ipairs(ns.CLASSES) do
-		-- Class colours are picked to sit on a dark bar; on the book's parchment the pale ones
+		-- Class colors are picked to sit on a dark bar; on the book's parchment the pale ones
 		-- vanish, so they are darkened until they read against it.
 		local color = RAID_CLASS_COLORS and RAID_CLASS_COLORS[class]
 		local hex = color and color.colorStr or nil
@@ -799,7 +799,7 @@ local function CreateBookButton(parent, onParchment, art)
 	b.sub:SetWordWrap(false)
 	b.onParchment = onParchment
 	-- The spellbook's own hover glow on the icon.
-	-- Hover and dispel colour both light up the frame art itself: an additive copy of the very same
+	-- Hover and dispel color both light up the frame art itself: an additive copy of the very same
 	-- frame atlas, at the same anchor, so it can never sit off the frame.
 	local hl = b:CreateTexture(nil, "HIGHLIGHT")
 	if art and art.iconFrame then
@@ -1715,7 +1715,7 @@ local function BuildTrackerPanel(width)
 	b:Cycle("Show the cooldown when it is", { { "active", "Running" }, { "missing", "Ready" }, { "always", "Either" } },
 		function() local t = T() return t and t.show or "active" end,
 		function(v) local t = T() if t then t.show = v TrackerChanged() b:Sync() end end,
-		"Running: on screen while the spell is on cooldown, counting down. Ready: on screen only while it can be cast again. Either: on screen both ways, drained of colour while it is on cooldown.")
+		"Running: on screen while the spell is on cooldown, counting down. Ready: on screen only while it can be cast again. Either: on screen both ways, drained of color while it is on cooldown.")
 	b:AppliesWhen(TrackerIsCooldown)
 	b:Slider("Warn before it runs out (seconds, 0 = off)", { min = 0, max = 300, step = 1,
 		get = function() local t = T() return t and (t.warn or 0) end,
@@ -2264,7 +2264,7 @@ local function Build()
 	local function ModeIndex(m) for i, v in ipairs(MODES) do if v == m then return i end end return 1 end
 
 	-- The header-only state: a small bar built from scalable pieces (the window's own rock background
-	-- inside a gold border), the title centred left of its two buttons, the buttons inside the bar.
+	-- inside a gold border), the title centered left of its two buttons, the buttons inside the bar.
 	local strip = CreateFrame("Frame", "AuraLedgerHeaderBar", UIParent)
 	strip:SetSize(320, 34)
 	strip:SetFrameStrata("HIGH")

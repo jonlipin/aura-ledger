@@ -434,8 +434,8 @@ function ns.LearnRacials()
 	local known = BookKnows(pages)
 	local race = "Yours"
 	if UnitRace then
-		local okR, localised = pcall(UnitRace, "player")
-		if okR and localised then race = localised end
+		local okR, localized = pcall(UnitRace, "player")
+		if okR and localized then race = localized end
 	end
 	-- Only one line of the spellbook holds the racials: the one named after your race, or the
 	-- general one. Everything else is class spells, which the book has chapters of already. If

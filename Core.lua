@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.62.0"
+ns.VERSION = "1.62.1"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -51,7 +51,7 @@ local function LogLine(text)
 	Append(ns.db, "log", pendingLog, LOG_CAP, Stamp(text))
 end
 ns.LogLine = LogLine
--- Every line that reaches the main chat frame, from anyone, colour codes stripped.
+-- Every line that reaches the main chat frame, from anyone, color codes stripped.
 local function ChatLine(text)
 	if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) then return end
 	Append(ns.db, "chat", pendingChat, CHAT_CAP, Stamp((text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", ""))))
@@ -156,7 +156,7 @@ function ns.InitDB()
 		g.trackers = type(g.trackers) == "table" and g.trackers or {}
 		g.cond = type(g.cond) == "table" and g.cond or {}
 		g.liveOnlyMine = nil -- retired: the combat question covers this properly
-		g.live = nil -- retired: a group the game filled could not honour the list put in it
+		g.live = nil -- retired: a group the game filled could not honor the list put in it
 		-- Trackers are buffs on you: an aura on another unit cannot be followed through a fight.
 		for _, t in ipairs(g.trackers) do
 			t.unit = nil
@@ -289,7 +289,7 @@ function ns.FitAllCells()
 end
 
 -- A shape that is not the plain rows this group's width would give is one somebody built, which is
--- how a cluster made before the shape was remembered is recognised. Run at startup, and harmless
+-- how a cluster made before the shape was remembered is recognized. Run at startup, and harmless
 -- afterwards: a group laid back out in rows matches the rows again and loses the mark.
 function ns.MarkShapedGroups()
 	if not ns.profile then return end
@@ -825,7 +825,7 @@ function ns.Find(t)
 	if not list then return nil end
 	local best
 	for _, e in ipairs(list) do
-		-- "Cast by me" is unknown (nil) for an aura recognised from a frame icon; that passes.
+		-- "Cast by me" is unknown (nil) for an aura recognized from a frame icon; that passes.
 		if (t.kind == "any" or not t.kind or e.kind == t.kind) and (not t.mine or e.mine ~= false) then
 			if not best then
 				best = e
@@ -1380,7 +1380,7 @@ local function HandleCombatLog()
 end
 
 -- ------------------------------------------------------------------
--- What the game can follow per spell in combat. The Cooldown Manager keeps its own catalogue of
+-- What the game can follow per spell in combat. The Cooldown Manager keeps its own catalog of
 -- spells it knows how to track; anything in it can be handed to the game and stays right while
 -- auras are hidden, anything outside it can only be drawn by the addon between fights. The book
 -- marks the difference so the choice is made with that in view.
@@ -2575,7 +2575,7 @@ local function Debug()
 		Print(("  pre-built book: %d auras offered, %d resolved by ID, %d icon only (client name differs), %d withheld as unknown to this client"):format(total, exact, iconOnly, unknown))
 	end
 	local cat = ns.CombatCatalogue(true)
-	Print(("  spells the game can follow in combat: %d in the Cooldown Manager's catalogue"):format(cat.count))
+	Print(("  spells the game can follow in combat: %d in the Cooldown Manager's catalog"):format(cat.count))
 	Print("  spellbook frame: " .. (PlayerSpellsFrame and "loaded" or "not loaded") .. ", minimize art copied: " .. tostring(ns.db.miniArt ~= nil) .. ", dump lines: " .. tostring(ns.db.psDump and #ns.db.psDump or 0))
 	if ns.blocked then
 		for fn, n in pairs(ns.blocked) do
@@ -2775,13 +2775,13 @@ SlashCmdList.AURALEDGER = function(msg)
 		end
 	elseif cmd == "missing" then
 		local word = strlower(rest or "")
-		if word == "grey" or word == "gray" or word == "red" then
+		if word == "gray" or word == "grey" or word == "red" then
 			ns.db.missingStyle = (word == "red") and "red" or nil
 			if ns.Display then ns.Display:Refresh() end
-			Print("A missing aura is shown " .. (ns.db.missingStyle == "red" and "in red" or "in grey") .. ".")
+			Print("A missing aura is shown " .. (ns.db.missingStyle == "red" and "in red" or "in gray") .. ".")
 		else
-			Print("A missing aura is shown " .. (ns.db.missingStyle == "red" and "in red" or "in grey")
-				.. ". |cffffd000/auraledger missing grey|r or |cffffd000red|r. An aura about to run out is red either way.")
+			Print("A missing aura is shown " .. (ns.db.missingStyle == "red" and "in red" or "in gray")
+				.. ". |cffffd000/auraledger missing gray|r or |cffffd000red|r. An aura about to run out is red either way.")
 		end
 	elseif cmd == "iconborder" then
 		local word = strlower(rest or "")

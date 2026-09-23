@@ -9,11 +9,11 @@ ns.Display = Display
 local QUESTION = ns.QUESTION
 local FONT = STANDARD_TEXT_FONT or "Fonts\\FRIZQT__.TTF"
 local BAR_TEXTURE = "Interface\\TargetingFrame\\UI-StatusBar"
--- Where a group is pinned. The two centre growths are pinned by an edge midpoint rather than a
+-- Where a group is pinned. The two center growths are pinned by an edge midpoint rather than a
 -- corner, so the trackers spread evenly either side of the place you put it.
 local ANCHOR = { RIGHT = "TOPLEFT", DOWN = "TOPLEFT", LEFT = "TOPRIGHT", UP = "BOTTOMLEFT",
 	CENTER_H = "TOP", CENTER_V = "LEFT" }
--- Growing from the centre lays the trackers out the same way as its plain direction; only the
+-- Growing from the center lays the trackers out the same way as its plain direction; only the
 -- pinning differs, which is what makes the group spread rather than march off one way.
 local FLOW = { CENTER_H = "RIGHT", CENTER_V = "DOWN" }
 -- A cell's c and r are the group's own axes; these say which way each one points on screen, so a
@@ -33,7 +33,7 @@ local AXIS = {
 	UP = { c = { 0, 1 }, r = { 1, 0 } },
 }
 ns.GROWS = { { "RIGHT", "Right" }, { "LEFT", "Left" }, { "DOWN", "Down" }, { "UP", "Up" },
-	{ "CENTER_H", "Out from the centre, sideways" }, { "CENTER_V", "Out from the centre, up and down" } }
+	{ "CENTER_H", "Center, sideways" }, { "CENTER_V", "Center, up and down" } }
 
 local floor, max, min, ceil, abs = math.floor, math.max, math.min, math.ceil, math.abs
 
@@ -299,7 +299,7 @@ end
 local TRIM = { 0.07, 0.93, 0.07, 0.93 }
 
 -- Whether the manager's shape was read, which decides how a tracker is drawn: with it, the picture
--- is kept whole so its own baked border can be rounded off, and the state colour is a ring of that
+-- is kept whole so its own baked border can be rounded off, and the state color is a ring of that
 -- shape rather than a frame over the top. Set when the skin is built, below.
 local shapeInHand = false
 local function HaveShape() return shapeInHand end
@@ -479,7 +479,7 @@ local function SkinFromDonor(root, sourceName)
 	if mid and mid ~= root and mid ~= UIParent then Collect(mid, bar, nil, s.decor, true) end
 	Collect(bar, bar, fillTex, s.decor, false)
 	s.barShape, s.barPip = BarShapeFromDonor(root, bar, fillTex)
-	-- The fill art is a pale strip and the manager colours it: without that colour a bar is white
+	-- The fill art is a pale strip and the manager colors it: without that color a bar is white
 	-- where the manager's is orange.
 	local okC, cr, cg, cb = pcall(function() return bar:GetStatusBarColor() end)
 	if okC and cr and (cr < 0.99 or cg < 0.99 or cb < 0.99) then s.fillColor = { cr, cg, cb } end
@@ -664,8 +664,8 @@ local function ShapeMask(w, icon, size, want, key)
 	return #w[key] > 0
 end
 
--- The manager's border art, which carries the state colour: white while the aura is there, red
--- while it is missing or nearly gone, the dispel colour on a debuff.
+-- The manager's border art, which carries the state color: white while the aura is there, red
+-- while it is missing or nearly gone, the dispel color on a debuff.
 local function ShapeBorder(w, icon, size, want, r, g, b)
 	local s = skin
 	local def = s and s.shape and s.shape.border
@@ -689,7 +689,7 @@ local function ShapeBorder(w, icon, size, want, r, g, b)
 	return true
 end
 
--- A ring of colour in the manager's own shape, behind the picture and a little larger, so what
+-- A ring of color in the manager's own shape, behind the picture and a little larger, so what
 -- shows is a rounded edge rather than a square frame laid over the icon.
 -- "icon" is what the ring is laid on: the cell, so it fills the room the picture was pulled off.
 local function ShapeRing(w, icon, size, want, r, g, b)
@@ -866,7 +866,7 @@ local function ShapeCooldownsOn(w, frame, size, want)
 	end
 end
 
--- Just the colour, for a border already in place.
+-- Just the color, for a border already in place.
 local function ShapeBorderColor(w, r, g, b)
 	local tex = w.shapeBorder
 	if not tex or tex:IsShown() == false then return false end
@@ -1074,7 +1074,7 @@ local function BuildSkin()
 	elseif not s.fill.coords then
 		s.fill.coords = { 0, 1, 0, 1 }
 	end
-	-- Tinting: a file fill from the old art needs colour; copied art is already coloured.
+	-- Tinting: a file fill from the old art needs color; copied art is already colored.
 	if s.tint == nil then s.tint = false end
 	ns.report["bar skin"] = s.source .. (", " .. #s.decor .. " art pieces")
 	ns.report["icon skin"] = s.iconSource and (s.iconSource .. ", " .. #s.soloIconDecor .. " art pieces, "
@@ -1200,7 +1200,7 @@ function Display:IconReport(emit)
 		local x, y = Display.BarInset(20)
 		emit(("bar fill margin at height 20: %d sideways, %d up and down (/auraledger barfill <x> <y>)"):format(x, y))
 	end
-	emit("bar fill colour: " .. (s.fillColor and ("%.2f %.2f %.2f"):format(s.fillColor[1], s.fillColor[2], s.fillColor[3]) or "as the art came"))
+	emit("bar fill color: " .. (s.fillColor and ("%.2f %.2f %.2f"):format(s.fillColor[1], s.fillColor[2], s.fillColor[3]) or "as the art came"))
 	emit("bar skin from: " .. tostring(s.source) .. (s.backdrop and " (no art: a plain border is drawn instead)" or ""))
 	for i, def in ipairs(s.barShape or {}) do
 		emit(("  bar art %d: %s (%s %d), reaches l %.3f r %.3f t %.3f b %.3f of the donor's bar"):format(i,
@@ -1832,8 +1832,8 @@ local function ConfigureWidget(w, g)
 end
 
 -- The edge round an icon says what the old debuff border used to: red while an aura is missing or
--- nearly gone, the dispel colour on a debuff, and a plain dark line otherwise. A thicker line is
--- drawn for the coloured states so they read at a glance.
+-- nearly gone, the dispel color on a debuff, and a plain dark line otherwise. A thicker line is
+-- drawn for the colored states so they read at a glance.
 local function TintEdge(w, r, g, b, strong)
 	local tex = w.cleanEdge
 	if not tex or tex:IsShown() == false then return false end
@@ -1898,7 +1898,7 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 		w.icon:SetVertexColor(1, 1, 1)
 		w.icon:SetAlpha(1)
 	elseif flagMissing then
-		-- Drained of colour and dimmed a little: an aura you have not got, said quietly.
+		-- Drained of color and dimmed a little: an aura you have not got, said quietly.
 		if redMissing then w.icon:SetVertexColor(1, 0.35, 0.35) else w.icon:SetVertexColor(0.75, 0.75, 0.75) end
 		w.icon:SetAlpha(1)
 	else
@@ -2104,7 +2104,7 @@ local function InitSlotFrame(g, mode, filter, store)
 		local masked = g.iconFrame ~= false and ns.SetIconMask(button, icon, true, IS)
 		local inset = (masked or BorderMode() ~= "cdm") and 0 or IconInset(s, bars, IS, g.iconFrame ~= false)
 		-- The same mask as the cell underneath, but the cell's full size: the ring that carries the
-		-- missing colour is a band round the outside of a cell, and an icon pulled in off that band
+		-- missing color is a band round the outside of a cell, and an icon pulled in off that band
 		-- leaves it on show while the game is drawing the aura.
 		local IW = IS - inset * 2
 		-- The container takes the icon and anchors it to the button, which is not always square, so
@@ -2165,7 +2165,7 @@ local function InitSlotFrame(g, mode, filter, store)
 				if s.fill.blend then fillTex:SetBlendMode(s.fill.blend) end
 			end
 			-- The same tints the addon's own bars use, so the text stays readable on the light fill.
-			-- As the addon tints its own: art copied from the client keeps the colour it came with,
+			-- As the addon tints its own: art copied from the client keeps the color it came with,
 			-- and only a stand-in fill is tinted, or the two look nothing like each other.
 			if s.tint then
 				if filter == "HARMFUL" then bar:SetStatusBarColor(0.85, 0.22, 0.2) else bar:SetStatusBarColor(0.25, 0.6, 1) end

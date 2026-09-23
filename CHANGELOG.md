@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.62.1
+
+- The addon now spells things the way the game does. It had been written in British spelling throughout, so it said centre, colour and grey next to a client that says Center, Color and Gray. Every word you read is changed, and the source comments with it.
+- The two growth directions that spread from the middle now read "Center, sideways" and "Center, up and down", which sits with Right, Left, Down and Up instead of standing apart from them.
+- `/auraledger missing gray` is what the command says now, and it still takes either spelling.
+
 ## 1.62.0
 
 - New: the book has a "What you are carrying" page. Everything in your bags, and everything you are wearing, that has a use on it is listed there. Drag one onto the screen and you get a tracker that follows that item's cooldown. Like a spell's cooldown, an item's is not hidden from addons on this client, so it keeps counting straight through a fight. `/auraledger useitem <item name>` does the same from the chat box, and `/auraledger bags` lists what was found.
@@ -18,7 +24,7 @@
 
 - Fixed: a group of icons whose shape you had built by hand collapsed back into a row as soon as most of its trackers were off screen. Icons filling the shape in order is right for plain rows, which is what a group of icons has always been, but wrong for a cluster: with four of six trackers quiet, the two that were left simply took the first two cells. A group whose shape you have edited now keeps every icon in the cell you gave it, gaps and all, and keeps its whole footprint, so nothing shifts about as buffs come and go.
 - A group you have not shaped is untouched: it is plain rows, whatever is on screen fills them in order, and the rest close up exactly as before. The "Lay the icons out in rows again" button turns a cluster back into one of those.
-- A cluster built with 1.61.0 or 1.61.1 is recognised at login and keeps its shape too, with nothing to do by hand.
+- A cluster built with 1.61.0 or 1.61.1 is recognized at login and keeps its shape too, with nothing to do by hand.
 - The note in a group's settings says which of the two that group is doing.
 
 ## 1.61.1
@@ -39,7 +45,7 @@
 ## 1.60.0
 
 - New: a tracker can watch a spell's cooldown instead of a buff. `/auraledger cooldown <spell name or ID>` starts one, and any tracker you already have can be switched over under Watch in its options. A cooldown is not hidden from addons on this client the way an aura is, so a cooldown tracker keeps reading and counting straight through a fight, which is why the addon always draws it itself rather than handing it to the game.
-- The three show-states read differently for a cooldown, and the options say so: Running is on screen while the spell is spent and counting down, Ready is on screen only while it can be cast again, and Either keeps it on screen both ways, drained of colour while it is on cooldown. The icon wears the spell's own swipe while it runs.
+- The three show-states read differently for a cooldown, and the options say so: Running is on screen while the spell is spent and counting down, Ready is on screen only while it can be cast again, and Either keeps it on screen both ways, drained of color while it is on cooldown. The icon wears the spell's own swipe while it runs.
 - A cooldown shorter than a second and a half is the global cooldown rather than the spell's own, so it counts as ready and nothing flashes up between casts.
 - Nothing about a cooldown arrives as an event here, so a cooldown tracker is re-read on the display's own tick: one starting, being recast, or coming back is picked up within a tenth of a second without a full aura scan.
 - The questions that only make sense for an aura, Match by and "only when it was cast by me", step out of the way while a tracker is watching a cooldown.
@@ -127,7 +133,7 @@
 
 ## 1.53.0
 
-- How far the plate a bar's frame is drawn on reaches above and below the bar can be set in game: /auraledger barplate <above> <below>, as shares of the bar's height, or "even" to share out what was measured off the manager. Where the frame sits inside that art cannot be read from an addon, so measured it hangs low and centred it sits high; a look and two numbers settle it.
+- How far the plate a bar's frame is drawn on reaches above and below the bar can be set in game: /auraledger barplate <above> <below>, as shares of the bar's height, or "even" to share out what was measured off the manager. Where the frame sits inside that art cannot be read from an addon, so measured it hangs low and centered it sits high; a look and two numbers settle it.
 - Together with /auraledger barfill <sideways> <up and down>, which sets the margin between the fill and the frame, a bar can be made to fit whatever the client's art turns out to be.
 
 ## 1.52.3
@@ -158,7 +164,7 @@
 
 ## 1.50.7
 
-- A bar's fill is the colour the Cooldown Manager gives its own. The fill art is a pale strip that the manager colours itself, so copied and drawn as it comes it is white where the manager's is orange. That colour is read off the manager's bar with the rest of the look and used on the addon's bars and on the ones the game fills. A tracker that is missing, or a debuff, keeps its own colour as before.
+- A bar's fill is the color the Cooldown Manager gives its own. The fill art is a pale strip that the manager colors itself, so copied and drawn as it comes it is white where the manager's is orange. That color is read off the manager's bar with the rest of the look and used on the addon's bars and on the ones the game fills. A tracker that is missing, or a debuff, keeps its own color as before.
 
 ## 1.50.6
 
@@ -196,7 +202,7 @@
 
 ## 1.49.9
 
-- A missing tracker on a bar no longer has a grey plate behind the whole row. The ring that carries a tracker's state is laid on the cell's own square, which for a group shown as icons is the picture and for one shown as bars is the icon and the bar together. On a bar it goes round the icon, as it does on an icon.
+- A missing tracker on a bar no longer has a gray plate behind the whole row. The ring that carries a tracker's state is laid on the cell's own square, which for a group shown as icons is the picture and for one shown as bars is the icon and the bar together. On a bar it goes round the icon, as it does on an icon.
 
 ## 1.49.8
 
@@ -210,7 +216,7 @@
 
 ## 1.49.6
 
-- A bar the game draws looks like one the addon draws. Opening the window hands every tracker back to the addon, which is why the difference showed there. Two things caused it: the cover that hides the cell underneath a game-drawn bar was burying the art copied from the manager, because that art hung on the button while the cover sits on the bar above it, so the game's bars had no border; and the game's bars were tinted blue whatever the skin, while the addon leaves art copied from the client its own colour and tints only a stand-in fill.
+- A bar the game draws looks like one the addon draws. Opening the window hands every tracker back to the addon, which is why the difference showed there. Two things caused it: the cover that hides the cell underneath a game-drawn bar was burying the art copied from the manager, because that art hung on the button while the cover sits on the bar above it, so the game's bars had no border; and the game's bars were tinted blue whatever the skin, while the addon leaves art copied from the client its own color and tints only a stand-in fill.
 
 ## 1.49.5
 
@@ -301,12 +307,12 @@
 
 ## 1.46.0
 
-- A missing aura is grey rather than red. The picture is already drained of colour the moment an aura goes; painting it red on top of that and ringing it in red reads as a warning when nothing is wrong, since it is only a buff you have not got. It is now drained and dimmed a little, with a dark ring rather than a red one. Red is kept for the thing worth warning about: an aura inside its warn window, about to run out.
-- /auraledger missing red puts the old colouring back, and /auraledger missing grey returns.
+- A missing aura is gray rather than red. The picture is already drained of color the moment an aura goes; painting it red on top of that and ringing it in red reads as a warning when nothing is wrong, since it is only a buff you have not got. It is now drained and dimmed a little, with a dark ring rather than a red one. Red is kept for the thing worth warning about: an aura inside its warn window, about to run out.
+- /auraledger missing red puts the old coloring back, and /auraledger missing gray returns.
 
 ## 1.45.4
 
-- A tracker the game is drawing is no longer red while its aura is up. The ring that carries the missing colour is a band round the outside of a cell, with the picture pulled in off it so the band shows; the icon handed to a game-drawn slot was being pulled in by the same amount, so the band stayed on show underneath it. The slot's icon wears the same mask but keeps the cell's full size, so it covers the band while the game is drawing the aura and uncovers it the moment the aura goes.
+- A tracker the game is drawing is no longer red while its aura is up. The ring that carries the missing color is a band round the outside of a cell, with the picture pulled in off it so the band shows; the icon handed to a game-drawn slot was being pulled in by the same amount, so the band stayed on show underneath it. The slot's icon wears the same mask but keeps the cell's full size, so it covers the band while the game is drawing the aura and uncovers it the moment the aura goes.
 
 ## 1.45.3
 
@@ -318,13 +324,13 @@
 
 ## 1.45.1
 
-- A tracker whose aura is up no longer wears the missing colour. The ring that carries that colour was drawn a little outside the picture, so on a cell sitting under a game-drawn slot it reached past the cell, where the game's icon does not cover it, and showed as a red outline round an aura that was there. The ring is laid on the cell's own square now and the picture is pulled in off it, so the ring shows where the picture is not and never reaches past the cell.
+- A tracker whose aura is up no longer wears the missing color. The ring that carries that color was drawn a little outside the picture, so on a cell sitting under a game-drawn slot it reached past the cell, where the game's icon does not cover it, and showed as a red outline round an aura that was there. The ring is laid on the cell's own square now and the picture is pulled in off it, so the ring shows where the picture is not and never reaches past the cell.
 - /auraledger debug icon reports the state ring and how many of the manager's masks are actually on a tracker's picture.
 
 ## 1.45.0
 
 - Trackers look like the Cooldown Manager's icons, because they are made the same way. The readout settled how that is: one mask, UI-HUD-CoolDownManager-Mask, sized exactly to the icon, and no border art at all. The thin dark line round the manager's icons is the spell icon's own baked border with its corners rounded off by that mask, which is why copying border art never found any and why trimming the picture threw away the very thing that makes the look.
-- So a tracker keeps the whole picture, wears the same mask, and drops the plain dark edge that stood in for this. The missing and warning colours are a ring of the same rounded shape behind the picture rather than a square frame over it. A client whose manager cannot be read still gets the plain edge and the trimmed picture.
+- So a tracker keeps the whole picture, wears the same mask, and drops the plain dark edge that stood in for this. The missing and warning colors are a ring of the same rounded shape behind the picture rather than a square frame over it. A client whose manager cannot be read still gets the plain edge and the trimmed picture.
 
 ## 1.44.1
 
@@ -332,13 +338,13 @@
 
 ## 1.44.0
 
-- Trackers wear the Cooldown Manager's own icon shape. Rather than name an atlas and hope, the addon measures what the manager does to its own icon: the masks it clips it with and the border art it draws round it are live regions, so where they sit against that icon is read off the screen and put on a tracker at any size. The missing and warning colours go onto that same border, so a tracker is the manager's shape in every state instead of gaining a square red frame. Where the manager cannot be read, the thin dark edge from 1.43.0 is still drawn.
+- Trackers wear the Cooldown Manager's own icon shape. Rather than name an atlas and hope, the addon measures what the manager does to its own icon: the masks it clips it with and the border art it draws round it are live regions, so where they sit against that icon is read off the screen and put on a tracker at any size. The missing and warning colors go onto that same border, so a tracker is the manager's shape in every state instead of gaining a square red frame. Where the manager cannot be read, the thin dark edge from 1.43.0 is still drawn.
 - /auraledger debug icon reports the shape: each mask copied, the border art, and how far each reaches past the icon.
 
 ## 1.43.5
 
 - Trackers have tooltips while you play, not only while the window is open. Hovering one names the aura and says whether it is on you and how long is left, or that it is not; a tracker the game is drawing says so as well, since the addon cannot tell the difference between an aura that has gone and one the game has not drawn. Hovering takes no clicks, so everything behind a tracker still works.
-- A tracker the game draws no longer wears the missing colour while its aura is there. The cell underneath a game-drawn slot is painted in the missing state on purpose, so the game's icon covers it while the aura is up and it shows through the moment the aura goes. The edge, though, is drawn on a frame above the cell, so it landed on top of the game's icon: a red border round an aura that was present. A cell now sits below the slot's own frame while it is under one, edge and all, and goes back to its own level when it is not.
+- A tracker the game draws no longer wears the missing color while its aura is there. The cell underneath a game-drawn slot is painted in the missing state on purpose, so the game's icon covers it while the aura is up and it shows through the moment the aura goes. The edge, though, is drawn on a frame above the cell, so it landed on top of the game's icon: a red border round an aura that was present. A cell now sits below the slot's own frame while it is under one, edge and all, and goes back to its own level when it is not.
 
 ## 1.43.4
 
@@ -354,7 +360,7 @@
 
 ## 1.43.1
 
-- The red border on a missing tracker was the wrong shape, and it was the one on every screenshot. It came from the old debuff border sheet, whose art on this client is rounded along the top and flat along the bottom, and it is drawn whenever a tracker is missing, expiring or showing a debuff, which covered the icon's own edge entirely. The clean edge is tinted instead: the same line that edges an icon turns red while an aura is missing or nearly gone, or the dispel colour on a debuff, and thickens a little so it still reads at a glance. The old sheet is only used where there is no clean edge to colour.
+- The red border on a missing tracker was the wrong shape, and it was the one on every screenshot. It came from the old debuff border sheet, whose art on this client is rounded along the top and flat along the bottom, and it is drawn whenever a tracker is missing, expiring or showing a debuff, which covered the icon's own edge entirely. The clean edge is tinted instead: the same line that edges an icon turns red while an aura is missing or nearly gone, or the dispel color on a debuff, and thickens a little so it still reads at a glance. The old sheet is only used where there is no clean edge to color.
 
 ## 1.43.0
 
@@ -381,7 +387,7 @@
 
 ## 1.41.5
 
-- The icon mask can be nudged: /auraledger iconmask <out> <up>. The rounded shape does not sit in the middle of its own art on this client, so drawn centred on an icon it comes out rounded at the top and square at the bottom, where the game's own spellbook is rounded all round. The two numbers are how far past the icon the mask is drawn and how far up the shape is moved against it, both as a share of the icon's size. Trackers change as you type; the book follows after a reload. /auraledger debug icon reports the mask art's size and both numbers.
+- The icon mask can be nudged: /auraledger iconmask <out> <up>. The rounded shape does not sit in the middle of its own art on this client, so drawn centered on an icon it comes out rounded at the top and square at the bottom, where the game's own spellbook is rounded all round. The two numbers are how far past the icon the mask is drawn and how far up the shape is moved against it, both as a share of the icon's size. Trackers change as you type; the book follows after a reload. /auraledger debug icon reports the mask art's size and both numbers.
 
 ## 1.41.4
 
@@ -433,7 +439,7 @@
 
 ## 1.38.0
 
-- Groups can grow out from the centre: "Out from the centre, sideways" spreads the trackers evenly left and right of where you put the group, and "Out from the centre, up and down" spreads them above and below. The group stays pinned to that point as trackers come and go, so a centred row stays centred. Switching a centred row to bars turns it into a centred column, since bars are too wide to march sideways.
+- Groups can grow out from the center: "Out from the center, sideways" spreads the trackers evenly left and right of where you put the group, and "Out from the center, up and down" spreads them above and below. The group stays pinned to that point as trackers come and go, so a centered row stays centered. Switching a centered row to bars turns it into a centered column, since bars are too wide to march sideways.
 - The first row of spells in the book sits further below the divider under the heading, which was crowding it.
 
 ## 1.37.0
@@ -450,7 +456,7 @@
 
 ## 1.34.0
 
-- The groups the game filled are gone, and with them the Contents question. A group whose contents the game chose could not honour the list you put in it, which is the one thing this addon is for: you would drag auras into a group and watch it show something else. Every group is now the trackers you put there, and the only question left about a group is who draws them, which lives with the combat condition. Any group that was set to one of the filled kinds becomes an ordinary group of its own trackers.
+- The groups the game filled are gone, and with them the Contents question. A group whose contents the game chose could not honor the list you put in it, which is the one thing this addon is for: you would drag auras into a group and watch it show something else. Every group is now the trackers you put there, and the only question left about a group is who draws them, which lives with the combat condition. Any group that was set to one of the filled kinds becomes an ordinary group of its own trackers.
 
 ## 1.33.1
 
@@ -465,7 +471,7 @@
 
 - A grip in the bottom right corner sizes the window. The window is a book and its art is drawn at fixed sizes, so the grip sizes the whole thing in proportion rather than stretching the page; double-click the grip to put it back. The size is remembered.
 - Fixed: the parchment on the right of the window flashed each time it opened. Opening it from a selection skipped the step that anchors the page art, so the previous layout was drawn for a frame before being put right.
-- The class names in the condition list are legible on the parchment. Class colours are chosen to sit on a dark bar, and the pale ones disappeared against the page, so they are darkened until they read.
+- The class names in the condition list are legible on the parchment. Class colors are chosen to sit on a dark bar, and the pale ones disappeared against the page, so they are darkened until they read.
 
 ## 1.31.0
 
@@ -525,13 +531,13 @@
 
 ## 1.24.1
 
-- Options that do not apply are now hidden rather than greyed out, and the rows below them close the gap. A group showing icons no longer lists bar width, bar height, bar border, bar background or names on bars; a group showing bars no longer lists the icon size; a group the game fills no longer lists "Show as"; and the pocket watch and the warn window only appear where the addon does the drawing. The panel resizes itself as the choices change.
+- Options that do not apply are now hidden rather than grayed out, and the rows below them close the gap. A group showing icons no longer lists bar width, bar height, bar border, bar background or names on bars; a group showing bars no longer lists the icon size; a group the game fills no longer lists "Show as"; and the pocket watch and the warn window only appear where the addon does the drawing. The panel resizes itself as the choices change.
 
 ## 1.24.0
 
 - Fixed: rolling the mouse wheel over a slider in the Options panel dragged the slider and changed the setting. The wheel now scrolls the panel wherever the cursor is.
 - The group options ask one question instead of three. "Contents", "Track in combat" and "Only this group's trackers" are now a single "Shows" choice: my trackers between fights, my trackers kept right in combat, or one of the kinds of aura the game fills a group with. The combinations that meant nothing are gone, and "Only this group's trackers" retires with them, since "my trackers, kept right in combat" is that, done properly.
-- Options that do not apply to the current choice are greyed out rather than left looking available, and hovering one says why: bar settings in a group showing icons, the icon size in a group showing bars, "Show as" in a group the game fills, the pocket watch and the warn window where the game does the drawing.
+- Options that do not apply to the current choice are grayed out rather than left looking available, and hovering one says why: bar settings in a group showing icons, the icon size in a group showing bars, "Show as" in a group the game fills, the pocket watch and the warn window where the game does the drawing.
 
 ## 1.23.0
 
@@ -580,7 +586,7 @@
 
 ## 1.18.4
 
-- The mask behind game-drawn "show when missing" trackers no longer depends on a texture file: it is a one-pixel opaque mask placed just outside the cell with clamp-to-black wrapping, which blanks the cell the same way. If the missing icon still never appears, the client applies masks on hidden frames too; /auraledger nomask then restores the covering behaviour.
+- The mask behind game-drawn "show when missing" trackers no longer depends on a texture file: it is a one-pixel opaque mask placed just outside the cell with clamp-to-black wrapping, which blanks the cell the same way. If the missing icon still never appears, the client applies masks on hidden frames too; /auraledger nomask then restores the covering behavior.
 
 ## 1.18.3
 
@@ -607,7 +613,7 @@
 
 ## 1.17.2
 
-- Game-drawn groups now use the game's real button functions: stack counts (SetApplicationCount), the game's own swipe over the icon (SetDurationCooldown), a dispel-type coloured border (AddDispelTypeTexture), and tooltips stay on in combat.
+- Game-drawn groups now use the game's real button functions: stack counts (SetApplicationCount), the game's own swipe over the icon (SetDurationCooldown), a dispel-type colored border (AddDispelTypeTexture), and tooltips stay on in combat.
 - "Only this group's trackers" now goes through the container's own SetAuraGroupCandidateFilters, trying the possible shapes in turn and logging each answer.
 - /auraledger slot calls the container's slot, filter, sort and layout functions with wrong arguments and prints their error messages, to read what they expect.
 
@@ -678,12 +684,12 @@
 
 ## 1.11.2
 
-- Fixed: a tracker with "Only when it was cast by me" kept showing the aura as missing after it was reapplied in combat. An aura recognised from the buff frame's icon has no caster information, and that was being read as "cast by someone else"; it now counts as yours until the real data is readable again.
+- Fixed: a tracker with "Only when it was cast by me" kept showing the aura as missing after it was reapplied in combat. An aura recognized from the buff frame's icon has no caster information, and that was being read as "cast by someone else"; it now counts as yours until the real data is readable again.
 - Fixed: the last buff or debuff on you running out in combat was not noticed, because an empty buff frame was treated as unreadable. Once the frames have been read successfully, empty means empty.
 
 ## 1.11.1
 
-- In combat, an icon appearing on the buff or debuff frame is matched against your trackers first, then the ledger, then the pre-built book, so a tracked debuff is recognised the first time it ever lands on you.
+- In combat, an icon appearing on the buff or debuff frame is matched against your trackers first, then the ledger, then the pre-built book, so a tracked debuff is recognized the first time it ever lands on you.
 
 ## 1.11.0
 
@@ -703,7 +709,7 @@
 
 ## 1.10.0
 
-- The heading highlight is now exactly what the spellbook does: its list backplate at 65% behind the heading, the heading in FRIZQT 24 in the spellbook's ink colour with no shadow, and the divider under it. Groups and trackers and Options headings get the same.
+- The heading highlight is now exactly what the spellbook does: its list backplate at 65% behind the heading, the heading in FRIZQT 24 in the spellbook's ink color with no shadow, and the divider under it. Groups and trackers and Options headings get the same.
 - Book entries use the spellbook's exact text (names at 16, small print at 12, the same ink) and its 25% backplate at rest.
 
 ## 1.9.12
@@ -788,7 +794,7 @@
 ## 1.7.0
 
 - The window is now the spellbook's maximized two-page view: the book on the left page, Groups and trackers and Options on the right page, edge to edge like the spellbook. The page art starts under the title bar so its own shaded rim forms the band holding the tabs, with the paper lip at the tabs' feet (this is how the spellbook does it; the earlier band tricks are gone).
-- Groups and Options are restyled for parchment: ink-coloured headings with the spellbook divider, dark text in the list and option panels, no dark panes.
+- Groups and Options are restyled for parchment: ink-colored headings with the spellbook divider, dark text in the list and option panels, no dark panes.
 - Minimizing keeps the right page only, with Groups and Options on it.
 
 ## 1.6.27
@@ -798,11 +804,11 @@
 
 ## 1.6.26
 
-- The header-bar-only state is rebuilt from scalable pieces: the window's rock background in a gold border, the title centred, and both buttons inside the bar. No more stretched plaque.
+- The header-bar-only state is rebuilt from scalable pieces: the window's rock background in a gold border, the title centered, and both buttons inside the bar. No more stretched plaque.
 
 ## 1.6.25
 
-- The grey band above the page is now genuinely taller: the strip beneath the window's fixed band is dressed in the same rock-and-streaks art, and the total height matches the spellbook's (it had grown too far).
+- The gray band above the page is now genuinely taller: the strip beneath the window's fixed band is dressed in the same rock-and-streaks art, and the total height matches the spellbook's (it had grown too far).
 - The chapter heading's highlight is a soft glow behind the text, like the spellbook's, instead of a hard outline.
 
 ## 1.6.24
@@ -839,7 +845,7 @@
 
 ## 1.6.16
 
-- The page edge now sits over the tabs' feet as in the spellbook; the grey strip between them is gone.
+- The page edge now sits over the tabs' feet as in the spellbook; the gray strip between them is gone.
 
 ## 1.6.15
 
@@ -872,7 +878,7 @@
 
 ## 1.6.8
 
-- The hover highlight and the dispel-type colouring in the book now light up the icon frame art itself (an additive copy of the same frame, on the same anchor) instead of a separate glow that sat off the frame.
+- The hover highlight and the dispel-type coloring in the book now light up the icon frame art itself (an additive copy of the same frame, on the same anchor) instead of a separate glow that sat off the frame.
 
 ## 1.6.7
 
@@ -884,7 +890,7 @@
 
 ## 1.6.5
 
-- Book polish against the spellbook: the divider under the heading starts further left and sits lower with more room under the heading; the heading has the spellbook's light glow; the tabs and search box sit up against the title bar with the search centred in the band; the page runs to the bottom of the window.
+- Book polish against the spellbook: the divider under the heading starts further left and sits lower with more room under the heading; the heading has the spellbook's light glow; the tabs and search box sit up against the title bar with the search centered in the band; the page runs to the bottom of the window.
 - Tab icons and ledger icons are cropped to sit inside the rounded art windows, with no black corners poking out.
 
 ## 1.6.4
@@ -893,7 +899,7 @@
 
 ## 1.6.3
 
-- Debuffs in the book now light up the spellbook frame itself in their dispel colour (magic blue, curse purple, disease brown, poison green, other red), the way the spellbook lights a frame, instead of drawing a square border over the art.
+- Debuffs in the book now light up the spellbook frame itself in their dispel color (magic blue, curse purple, disease brown, poison green, other red), the way the spellbook lights a frame, instead of drawing a square border over the art.
 - The minimize widget is built in its own guarded step so nothing can stop it being created; any failure is shown by /auraledger debug.
 
 ## 1.6.2
@@ -912,7 +918,7 @@
 
 - The book now uses the Forever spellbook's own art by name, read from the client: the wide page, the ornate divider, the square icon frame with its ribbon (and its shadow and hover glow) around every entry, and the tab frame with its glow on the chosen tab. No more guessing.
 - Book entry icons are the spellbook's 40px.
-- Debuffs in the book wear a border coloured by their dispel type (magic blue, curse purple, disease brown, poison green, other red), the same as on the on-screen trackers.
+- Debuffs in the book wear a border colored by their dispel type (magic blue, curse purple, disease brown, poison green, other red), the same as on the on-screen trackers.
 - The window's header band holds the chapter tabs on the left and the search box on the right, like the spellbook; the old band inside the book pane is gone and the page starts right under the tabs.
 - "Add by spell name or ID" moved to the top of the page, above the chapter heading, which is larger with the spellbook's light emboss.
 - The "Keep trackers unlocked after closing" checkbox is gone: minimize the window to the Groups and trackers list instead; trackers stay draggable while it is open. "/auraledger unlock" still works.
@@ -939,7 +945,7 @@
 
 ## 1.5.4
 
-- The chapter tabs now sit in a band above the page, like the Forever spellbook: larger, in full colour, each in a dark bevelled square, with a gold frame on the chosen one.
+- The chapter tabs now sit in a band above the page, like the Forever spellbook: larger, in full color, each in a dark bevelled square, with a gold frame on the chosen one.
 - The spellbook's own spell icon frame, when its art can be read, is drawn at its native size around each book entry.
 
 ## 1.5.3
@@ -963,7 +969,7 @@
 
 - Trackers can watch **your target** as well as you: a new "On" setting per tracker (Me or My target). A target tracker follows whatever you have targeted, so it can show your curse on a mob, or a buff the mob cast on itself, and it hides when you have no target. The ledger now records auras seen on targets too, and the ledger filter gained "On you" and "On targets".
 - **Sound alerts** per tracker: a Blizzard sound when the aura is applied, when it runs out, and when the tracker appears on screen (for any reason, including its warn window). Same picker as ShardGrid: eight sounds, picking one plays it.
-- Bar text is now vertically centred. The Cooldown Manager's own text offsets were being copied and sat too high.
+- Bar text is now vertically centered. The Cooldown Manager's own text offsets were being copied and sat too high.
 - The pocket watch that marks a carried timer (a timer counted on from the last clean read because the client hid auras in combat) is smaller, sits in the bottom-left of the icon, and can be turned off per group.
 - Fixed a combat error: the client can hand over the UNIT_AURA payload lists as secret tables, which crashed the removal handler ("bad argument #1 to ipairs"). They are now checked before use.
 - The spell icon frame borrowed from the spellbook now prefers the spell list's frame over the rotation helper's.

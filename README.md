@@ -31,7 +31,7 @@ The minimize button beside the close button shrinks the window to the Groups and
 
 ## Options
 
-Per **group**: name, icons with numbers or bars with icons, growth direction, icon size, bar width and height, the icon scale on bars, spacing, how many per row before wrapping, scale, opacity, time text, names on bars, and whether to draw the bar border, the bar background and the icon frame. Options that do not apply to what the group shows are greyed out, and say why when you hover them.
+Per **group**: name, icons with numbers or bars with icons, growth direction, icon size, bar width and height, the icon scale on bars, spacing, how many per row before wrapping, scale, opacity, time text, names on bars, and whether to draw the bar border, the bar background and the icon frame. Options that do not apply to what the group shows are grayed out, and say why when you hover them.
 
 Only buffs on you are listed. Nothing on this client can follow an aura on another unit through a fight, and a debuff on you cannot be tracked by spell at all, so the game's own debuff frame is what shows those.
 
