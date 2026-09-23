@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.53.3
+
+- Fixed an error that repeated while a game-drawn group of bars was on screen: "calling SetSize on bad self (Attempt to access forbidden object from code tainted by an AddOn)". 1.53.1 tried to lay a slot's bar out again from the addon's own code, and the frames in a slot belong to the game, which refuses that outright.
+- A bar the game draws follows the group's settings the way the game allows instead: a slot's container is thrown away and built again whenever the look it was built for changes, which is how the addon has always handled the bar's width and height, and that signature now counts the icon's scale, the plate's reach and the fill's margins as well. It happens out of combat, as such a rebuild must.
+
+## 1.53.2
+
+- A bar the game draws starts where the others start. Laying it out again in 1.53.1 gave it the group's size but left it pinned where it was when the game built the slot, and where a bar starts depends on the icon beside it: with the icon scaled since, the game's bar reached further left than the addon's. The bar is pinned again against the icon's size now, and the icon itself follows the group's scale without a reload.
+
 ## 1.53.1
 
 - A bar the game draws follows the group's settings straight away. Its bar is built when the game creates the slot and was never laid out again, so the bar height, the icon scale, the plate's reach and the fill's margin all reached the bars the addon draws and none of the ones the game draws: a setting appeared to work on the missing trackers and do nothing on the active one. The slot's bar is laid out again each time the group is.
