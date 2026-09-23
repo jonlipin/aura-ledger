@@ -410,8 +410,9 @@ end
 local function BarShapeFromDonor(root, bar, fillTex)
 	if not bar then return end
 	local dw, dh = bar:GetWidth(), bar:GetHeight()
-	local aspect = (dw and dh and dh > 0) and (dw / dh) or 1
-	local pieces = {}
+	dw, dh = dw or 0, dh or 0
+	local aspect = (dh > 0) and (dw / dh) or 1
+	local pieces, pip = {}, nil
 	local seen = { [fillTex] = true }
 	local holders = { bar }
 	local mid = bar.GetParent and bar:GetParent()
@@ -428,10 +429,14 @@ local function BarShapeFromDonor(root, bar, fillTex)
 						local art, rect = ArtOf(r), RelRect(r, bar)
 						local layer, sub = "ARTWORK", 0
 						if r.GetDrawLayer then local okL, l, sl = pcall(r.GetDrawLayer, r) if okL and l then layer, sub = l, sl or 0 end end
-						-- The pip is the mark the manager slides along its own fill. Copied as a fixed
-						-- piece it is a gold bookmark at the end of the bar, so it is left behind.
-						local name = tostring(art and (art.atlas or art.file) or "")
-						if art and rect and not name:lower():find("pip") then
+						-- The pip is the mark the manager slides along its own fill, so it is kept
+						-- aside and drawn on the fill's leading edge rather than laid on the bar.
+						local name = tostring(art and (art.atlas or art.file) or ""):lower()
+						if art and rect and name:find("pip") then
+							local w1, h1 = 0, 0
+							if r.GetSize then w1, h1 = r:GetSize() end
+							pip = { art = art, w = (w1 or 0) / (dh > 0 and dh or 1), h = (h1 or 0) / (dh > 0 and dh or 1) }
+						elseif art and rect then
 							pieces[#pieces + 1] = { art = art, rect = rect, layer = layer, sub = sub, aspect = aspect }
 						end
 					end
@@ -439,8 +444,8 @@ local function BarShapeFromDonor(root, bar, fillTex)
 			end
 		end
 	end
-	if #pieces == 0 then return end
-	return pieces
+	if #pieces == 0 and not pip then return end
+	return pieces, pip
 end
 
 local function SkinFromDonor(root, sourceName)
@@ -457,7 +462,7 @@ local function SkinFromDonor(root, sourceName)
 	local mid = bar:GetParent()
 	if mid and mid ~= root and mid ~= UIParent then Collect(mid, bar, nil, s.decor, true) end
 	Collect(bar, bar, fillTex, s.decor, false)
-	s.barShape = BarShapeFromDonor(root, bar, fillTex)
+	s.barShape, s.barPip = BarShapeFromDonor(root, bar, fillTex)
 	-- The fill art is a pale strip and the manager colours it: without that colour a bar is white
 	-- where the manager's is orange.
 	local okC, cr, cg, cb = pcall(function() return bar:GetStatusBarColor() end)
@@ -1321,6 +1326,33 @@ local function PlaceBarFrame(w, ref, height, want)
 	return true
 end
 
+-- The manager's spark, sitting on the leading edge of whatever is drawn as the fill. "edge" is the
+-- region whose right-hand side the fill reaches: the addon's own fill texture, or the status bar
+-- texture the game fills for a slot.
+local function PlaceBarPip(w, edge, height, want)
+	local s = skin
+	local def = s and s.barPip
+	local tex = w.barPip
+	if not want or not def or not edge then
+		if tex then tex:Hide() end
+		return false
+	end
+	if not tex then
+		tex = (w.over or w):CreateTexture(nil, "OVERLAY", nil, 7)
+		if def.art.atlas then tex:SetAtlas(def.art.atlas)
+		else
+			tex:SetTexture(def.art.file)
+			if def.art.coords then tex:SetTexCoord(def.art.coords[1], def.art.coords[2], def.art.coords[3], def.art.coords[4]) end
+		end
+		w.barPip = tex
+	end
+	tex:SetSize(max(2, (def.w or 0.2) * height), max(2, (def.h or 1.4) * height))
+	tex:ClearAllPoints()
+	tex:SetPoint("CENTER", edge, "RIGHT", 0, 0)
+	tex:Show()
+	return true
+end
+
 -- Whether the client gave a bar any frame of its own to wear.
 local function HaveBarFrame()
 	local s = skin
@@ -1353,6 +1385,13 @@ function Display:TrySkinAgain()
 		return true
 	end
 	return false
+end
+
+-- How thick the frame is on the plate the manager's bars wear, so what is drawn on a bar can sit
+-- inside that frame rather than run out over it.
+local function BarInset(height)
+	if not HaveBarFrame() then return 0 end
+	return max(1, floor(height / 10 + 0.5))
 end
 
 -- What a bar keeps of the manager's art: its frame, and not its backing, which is sized for the
@@ -1393,7 +1432,8 @@ end
 local function SetFill(w, frac)
 	local s = skin
 	frac = max(0, min(1, frac or 0))
-	local width = (w.bar:GetWidth() or 0) * frac
+	local inner = (w.bar:GetWidth() or 0) - 2 * ((w.fillInset or 0))
+	local width = max(0, inner) * frac
 	w.fill:SetWidth(max(0.01, width))
 	if s.fill.coords and not s.fill.stretch then
 		local c = s.fill.coords
@@ -1556,13 +1596,26 @@ local function ConfigureWidget(w, g)
 		w.bar:ClearAllPoints()
 		w.bar:SetSize(max(8, g.barW - IS - 2), H)
 		w.bar:SetPoint("LEFT", w, "LEFT", IS + 2, 0)
+		-- Inside the plate's frame: the plate is laid on the bar, so anything drawn to the bar's own
+		-- width runs out over the frame the plate draws.
+		local inner = BarInset(H)
+		w.fillInset = inner
+		w.fill:ClearAllPoints()
+		w.fill:SetPoint("TOPLEFT", w.bar, "TOPLEFT", inner, -inner)
+		w.fill:SetPoint("BOTTOMLEFT", w.bar, "BOTTOMLEFT", inner, inner)
+		if w.bar.bg then
+			w.bar.bg:ClearAllPoints()
+			w.bar.bg:SetPoint("TOPLEFT", w.bar, "TOPLEFT", inner, -inner)
+			w.bar.bg:SetPoint("BOTTOMRIGHT", w.bar, "BOTTOMRIGHT", -inner, inner)
+		end
 		w.bar:Show()
 		if PlaceBarShape(w, w.bar, max(8, g.barW - IS - 2), H, g.border ~= false or g.background ~= false) then
 			PlaceDecor(w, {}, "decor", w.bar, H, wantBar)
 		else
 			PlaceDecor(w, s.decor, "decor", w.bar, H, function(dd) return BarPieceWanted(dd, g.border ~= false) end)
-		PlaceBarFrame(w, w.bar, H, g.border ~= false and not HaveBarFrame())
 		end
+		PlaceBarFrame(w, w.bar, H, g.border ~= false and not HaveBarFrame())
+		PlaceBarPip(w, w.fill, H, g.border ~= false)
 		-- Both are asked every time: the one that is not wanted takes itself off screen.
 		-- Round the icon: the cell's own square here is the icon and the bar together, and a ring
 		-- laid on that is a plate behind the whole row.
@@ -1921,6 +1974,7 @@ local function InitSlotFrame(g, mode, filter, store)
 			-- taller of the bar and the icon, and stretching to it makes this bar the odd one out.
 			bar:SetSize(max(8, W - IS - 2), H)
 			bar:SetPoint("LEFT", button, "LEFT", IS + 2, 0)
+			local inner = BarInset(H)
 			button.alBar = bar
 			bar:SetFrameLevel(button:GetFrameLevel() + 1)
 			-- The fill is a strip inside a sheet: the bar's texture needs the atlas (or the crop), not the sheet.
@@ -1946,7 +2000,8 @@ local function InitSlotFrame(g, mode, filter, store)
 				bar:SetStatusBarColor(1, 1, 1)
 			end
 			local bg = bar:CreateTexture(nil, "BACKGROUND", nil, -8)
-			bg:SetAllPoints()
+			bg:SetPoint("TOPLEFT", bar, "TOPLEFT", inner, -inner)
+			bg:SetPoint("BOTTOMRIGHT", bar, "BOTTOMRIGHT", -inner, inner)
 			-- Opaque: the cell under this slot is painted as missing, text and all, and a translucent
 			-- backing lets "Missing" read through the name and the time the game is drawing.
 			bg:SetColorTexture(0, 0, 0, 1)
@@ -1962,8 +2017,9 @@ local function InitSlotFrame(g, mode, filter, store)
 			button.alBarArt = barW
 			if not PlaceBarShape(barW, bar, max(8, W - IS - 2), H, g.border ~= false or g.background ~= false) then
 				PlaceDecor(barW, s.decor, "decor", bar, H, function(dd) return BarPieceWanted(dd, g.border ~= false) end)
-				PlaceBarFrame(barW, bar, H, g.border ~= false and not HaveBarFrame())
 			end
+			PlaceBarFrame(barW, bar, H, g.border ~= false and not HaveBarFrame())
+			PlaceBarPip(barW, bar:GetStatusBarTexture(), H, g.border ~= false)
 			if g.iconFrame ~= false then
 				local e1 = PlaceCleanEdge(w, icon, IS, true)
 				local e2 = PlaceClientFrame(w, icon, IS, true)

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.51.0
+
+- The spark is back, on the leading edge of the fill where the Cooldown Manager slides its own. It was dropped in 1.49.3 because a fixed copy of it sits at the end of the bar as a stalled bookmark; tied to the fill it is the mark it is meant to be.
+- A bar's fill sits inside the frame rather than under it. The plate the manager draws is laid on the bar, frame and all, so a fill drawn to the bar's own width ran out over that frame. The fill and its backing are pulled in by the frame's thickness.
+
 ## 1.50.7
 
 - A bar's fill is the colour the Cooldown Manager gives its own. The fill art is a pale strip that the manager colours itself, so copied and drawn as it comes it is white where the manager's is orange. That colour is read off the manager's bar with the rest of the look and used on the addon's bars and on the ones the game fills. A tracker that is missing, or a debuff, keeps its own colour as before.
