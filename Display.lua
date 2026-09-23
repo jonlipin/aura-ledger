@@ -529,7 +529,7 @@ local function PlaceBarShape(w, ref, width, height, want)
 	-- The measurement is right for art that stretches with the bar and wrong for a frame round it,
 	-- and what a bar copies is a frame: the old placement, which reckons everything in pixels off
 	-- the donor's height, is what fits. Kept for comparison, not for the asking.
-	local pieces = (ns.db and ns.db.barArt == "measured") and s and s.barShape or nil
+	local pieces = (ns.db and ns.db.barArt == "reckoned") and nil or (s and s.barShape)
 	local pool = w.barShape or {}
 	w.barShape = pool
 	if not pieces or not want then
@@ -538,6 +538,7 @@ local function PlaceBarShape(w, ref, width, height, want)
 	end
 	for i, def in ipairs(pieces) do
 		local tex = pool[i]
+		local skip = def.layer == "BACKGROUND"
 		if not tex then
 			local under = def.layer == "BACKGROUND" or def.layer == "BORDER"
 			tex = (under and (w.under or w) or (w.over or w)):CreateTexture(nil, def.layer, nil, def.sub)
@@ -548,15 +549,12 @@ local function PlaceBarShape(w, ref, width, height, want)
 			end
 			pool[i] = tex
 		end
-		-- What is drawn behind everything is the bar's own backing: on the manager's items it reaches
-		-- out to cover their icon as well, which here has a bar of its own to sit beside.
 		local rect = def.rect
-		if def.layer == "BACKGROUND" then rect = { l = 0, r = 0, t = 0, b = 0 } end
 		-- Sideways too, a reach is so many pixels of the bar's height: a border is a frame, and a
 		-- frame that grows with the bar's width is a fat inset on a long bar and a hairline on a
 		-- short one.
 		ApplyRectWH(tex, ref, rect, (def.aspect or 1) * height, height)
-		tex:Show()
+		tex:SetShown(not skip)
 	end
 	for i = #pieces + 1, #pool do pool[i]:Hide() end
 	return true
@@ -1308,6 +1306,12 @@ end
 -- Whether the client gave a bar any frame of its own to wear.
 local function HaveBarFrame()
 	local s = skin
+	if not (ns.db and ns.db.barArt == "reckoned") then
+		for _, def in ipairs((s and s.barShape) or {}) do
+			if def.layer ~= "BACKGROUND" then return true end
+		end
+		return false
+	end
 	for _, dd in ipairs((s and s.decor) or {}) do
 		if dd.layer ~= "BACKGROUND" and not tostring(dd.atlas or dd.file or ""):lower():find("pip") then return true end
 	end
@@ -2301,8 +2305,10 @@ local function LayoutGroup(f, g, visible, unlocked)
 		else widget:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", b * stepX, a * stepY) end
 		widget:EnableMouse(unlocked)
 		-- Motion without clicks: a tooltip on hover during play, with clicks still going past to
-		-- whatever is behind, which is where they belong while the window is shut.
-		if widget.SetMouseMotionEnabled then pcall(widget.SetMouseMotionEnabled, widget, true) end
+		-- whatever is behind, which is where they belong while the window is shut. A cell under a
+		-- slot leaves the mouse alone: the game's own slot is over it and gives the aura's tooltip,
+		-- and both answering would give two tooltips at once.
+		if widget.SetMouseMotionEnabled then pcall(widget.SetMouseMotionEnabled, widget, not widget.underSlot) end
 		widget:Show()
 	end
 	for k = n + 1, #f.widgets do

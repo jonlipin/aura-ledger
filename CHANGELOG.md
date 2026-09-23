@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.50.4
+
+- Hovering a tracker the game draws gives one tooltip, not two. The cell underneath takes the mouse so that hovering any tracker says what it is, and the slot the game lays over that cell takes the mouse as well and shows the game's own aura tooltip, so both answered at once. A cell under a slot leaves the mouse to the slot, whose tooltip is the better of the two: it is the live aura, with the time remaining.
+
+## 1.50.3
+
+- A bar wears the border the Cooldown Manager wears. The collector the addon has used since the first release only keeps a texture that is anchored to the bar itself, and the manager anchors its border to its item, so the border was never collected: the skin held the background and nothing else, which is why no amount of rearranging produced a frame. A bar's art is collected by measuring where each piece sits against the manager's own bar, which does not care what it is anchored to, and placed the way a frame wants, in pixels off the bar's height. The backing is still left out, being sized for the manager's whole item.
+- /auraledger barart reckoned goes back to the old collector.
+
 ## 1.50.2
 
 - The border the Cooldown Manager draws round its own bars is copied once there is one to copy. The addon takes its look from the client once, and this client's manager keeps its bar items hidden until it has something to track: at login there is no bar on screen, a hidden bar has no art to read, and so no border was ever taken. While a group shown as bars has no frame of its own, the addon looks again every few seconds and takes the manager's the moment it is drawing a bar.
