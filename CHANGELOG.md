@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.65.1
+
+- Fixed: the window size buttons rode low in the bar along the bottom. They were hung off the size grip, and the grip sits low in that bar rather than in the middle of it. They are centered on the bar itself now, and the hint beside them keeps its own place instead of being dragged about by where they ended up.
+
 ## 1.65.0
 
 - While arranging, the titled plate behind a group of icons says whether it is a |cff8fd4ffcluster|r or |cff9a9a9arows|r. The two behave differently when a tracker goes quiet, so it is worth being able to see which one you are looking at without opening anything. The Groups and trackers list says "cluster" in place of "icons" for a group you have shaped.

@@ -1879,12 +1879,25 @@ local function Build()
 		return b
 	end
 	local bigger = ScaleButton("+", 1, "Bigger", "Takes the window up to the next whole ten percent.")
-	bigger:SetPoint("RIGHT", grip, "LEFT", -2, 0)
-	scaleText:SetPoint("RIGHT", bigger, "LEFT", -4, 0)
-	scaleText:SetJustifyH("RIGHT")
+	scaleText:SetWidth(46)
+	scaleText:SetJustifyH("CENTER")
 	local smaller = ScaleButton("-", -1, "Smaller", "Takes the window down to the next whole ten percent.")
-	smaller:SetPoint("RIGHT", scaleText, "LEFT", -4, 0)
 	UI.scaleText, UI.scaleBigger, UI.scaleSmaller = scaleText, bigger, smaller
+	-- How far in from the right edge the three of them reach, so the hint beside them knows where to
+	-- stop: past the grip, then a button, the reading, and another button, with gaps.
+	UI.scaleStripWidth = 4 + 16 + 4 + 22 + 4 + 46 + 4 + 22 + 8
+
+	-- Centered on the bar along the bottom, which is what is left between the page and the bottom of
+	-- the window. The grip lives in that bar too but sits low in it, so it is not what to hang off.
+	function UI.PlaceScaleControls(bar)
+		if not bar then return end
+		bigger:ClearAllPoints()
+		bigger:SetPoint("RIGHT", bar, "RIGHT", -(4 + 16 + 4), 0)
+		scaleText:ClearAllPoints()
+		scaleText:SetPoint("RIGHT", bigger, "LEFT", -4, 0)
+		smaller:ClearAllPoints()
+		smaller:SetPoint("RIGHT", scaleText, "LEFT", -4, 0)
+	end
 	UI:SyncScale()
 
 	frame:Hide()
@@ -1942,13 +1955,19 @@ local function Build()
 		end
 	end
 
+	-- The bar along the bottom: whatever is left between the page and the bottom of the window.
+	-- Nothing is drawn on it; it is there to hang things in the middle of.
+	local bottomBar = CreateFrame("Frame", nil, frame)
+	bottomBar:SetPoint("TOPLEFT", body, "BOTTOMLEFT", 0, 0)
+	bottomBar:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", 0, 0)
+	UI.bottomBar = bottomBar
+	if UI.PlaceScaleControls then UI.PlaceScaleControls(bottomBar) end
+
 	local hint = frame:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
 	hint:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 14, 9)
-	if UI.scaleSmaller then
-		hint:SetPoint("BOTTOMRIGHT", UI.scaleSmaller, "BOTTOMLEFT", -8, -1)
-	else
-		hint:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -14, 9)
-	end
+	-- Stops short of the size controls rather than running under them, and keeps its own height in
+	-- the bar rather than being dragged about by where those ended up.
+	hint:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -(UI.scaleStripWidth or 14), 9)
 	hint:SetJustifyH("LEFT")
 	hint:SetWordWrap(false)
 	hint:SetText("Drag an aura from the book onto the screen to track it, or into the list: onto a group to join it, a tracker to sit beside it, empty space for its own group.")
