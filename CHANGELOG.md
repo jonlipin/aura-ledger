@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.53.1
+
+- A bar the game draws follows the group's settings straight away. Its bar is built when the game creates the slot and was never laid out again, so the bar height, the icon scale, the plate's reach and the fill's margin all reached the bars the addon draws and none of the ones the game draws: a setting appeared to work on the missing trackers and do nothing on the active one. The slot's bar is laid out again each time the group is.
+
 ## 1.53.0
 
 - How far the plate a bar's frame is drawn on reaches above and below the bar can be set in game: /auraledger barplate <above> <below>, as shares of the bar's height, or "even" to share out what was measured off the manager. Where the frame sits inside that art cannot be read from an addon, so measured it hangs low and centred it sits high; a look and two numbers settle it.

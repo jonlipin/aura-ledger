@@ -2012,6 +2012,7 @@ local function InitSlotFrame(g, mode, filter, store)
 			bar:SetPoint("LEFT", button, "LEFT", IS + 2, 0)
 			local inx, iny = BarInset(H)
 			button.alBar = bar
+			button.alBarBg = bg
 			bar:SetFrameLevel(button:GetFrameLevel() + 1)
 			-- The fill is a strip inside a sheet: the bar's texture needs the atlas (or the crop), not the sheet.
 			bar:SetStatusBarTexture(s.fill.file or BAR_TEXTURE)
@@ -2398,6 +2399,26 @@ local function LayoutGroup(f, g, visible, unlocked)
 				-- game's own and may refuse to be read at all, so nothing is asked of it unguarded.
 				local okL, lvl = pcall(function() return sl.frame:GetFrameLevel() end)
 				if okL and type(lvl) == "number" then SetCellLevel(widget, lvl - 6) end
+				-- The slot's bar was laid out when the game made the slot. Everything about a bar can
+				-- be changed since: its height, the icon beside it, the plate's reach, the fill's
+				-- margin. It is laid out again here, against what the group says now.
+				if sl.frame.alBar and sl.frame.alBarArt and g.style == "bars" then
+					local IS2 = ns.BarIconSize(g)
+					local H2 = g.barH or 20
+					local bar2, barW2 = sl.frame.alBar, sl.frame.alBarArt
+					bar2:SetSize(max(8, (g.barW or 100) - IS2 - 2), H2)
+					local inx, iny = BarInset(H2)
+					if sl.frame.alBarBg then
+						sl.frame.alBarBg:ClearAllPoints()
+						sl.frame.alBarBg:SetPoint("TOPLEFT", bar2, "TOPLEFT", inx, -iny)
+						sl.frame.alBarBg:SetPoint("BOTTOMRIGHT", bar2, "BOTTOMRIGHT", -inx, iny)
+					end
+					if not PlaceBarShape(barW2, bar2, max(8, (g.barW or 100) - IS2 - 2), H2, g.border ~= false or g.background ~= false) then
+						PlaceDecor(barW2, (skin and skin.decor) or {}, "decor", bar2, H2, function(dd) return BarPieceWanted(dd, g.border ~= false) end)
+					end
+					PlaceBarFrame(barW2, bar2, H2, g.border ~= false and not HaveBarFrame())
+					PlaceBarPip(barW2, bar2:GetStatusBarTexture(), H2, g.border ~= false)
+				end
 				-- A cooldown makes its textures the first time it runs, and the game runs these, so
 				-- the mask is asked for again here rather than only when the slot was built.
 				if sl.frame.alW then
