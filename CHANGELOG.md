@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.61.2
+
+- Fixed: a group of icons whose shape you had built by hand collapsed back into a row as soon as most of its trackers were off screen. Icons filling the shape in order is right for plain rows, which is what a group of icons has always been, but wrong for a cluster: with four of six trackers quiet, the two that were left simply took the first two cells. A group whose shape you have edited now keeps every icon in the cell you gave it, gaps and all, and keeps its whole footprint, so nothing shifts about as buffs come and go.
+- A group you have not shaped is untouched: it is plain rows, whatever is on screen fills them in order, and the rest close up exactly as before. The "Lay the icons out in rows again" button turns a cluster back into one of those.
+- A cluster built with 1.61.0 or 1.61.1 is recognised at login and keeps its shape too, with nothing to do by hand.
+- The note in a group's settings says which of the two that group is doing.
+
 ## 1.61.1
 
 - Fixed: after a reload, the buffs you already had did not show up. Nothing tells an addon about an aura that was already on you, because UNIT_AURA only fires when something changes. The addon read your auras once at login and once on entering the world, and if the client was not yet handing them out at either of those moments, or was still refusing reads, that was the end of it until your next buff landed. It now keeps asking for the first twelve seconds after entering the world, so the auras turn up as soon as the client will part with them.

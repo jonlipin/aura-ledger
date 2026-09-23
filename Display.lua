@@ -2500,20 +2500,38 @@ local function LayoutGroup(f, g, visible, unlocked)
 	-- Where each icon stands. Bars are a straight list and have no shape; icons take theirs from
 	-- the group, held against whichever corner of it is actually used, so that a shape built
 	-- upwards or leftwards does not drag the group across the screen when part of it goes quiet.
+	-- A shape that was built by hand holds every icon in the cell it was given, so the outline
+	-- stays put and a tracker that is not on screen simply leaves its gap. A shape that is still
+	-- plain rows is filled in order by whatever is on screen, which is what rows have always done.
+	local shaped = (g.style ~= "bars") and g.shaped and g.cells and true or false
 	local cellA, cellB, rawA, rawB = {}, {}, {}, {}
 	local minA, minB, maxA, maxB
-	for k = 1, n do
-		local a, b
-		if g.style ~= "bars" then
-			local cell = g.cells and g.cells[k]
-			if cell then a, b = tonumber(cell.c), tonumber(cell.r) end
-		end
-		if not a or not b then a, b = (k - 1) % perRow, floor((k - 1) / perRow) end
-		rawA[k], rawB[k] = a, b
+	local function span(a, b)
 		if not minA or a < minA then minA = a end
 		if not minB or b < minB then minB = b end
 		if not maxA or a > maxA then maxA = a end
 		if not maxB or b > maxB then maxB = b end
+	end
+	if shaped then
+		-- The whole shape sets the group's size, not only the part of it that is on screen.
+		for _, cell in ipairs(g.cells) do span(tonumber(cell.c) or 0, tonumber(cell.r) or 0) end
+	end
+	for k = 1, n do
+		local a, b
+		if g.style ~= "bars" then
+			local cell
+			if shaped then
+				for i, t in ipairs(g.trackers) do
+					if t == visible[k].t then cell = g.cells[i] break end
+				end
+			else
+				cell = g.cells and g.cells[k]
+			end
+			if cell then a, b = tonumber(cell.c), tonumber(cell.r) end
+		end
+		if not a or not b then a, b = (k - 1) % perRow, floor((k - 1) / perRow) end
+		rawA[k], rawB[k] = a, b
+		if not shaped then span(a, b) end
 	end
 	for k = 1, n do cellA[k], cellB[k] = rawA[k] - (minA or 0), rawB[k] - (minB or 0) end
 	-- Kept so that a drop can work out where a cell would land without laying the group out again.

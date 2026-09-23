@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.61.1"
+ns.VERSION = "1.61.2"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -288,6 +288,23 @@ function ns.FitAllCells()
 	for _, g in ipairs(ns.profile.groups) do ns.FitCells(g) end
 end
 
+-- A shape that is not the plain rows this group's width would give is one somebody built, which is
+-- how a cluster made before the shape was remembered is recognised. Run at startup, and harmless
+-- afterwards: a group laid back out in rows matches the rows again and loses the mark.
+function ns.MarkShapedGroups()
+	if not ns.profile then return end
+	for _, g in ipairs(ns.profile.groups) do
+		if g.style ~= "bars" and g.cells then
+			local perRow = max(1, tonumber(g.perRow) or 8)
+			local built = false
+			for i, cell in ipairs(g.cells) do
+				if cell.c ~= (i - 1) % perRow or cell.r ~= floor((i - 1) / perRow) then built = true break end
+			end
+			g.shaped = built or nil
+		end
+	end
+end
+
 -- Where a dragged tracker lands. Held against a free cell it takes that cell and nothing else
 -- moves; otherwise it is an ordinary drop at a place in the group's list.
 function ns.DropTracker(t, to, index, c, r)
@@ -305,10 +322,11 @@ function ns.DropTracker(t, to, index, c, r)
 	return false
 end
 
--- Lays the shape out as plain rows again, the group's width wide.
+-- Lays the shape out as plain rows again, the group's width wide, and forgets that it was ever
+-- built by hand: rows close up when a tracker goes quiet, which is what rows have always done.
 function ns.ReflowCells(g)
 	if not g then return end
-	g.cells = nil
+	g.cells, g.shaped = nil, nil
 	ns.FitCells(g)
 end
 
@@ -332,6 +350,9 @@ function ns.PlaceTrackerCell(g, t, c, r)
 	if not pos then return false end
 	table.remove(g.trackers, idx)
 	table.insert(g.trackers, pos, t)
+	-- The shape was built rather than laid out, so from here on every icon keeps its own cell
+	-- instead of the icons closing up into the front of the shape.
+	g.shaped = true
 	return true
 end
 
@@ -1794,6 +1815,7 @@ local function Startup()
 	ns.ClearMaskDiagnostics()
 	ns.ClearSettledLook()
 	ns.FitAllCells()
+	ns.MarkShapedGroups()
 	ns.ApplyMaskSettings()
 	ns.playerGUID = UnitGUID and UnitGUID("player")
 	ns.targetGUID = UnitGUID and Clean(UnitGUID("target")) or nil

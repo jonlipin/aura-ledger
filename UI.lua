@@ -1544,8 +1544,17 @@ local function BuildGroupPanel(width)
 		GroupChanged()
 	end, "Puts every icon back into plain rows, as many across as the setting above, undoing a shape built by dragging one icon against another.")
 	b:AppliesWhen(function() return not IsBars() end)
-	b:Note("While arranging, drag one icon against a free side of another to hang it there, and the group keeps that shape. Icons fill the shape in order, so one that is not on screen lets the rest close up.")
+	local shapeNote = b:Note("")
 	b:AppliesWhen(function() return not IsBars() end)
+	b.syncers[#b.syncers + 1] = function()
+		local g = G()
+		if not g then return end
+		if g.shaped then
+			shapeNote:SetText("This group holds the shape you built: every icon keeps its own place, and one that is not on screen leaves its gap. Drag an icon against a free side of another to move it. The button above goes back to rows.")
+		else
+			shapeNote:SetText("While arranging, drag one icon against a free side of another, above, below or to either side, to hang it there. Until you do, this group is plain rows: whatever is on screen fills them in order and the rest close up.")
+		end
+	end
 	b:Slider("Scale", { min = 0.5, max = 2.5, step = 0.05, get = Num("scale", 1), set = SetNum("scale"),
 		format = function(v) return ("%d%%"):format(floor(v * 100 + 0.5)) end })
 	b:Slider("Opacity", { min = 0.1, max = 1, step = 0.05, get = Num("alpha", 1), set = SetNum("alpha"),
