@@ -567,7 +567,10 @@ function Builder:Conditions(getCond, onChange, draw)
 			onChange()
 			self:Sync()
 		end,
-		"On this client an addon cannot read your auras during a fight. Drawn by the addon, a tracker therefore shows the last reading taken before the fight started and keeps counting down from it, which is right until something changes it. Drawn by the game, each tracker is handed over as an aura slot for the game to fill, so it is correct the whole way through, and whether the slot is filled is what tells the addon the aura has gone. The cost is that the game draws them in its own look rather than this group's, the warn window does not apply, and Missing behaves like Either.",
+		"On this client an addon cannot read your auras during a fight. That is the whole reason this setting exists."
+		.. "\n\n|cffffd000Drawn by the addon:|r the group shows the reading taken before the fight started and keeps counting it down. It is not frozen: it still takes a buff dropping when the game names which one, and a buff you cast yourself, and anything it has had to work out rather than read wears a ~. Anything else that changes mid-fight it will not know about until the fight ends."
+		.. "\n\n|cffffd000Drawn by the game:|r each tracker is handed over as an aura slot for the game to fill, so it is correct the whole way through, and whether the slot is filled is what tells the addon the aura has gone."
+		.. "\n\n|cffffd000What that costs:|r the game draws these in its own look rather than this group's, and it fills a slot whenever the aura is on you, in a fight or out of it. So a tracker here is on screen the whole time its aura is up, whatever you set Show to, which is why Missing behaves like Either and why the warn window does not apply.",
 		210)
 	self:Cycle("Out of combat", { { "show", "Shown" }, { "hide", "Hidden" } },
 		function() return Cond().combat == "yes" and "hide" or "show" end,
@@ -1530,9 +1533,9 @@ local function BuildGroupPanel(width)
 	b:DynamicNote(function()
 		local g = G()
 		if g and g.gameDrawn then
-			return "The game draws these trackers, through its own Cooldown Manager, so they stay correct all through a fight. A tracker counts as missing whenever the game is not showing its aura."
+			return "The game draws these trackers, through its own Cooldown Manager, so they stay correct all through a fight. It fills a slot whenever the aura is on you, in a fight or out, so a tracker here is on screen the whole time its aura is up whatever Show is set to."
 		end
-		return "The addon draws these trackers, so during a fight they show the reading taken before it started. To hand them to the game instead, set In combat under Only show this group when."
+		return "The addon draws these trackers, so during a fight they show the reading taken before it started, counting down, plus whatever it can still work out. To hand them to the game instead, set In combat under Only show this group when."
 	end)
 	b:Cycle("Show as", { { "icons", "Icons with numbers" }, { "bars", "Bars with icons" } },
 		function() local g = G() return g and g.style or "icons" end,
@@ -3266,7 +3269,7 @@ local STEPS = {
 	},
 	{
 		title = "In a fight",
-		text = "This client hides your auras from addons during a fight, and no addon can get around it.\n\nA group |cffffd000drawn by the addon|r therefore shows the reading taken before the fight started, and keeps counting down from it. A group |cffffd000drawn by the game|r is handed over for the game to fill, so it stays correct the whole way through, at the cost of wearing the game's look rather than yours.\n\nIt is set per group, under |cffffd000Only show this group when|r, as In combat.",
+		text = "This client hides your auras from addons during a fight, and no addon can get around it.\n\nA group |cffffd000drawn by the addon|r shows the reading taken before the fight started and keeps counting down from it, along with whatever it can still work out: a buff dropping when the game names it, and one you cast yourself.\n\nA group |cffffd000drawn by the game|r is handed over for the game to fill, so it stays correct throughout. The game fills those whenever the aura is on you, in a fight or out, so they are on screen the whole time the aura is up whatever Show says.\n\nIt is set per group, under |cffffd000Only show this group when|r, as In combat.",
 		target = function() return UI.parts and UI.parts.options end,
 	},
 	{

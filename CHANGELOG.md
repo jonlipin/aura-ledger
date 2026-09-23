@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.66.3
+
+- The tooltip on In combat is laid out in paragraphs: the one thing this client will not let an addon do, then what each of the two choices means, then what the second one costs.
+- It now says the thing that was missing: the game fills its slots whenever the aura is on you, in a fight or out of it, so a tracker in a group the game draws is on screen the whole time its aura is up whatever Show is set to. That is where Missing behaves like Either comes from, which until now was stated as a rule with no reason attached.
+- And it is honest about the other side. A group drawn by the addon is not frozen during a fight: it carries the reading from before it and keeps counting down, and it still takes a buff dropping when the game names which one, and a buff you cast yourself, marking anything it had to work out with a ~. What it cannot do is read your auras afresh.
+- The note under the setting and the walk-through step about fights say the same, so the three agree.
+
 ## 1.66.2
 
 - The In combat choices under Only show this group when say who draws the group, which is the thing that actually decides anything: Shown, drawn by the addon and Shown, drawn by the game, in place of Shown, the addon draws it and Shown, the game keeps it right. The old wording asked you to already know what right meant and why it was in doubt.
