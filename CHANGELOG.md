@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.53.0
+
+- How far the plate a bar's frame is drawn on reaches above and below the bar can be set in game: /auraledger barplate <above> <below>, as shares of the bar's height, or "even" to share out what was measured off the manager. Where the frame sits inside that art cannot be read from an addon, so measured it hangs low and centred it sits high; a look and two numbers settle it.
+- Together with /auraledger barfill <sideways> <up and down>, which sets the margin between the fill and the frame, a bar can be made to fit whatever the client's art turns out to be.
+
 ## 1.52.3
 
 - The frame round a bar sits square on it. The plate it is drawn on reaches two pixels above the manager's own bar and seven below, because on the manager's items that plate covers the padding under the bar as well; carried over as measured, the frame sat low and looked the wrong height. It keeps the height it was measured with, which is what stops it being squashed, but that height is now shared evenly above and below the bar.

@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.52.3"
+ns.VERSION = "1.53.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -2362,6 +2362,19 @@ SlashCmdList.AURALEDGER = function(msg)
 		ns.db.combatLog = not ns.db.combatLog
 		if ns.db.combatLog and not registered.COMBAT_LOG_EVENT_UNFILTERED then SafeRegister("COMBAT_LOG_EVENT_UNFILTERED") end
 		Print("Combat log source " .. (ns.db.combatLog and "on (if the client shows the blocked dialog, turn it off again)." or "off. Type /reload to finish turning it off."))
+	elseif cmd == "barplate" then
+		local a, b = rest:match("^(%S*)%s*(%S*)$")
+		if strlower(a or "") == "even" then
+			ns.db.plateTop, ns.db.plateBottom = nil, nil
+		else
+			local t, bt = tonumber(a), tonumber(b)
+			if t then ns.db.plateTop = t end
+			if bt then ns.db.plateBottom = bt end
+		end
+		ns.MASK_EPOCH = (ns.MASK_EPOCH or 0) + 1
+		if ns.Display then ns.Display:Rebuild() end
+		Print(("Bar plate reach: %s above, %s below, as shares of the bar's height. |cffffd000/auraledger barplate <above> <below>|r, or |cffffd000even|r to share what was measured."):format(
+			ns.db.plateTop and ("%.3f"):format(ns.db.plateTop) or "even", ns.db.plateBottom and ("%.3f"):format(ns.db.plateBottom) or "even"))
 	elseif cmd == "barfill" then
 		local a, b = rest:match("^(%S*)%s*(%S*)$")
 		local x, y = tonumber(a), tonumber(b)

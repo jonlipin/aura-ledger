@@ -579,8 +579,13 @@ local function PlaceBarShape(w, ref, width, height, want)
 		-- plate covers the padding under its bar, so carried over as measured it sits low.
 		local rect = def.rect
 		if def.layer == "BACKGROUND" then
+			-- Sideways the plate is laid on the bar. Up and down it keeps the height it was measured
+			-- with, shared evenly unless told otherwise: where the frame sits inside this art cannot
+			-- be read from outside, so /auraledger barplate sets the reach by eye.
 			local half = ((rect.t or 0) + (rect.b or 0)) / 2
-			rect = { l = 0, r = 0, t = half, b = half }
+			local t = tonumber(ns.db and ns.db.plateTop)
+			local b = tonumber(ns.db and ns.db.plateBottom)
+			rect = { l = 0, r = 0, t = t or half, b = b or half }
 		end
 		ApplyRectWH(tex, ref, rect, (def.aspect or 1) * height, height)
 		tex:Show()
@@ -1153,6 +1158,13 @@ end
 -- the icon. Read by /auraledger debug icon.
 function Display:IconReport(emit)
 	local s = BuildSkin()
+	do
+		local hh = 20
+		local t = tonumber(ns.db and ns.db.plateTop)
+		local b = tonumber(ns.db and ns.db.plateBottom)
+		emit(("bar plate reach: %s above, %s below (/auraledger barplate <above> <below>, as shares of the bar's height)"):format(
+			t and ("%.3f"):format(t) or "even", b and ("%.3f"):format(b) or "even"))
+	end
 	if Display.BarInset then
 		local x, y = Display.BarInset(20)
 		emit(("bar fill margin at height 20: %d sideways, %d up and down (/auraledger barfill <x> <y>)"):format(x, y))
