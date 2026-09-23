@@ -1279,23 +1279,25 @@ local function PlaceBarFrame(w, ref, height, want)
 			tex = (w.over or w):CreateTexture(nil, "OVERLAY", nil, 6)
 			pool[i] = tex
 		end
-		tex:SetColorTexture(0, 0, 0, 0.85)
+		-- A light line, not a dark one: a bar's own plate is black, and a dark frame on it is
+		-- nothing at all. Drawn just outside the bar, so it reads against the plate and the world.
+		tex:SetColorTexture(0.62, 0.56, 0.44, 0.95)
 		tex:ClearAllPoints()
 		if i == 1 then
-			tex:SetPoint("TOPLEFT", ref, "TOPLEFT", 0, 0)
-			tex:SetPoint("TOPRIGHT", ref, "TOPRIGHT", 0, 0)
+			tex:SetPoint("BOTTOMLEFT", ref, "TOPLEFT", -px, 0)
+			tex:SetPoint("BOTTOMRIGHT", ref, "TOPRIGHT", px, 0)
 			tex:SetHeight(px)
 		elseif i == 2 then
-			tex:SetPoint("BOTTOMLEFT", ref, "BOTTOMLEFT", 0, 0)
-			tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", 0, 0)
+			tex:SetPoint("TOPLEFT", ref, "BOTTOMLEFT", -px, 0)
+			tex:SetPoint("TOPRIGHT", ref, "BOTTOMRIGHT", px, 0)
 			tex:SetHeight(px)
 		elseif i == 3 then
-			tex:SetPoint("TOPLEFT", ref, "TOPLEFT", 0, 0)
-			tex:SetPoint("BOTTOMLEFT", ref, "BOTTOMLEFT", 0, 0)
+			tex:SetPoint("TOPRIGHT", ref, "TOPLEFT", 0, px)
+			tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMLEFT", 0, -px)
 			tex:SetWidth(px)
 		else
-			tex:SetPoint("TOPRIGHT", ref, "TOPRIGHT", 0, 0)
-			tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", 0, 0)
+			tex:SetPoint("TOPLEFT", ref, "TOPRIGHT", 0, px)
+			tex:SetPoint("BOTTOMLEFT", ref, "BOTTOMRIGHT", 0, -px)
 			tex:SetWidth(px)
 		end
 		tex:Show()
@@ -1308,6 +1310,27 @@ local function HaveBarFrame()
 	local s = skin
 	for _, dd in ipairs((s and s.decor) or {}) do
 		if dd.layer ~= "BACKGROUND" and not tostring(dd.atlas or dd.file or ""):lower():find("pip") then return true end
+	end
+	return false
+end
+
+-- The manager's bar items are hidden until it has something to track, and a hidden bar has nothing
+-- to read: a skin taken at login has no bar frame in it. This looks again, now and then, and takes
+-- the frame the moment the manager is drawing a bar of its own.
+local lastSkinTry = 0
+function Display:TrySkinAgain()
+	if HaveBarFrame() then return false end
+	local now = GetTime and GetTime() or 0
+	if now - lastSkinTry < 5 then return false end
+	lastSkinTry = now
+	local had = skin
+	skin = nil
+	local ok = pcall(BuildSkin)
+	if not ok or not skin then skin = had return false end
+	if HaveBarFrame() then
+		ns.report["bar skin"] = tostring(skin.source) .. " (read again once the manager had a bar to show)"
+		ns.MASK_EPOCH = (ns.MASK_EPOCH or 0) + 1
+		return true
 	end
 	return false
 end
@@ -2369,6 +2392,10 @@ function Display:ActiveFrame(uid)
 end
 
 function Display:RefreshGroup(g)
+	if g.style == "bars" and Display.TrySkinAgain and Display:TrySkinAgain() then
+		Display:Rebuild()
+		return
+	end
 	local f = active[g.uid]
 	if not f then return end
 	local unlocked = self:IsUnlocked()

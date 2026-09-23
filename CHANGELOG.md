@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.50.2
+
+- The border the Cooldown Manager draws round its own bars is copied once there is one to copy. The addon takes its look from the client once, and this client's manager keeps its bar items hidden until it has something to track: at login there is no bar on screen, a hidden bar has no art to read, and so no border was ever taken. While a group shown as bars has no frame of its own, the addon looks again every few seconds and takes the manager's the moment it is drawing a bar.
+- Until then the frame the addon draws is a light line rather than a dark one, since a bar's own plate is black and a dark line on it cannot be seen at all.
+
+## 1.50.1
+
+- The frame the addon draws round a bar can be seen. It was black at 85%, which is what an icon wants, because an icon's frame sits against the world; a bar's frame sits against the bar's own black plate, where a dark line is nothing at all. It is a light line now, drawn just outside the bar so it reads against the plate on one side and the world on the other.
+
 ## 1.50.0
 
 - Bars have a frame again, drawn by the addon. The readout says this client's Cooldown Manager gives exactly one piece of art for a bar, its background, and no border: its bar items are never shown, so there is nothing to read off them. Rather than leave bars bare, the addon draws the frame itself, four thin lines round the bar, as it does round an icon on a client with no art to copy. Where a client does hand a border over, that one is used and this is not drawn. The Bar border tick still turns it off.
