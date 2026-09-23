@@ -642,6 +642,38 @@ local function ShapeArt(w, icon, size, want)
 	return drew
 end
 
+-- A drop shadow: the icon's own shape in black, behind the picture, a little larger and a little
+-- lower. Drawn only where the manager handed none over, and masked so it is the icon's shape
+-- rather than a square behind a rounded corner.
+local function ShapeShadow(w, icon, size, want)
+	local s = skin
+	local have = s and s.shape and #(s.shape.under or {}) > 0
+	local on = want and HaveShape() and not have
+	local tex = w.shapeShadow
+	if not on then
+		if tex then tex:Hide() end
+		return false
+	end
+	if not tex then
+		tex = (w.under or w):CreateTexture(nil, "BACKGROUND", nil, -3)
+		w.shapeShadow = tex
+		local def = s.shape.masks[1]
+		local ok, m = pcall(function() return (w.under or w):CreateMaskTexture() end)
+		if ok and m and def then
+			if def.art.atlas then pcall(m.SetAtlas, m, def.art.atlas) else pcall(m.SetTexture, m, def.art.file) end
+			m:SetAllPoints(tex)
+			if not (tex.AddMaskTexture and pcall(tex.AddMaskTexture, tex, m)) then pcall(m.Hide, m) end
+		end
+	end
+	local px = max(1, floor(size / 14 + 0.5))
+	tex:SetColorTexture(0, 0, 0, 0.55)
+	tex:ClearAllPoints()
+	tex:SetPoint("TOPLEFT", icon, "TOPLEFT", -px, px - px)
+	tex:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", px, -px - px)
+	tex:Show()
+	return true
+end
+
 -- Every cooldown on a frame: the one the addon gave it and any the game runs itself.
 local function ShapeCooldownsOn(w, frame, size, want)
 	if not frame then return end
@@ -910,6 +942,7 @@ function Display:IconReport(emit)
 	local s = BuildSkin()
 	emit("icon art from: " .. tostring(s.iconSource or s.source))
 	emit("icon edge: " .. BorderMode())
+	emit("shadow: " .. ((skin and skin.shape and #(skin.shape.under or {}) > 0) and "copied from the manager" or (HaveShape() and "drawn by the addon" or "none")))
 	emit("icon shape from the manager: " .. tostring(ns.report["icon shape"] or "not looked for yet"))
 	emit("  displays tried: " .. tostring(ns.report["icon shape tried"] or "none"))
 	local sh = skin and skin.shape
@@ -1212,6 +1245,7 @@ local function ConfigureWidget(w, g)
 		w.ringRef = w.ringHolder
 		ShapeMask(w, w.icon, IS, g.iconFrame ~= false)
 		ShapeArt(w, w.icon, IS, g.iconFrame ~= false)
+		ShapeShadow(w, w.icon, IS, g.iconFrame ~= false)
 		ShapeCooldown(w, w.cd, IS, g.iconFrame ~= false)
 		local shaped = ShapeBorder(w, w.icon, IS, g.iconFrame ~= false) or (HaveShape() and g.iconFrame ~= false)
 		local edged = PlaceCleanEdge(w, w.icon, IS, g.iconFrame ~= false)
@@ -1265,6 +1299,7 @@ local function ConfigureWidget(w, g)
 		w.ringRef = w.ringHolder
 		ShapeMask(w, w.icon, S, g.iconFrame ~= false)
 		ShapeArt(w, w.icon, S, g.iconFrame ~= false)
+		ShapeShadow(w, w.icon, S, g.iconFrame ~= false)
 		ShapeCooldown(w, w.cd, S, g.iconFrame ~= false)
 		local shaped = ShapeBorder(w, w.icon, S, g.iconFrame ~= false) or (HaveShape() and g.iconFrame ~= false)
 		local edged = PlaceCleanEdge(w, w.icon, S, g.iconFrame ~= false, w.underSlot)
@@ -1534,6 +1569,7 @@ local function InitSlotFrame(g, mode, filter, store)
 		SquareUp()
 		ShapeMask(w, icon, IW, g.iconFrame ~= false)
 		ShapeArt(w, icon, IW, g.iconFrame ~= false)
+		ShapeShadow(w, icon, IW, g.iconFrame ~= false)
 		button.alIcon = icon
 		pcall(button.SetIcon, button, icon)
 		SquareUp()

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.47.1
+
+- Trackers have a drop shadow even though the manager hands none over. Whatever draws the shadow under the game's own icons is not on the items the addon can read, so copying it came back empty; instead the addon draws one, a dark copy of the icon's own shape sat behind the picture and a little larger and lower, masked so it is that shape rather than a square behind a rounded corner. Where a client does hand a shadow over, that one is used and this is not drawn. /auraledger debug icon says which.
+
 ## 1.47.0
 
 - Trackers get the shadow the game's own icons have. The manager's items carry art below and above their picture as well as the mask, and the art below is what gives them their slight drop shadow. It is measured where it sits against that icon, the same way the mask and the border already are, and drawn on a tracker at whatever size the tracker is. /auraledger debug icon lists each piece, which layer it belongs to and how far it reaches.
