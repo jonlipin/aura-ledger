@@ -1831,6 +1831,21 @@ local function SizeIconForRing(w, ringOn)
 	if w.cellBars then w.icon:SetPoint("LEFT", w, "LEFT", px, 0) else w.icon:SetPoint("CENTER") end
 end
 
+-- A cell under a slot wears the frame only while the game is not drawing one, or the two sit on top
+-- of each other and read as one heavy frame. The addon cannot see the game's slot, but it knows
+-- whether it believes the aura is there, which is the same answer everywhere it matters.
+local function BarArtShown(w, on)
+	for _, pool in ipairs({ w.barShape, w.decor, w.barFrame }) do
+		for _, tex in ipairs(pool or {}) do
+			if on then
+				if tex.alWanted ~= false then tex:Show() end
+			else
+				tex:Hide()
+			end
+		end
+	end
+end
+
 local function PaintWidget(w, g, t, entry, preview, expiring)
 	w.tracker, w.group, w.entry, w.expiring = t, g, entry, expiring
 	ConfigureWidget(w, g)
@@ -1911,6 +1926,7 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 		else
 			TintFill(w, nil, true)
 			SetFill(w, flagMissing and 1 or 0)
+			if w.underSlot then BarArtShown(w, true) end
 			if w.barPip then w.barPip:Hide() end
 			w.duration:SetText(flagMissing and "Missing" or "")
 			w.bar.spark:Hide()
@@ -1929,6 +1945,7 @@ local function TickWidget(w, g, now)
 	-- guessed, or it is the last clean read counting on.
 	local text = g.timers ~= false and (((e.estimated or e.stale) and "~" or "") .. ns.FormatTime(rem)) or ""
 	if g.style == "bars" then
+		if w.underSlot then BarArtShown(w, false) end
 		local frac = e.duration > 0 and min(1, rem / e.duration) or 1
 		SetFill(w, frac)
 		-- The manager's spark marks where a draining bar has got to. A full bar has nowhere to put
@@ -2132,12 +2149,12 @@ local function InitSlotFrame(g, mode, filter, store)
 			artHolder:EnableMouse(false)
 			local barW = { under = bar, over = artHolder, decor = {}, iconArt = {} }
 			button.alBarArt = barW
-			-- The cell under this slot draws the plate, and its overhang above and below the bar
-			-- reaches past this backing, so the frame is seen whether the game is drawing the aura or
-			-- not. A second plate here would sit exactly on the first and read as a heavier frame.
-			PlaceBarShape(barW, bar, max(8, W - IS - 2), H, false)
-			PlaceDecor(barW, {}, "decor", bar, H)
-			PlaceBarFrame(barW, bar, H, false)
+			-- This slot wears the frame while the game is drawing the aura. The cell underneath wears
+			-- one too, for when it is not, and gives it up while the aura is there: see BarArtShown.
+			if not PlaceBarShape(barW, bar, max(8, W - IS - 2 - inx * 2), H - iny * 2, g.border ~= false) then
+				PlaceDecor(barW, s.decor, "decor", bar, H, function(dd) return BarPieceWanted(dd, g.border ~= false) end)
+			end
+			PlaceBarFrame(barW, bar, H, g.border ~= false and not HaveBarFrame())
 			PlaceBarPip(barW, bar:GetStatusBarTexture(), H, g.border ~= false)
 			if g.iconFrame ~= false then
 				local e1 = PlaceCleanEdge(w, icon, IS, true)

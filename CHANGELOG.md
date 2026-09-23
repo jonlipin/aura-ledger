@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.56.1
+
+- An active tracker the game draws has its frame back. In 1.54.4 the slot left the frame to the cell underneath, to stop the two being drawn on top of each other, and that works only while the cell is visible: a tracker set to show only when its aura is up keeps its cell at nothing at all, so there was nothing to draw the frame. The slot wears its own frame again, and the cell gives its up while the addon knows the aura is there, which is when the slot is drawing one.
+
 ## 1.56.0
 
 - The frame round a bar can be moved against the bar rather than only with it. The plate it is drawn on was laid flush to the bar's ends, so a gap between the frame and the fill on one side could only be dealt with by moving the whole bar, which opens a gap at the other end. It reaches out on each side by its own number now, as it already did above and below: "Frame reaches left of the bar" and "Frame reaches right of the bar" in the tuning panel.

@@ -40,12 +40,17 @@ local LAPSE_GRACE = 1.6
 -- A gain bigger than this share of your maximum is a refill, not a heal: resurrection, zoning in.
 local REFILL_SHARE = 0.5
 
--- Healing you cause yourself. Its ticks are not a healer's, so they are put aside for the window of
--- seconds given here, counted from the cast. Matched on the lowercased spell name containing the key.
+-- Healing you cause yourself. Its gains are not a healer's, so they are put aside for the window of
+-- seconds given here, counted from the cast, matched on the lowercased spell name containing the key.
+--
+-- The windows are kept short and the list kept short with them, because every second one is open is
+-- a second a healer's tick is thrown away with it. Siphon Life is deliberately absent: it ticks for
+-- far less than the floor below, at every rank and every level, so the size of the gain sorts it out
+-- without blinding the estimate for the half minute it runs. Demon Armor's regeneration goes the
+-- same way. Health Funnel costs you health rather than giving it, so it never needs a window.
 local OWN_HEALS = {
-	["drain life"] = 7, ["siphon life"] = 32, ["death coil"] = 4, ["health funnel"] = 12,
-	["bandage"] = 10, ["healthstone"] = 3, ["healing potion"] = 3, ["rejuvenation potion"] = 3,
-	["first aid"] = 10, ["consume shadows"] = 12, ["dark pact"] = 2,
+	["drain life"] = 7, ["death coil"] = 3, ["bandage"] = 9,
+	["healthstone"] = 3, ["healing potion"] = 3, ["rejuvenation potion"] = 3,
 }
 
 local DEFAULTS = {
@@ -148,8 +153,23 @@ function LT:Ranks()
 	return list
 end
 
--- The health a single tap costs, and where the number came from.
+-- The health a single tap costs, and where the number came from. Worked out afresh only when the
+-- settings change or a few seconds have gone by: the panel asks ten times a second, and the answer
+-- involves the spellbook.
+local costCache = {}
 function LT:Cost()
+	local p = Profile()
+	local now = GetTime()
+	if costCache.at and costCache.rank == (p and p.rank) and costCache.set == (p and p.cost)
+		and now - costCache.at < 5 then
+		return costCache.cost, costCache.why
+	end
+	local cost, why = self:ReckonCost()
+	costCache = { at = now, rank = p and p.rank, set = p and p.cost, cost = cost, why = why }
+	return cost, why
+end
+
+function LT:ReckonCost()
 	local p = Profile()
 	if p and tonumber(p.cost) then return tonumber(p.cost), "set by you" end
 	local id = p and tonumber(p.rank)
@@ -260,6 +280,13 @@ function LT:Sample(now)
 		S.lastMineAt, S.lastMineKey = now, own
 		return
 	end
+	-- The guessing is only done where it has to be. Out here the aura itself can be read, and
+	-- health that regenerates on its own ticks at a size not far off a low-rank heal, so a run of
+	-- regeneration would otherwise read as somebody healing you.
+	if not Blind() then
+		S.stats.awake = S.stats.awake + 1
+		return
+	end
 	self:HealTick(now, gain)
 end
 
@@ -326,14 +353,16 @@ function LT:Verdict()
 	local room = floor((hp - reserve) / cost)
 	if room < 0 then room = 0 end
 	local manaPct = (S.mpMax and S.mpMax > 0) and (S.mp / S.mpMax * 100) or 100
-	if room < 1 then
-		return "wait", ("a tap costs %d and your floor is %d%%"):format(cost, p.reserve or 25), 0
-	end
+	-- Mana first, so the red reading means something: there is no decision to make while the mana
+	-- is there, whatever the health is doing.
 	if manaPct > (p.manaAt or 50) then
 		return "spare", ("mana is above %d%%"):format(p.manaAt or 50), room
 	end
+	if room < 1 then
+		return "wait", ("a tap costs %d and your floor is %d%%"):format(cost, p.reserve or 25), 0
+	end
 	local kind, label = self:Incoming()
-	if kind == "read" or kind == "estimated" then
+	if kind == "read" or kind == "estimated" or kind == "cast" then
 		return "tap", label, room
 	end
 	return "ok", "nothing is healing you", room
