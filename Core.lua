@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.61.0"
+ns.VERSION = "1.61.1"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -892,6 +892,15 @@ end
 ns.ProbeOne = ProbeOne
 
 local firstScan = true
+-- How long after entering the world the addon keeps asking for the auras you already have. The
+-- client can be a few seconds behind with them, and can still be refusing reads, and neither of
+-- those arrives as an event. Scans in this stretch are quiet, so a buff you had before the reload
+-- does not count as freshly applied in the ledger.
+local SETTLE = 12
+function ns.Settle()
+	ns.settleUntil = GetTime() + SETTLE
+	ns.dirty = true
+end
 
 -- One unit's scan: read what can be read, carry the rest forward. Returns the new table and whether
 -- anything was unreadable.
@@ -948,7 +957,7 @@ function ns.Scan()
 	ns.dirty = false
 	ns.lastScan = GetTime()
 	ns.stats.scans = ns.stats.scans + 1
-	local fresh, restricted, changed = ScanUnit("player", ns.auras, firstScan)
+	local fresh, restricted, changed = ScanUnit("player", ns.auras, firstScan or ns.settleUntil ~= nil)
 	ns.auras = fresh
 	local historyChanged = changed
 	firstScan = false
@@ -1792,7 +1801,7 @@ local function Startup()
 	ns.UpdateEnv()
 	if ns.Display and ns.Display.Init then ns.Display:Init() end
 	if ns.UI and ns.UI.Init then ns.UI:Init() end
-	ns.dirty = true
+	ns.Settle()
 	if ns.db.combatLog and not registered.COMBAT_LOG_EVENT_UNFILTERED then SafeRegister("COMBAT_LOG_EVENT_UNFILTERED") end
 end
 
@@ -1862,7 +1871,7 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		end
 		if C_Timer and C_Timer.After then C_Timer.After(1, function() if ns.SyncAuraSounds then ns.SyncAuraSounds() end end) end
 		ns.UpdateEnv()
-		ns.dirty = true
+		ns.Settle()
 	elseif event == "ADDON_RESTRICTION_STATE_CHANGED" then
 		ns.dirty = true
 		if C_Timer and C_Timer.After then C_Timer.After(0.5, function() ns.dirty = true end) end
@@ -1904,6 +1913,11 @@ function ns.OnUpdate(elapsed)
 	if slowAcc >= 0.5 then
 		slowAcc = 0
 		ns.UpdateEnv()
+		-- The auras you already had when you reloaded come with no event of any kind, so for a
+		-- little while after entering the world the addon simply asks again.
+		if ns.settleUntil then
+			if now < ns.settleUntil then ns.dirty = true else ns.settleUntil = nil end
+		end
 		-- The spellbook's spell entries only exist once it has been opened; read its art then.
 		if not ns.bookArtRead and PlayerSpellsFrame and PlayerSpellsFrame.IsShown and PlayerSpellsFrame:IsShown() then
 			ns.bookArtRead = true
@@ -2443,6 +2457,7 @@ local function Debug()
 		.. ", index " .. YesNo(C_Secrets and C_Secrets.ShouldUnitAuraIndexBeSecret)
 		.. ", instance " .. YesNo(C_Secrets and C_Secrets.ShouldUnitAuraInstanceBeSecret)
 		.. "; secret right now: " .. YesNo(AurasSecret()) .. ", last scan partial: " .. YesNo(ns.restricted))
+	Print("  settling after entering the world: " .. (ns.settleUntil and (("%.1fs left"):format(ns.settleUntil - GetTime())) or "no, finished"))
 	local s = ns.stats
 	Print(("  scans %d (partial %d, blocked %d), removals by id %d, estimated refreshes %d"):format(
 		s.scans, s.partial, s.blocked, s.removedById, s.estimated))

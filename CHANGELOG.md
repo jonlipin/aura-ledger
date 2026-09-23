@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.61.1
+
+- Fixed: after a reload, the buffs you already had did not show up. Nothing tells an addon about an aura that was already on you, because UNIT_AURA only fires when something changes. The addon read your auras once at login and once on entering the world, and if the client was not yet handing them out at either of those moments, or was still refusing reads, that was the end of it until your next buff landed. It now keeps asking for the first twelve seconds after entering the world, so the auras turn up as soon as the client will part with them.
+- Those scans are quiet, so a buff you had before the reload is not counted as freshly applied in the ledger's "seen" tally. A buff that genuinely lands during that stretch still counts. The asking stops once the stretch is over.
+- `/auraledger debug` says whether it is still settling and how long it has left.
+
 ## 1.61.0
 
 - While arranging, dragging a tracker now moves that tracker rather than its whole group. Drop it on another group to join it, or in the open for a place of its own. A tracker that is its whole group simply moves the group, which is what dragging one always did. The group itself is moved by the titled plate arranging draws behind it, which is what that plate is for. Shift is no longer needed for any of it.
