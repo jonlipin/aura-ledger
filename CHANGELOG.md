@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.49.10
+
+- Bars have their border back. Dropping the manager's backing in 1.49.8 went by the flag the collector sets for anything drawn behind the fill, and that covers the border frame as well as the backing, so the bars lost their frame along with the plate. Only what is drawn in the background layer is dropped now, and the pip with it, as on the other placement.
+
 ## 1.49.9
 
 - A missing tracker on a bar no longer has a grey plate behind the whole row. The ring that carries a tracker's state is laid on the cell's own square, which for a group shown as icons is the picture and for one shown as bars is the icon and the bar together. On a bar it goes round the icon, as it does on an icon.

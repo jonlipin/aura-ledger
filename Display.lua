@@ -1262,6 +1262,16 @@ local function WidgetTooltip(w)
 	GameTooltip:Show()
 end
 
+-- What a bar keeps of the manager's art: its frame, and not its backing, which is sized for the
+-- manager's own item and cannot fit a bar with its own icon beside it, nor its pip, which is the
+-- mark it slides along a fill the addon draws itself.
+local function BarPieceWanted(dd, border)
+	if dd.layer == "BACKGROUND" then return false end
+	local name = tostring(dd.atlas or dd.file or ""):lower()
+	if name:find("pip") then return false end
+	return border
+end
+
 -- Draws a list of copied art pieces on the under / over frames, relative to ref at height H.
 -- want(d) says whether a piece is wanted; pieces "under" the fill are background, the rest border.
 local function PlaceDecor(w, list, key, ref, H, want, even)
@@ -1458,12 +1468,7 @@ local function ConfigureWidget(w, g)
 		if PlaceBarShape(w, w.bar, max(8, g.barW - IS - 2), H, g.border ~= false or g.background ~= false) then
 			PlaceDecor(w, {}, "decor", w.bar, H, wantBar)
 		else
-			PlaceDecor(w, s.decor, "decor", w.bar, H, function(dd)
-			-- Not the backing: the manager's is sized for its own item, icon and all, and hangs off
-			-- a bar that has its own icon beside it. The bar's own black plate is the backing.
-			if dd.under then return false end
-			return g.border ~= false
-		end)
+			PlaceDecor(w, s.decor, "decor", w.bar, H, function(dd) return BarPieceWanted(dd, g.border ~= false) end)
 		end
 		-- Both are asked every time: the one that is not wanted takes itself off screen.
 		-- Round the icon: the cell's own square here is the icon and the bar together, and a ring
@@ -1858,10 +1863,7 @@ local function InitSlotFrame(g, mode, filter, store)
 			local barW = { under = bar, over = artHolder, decor = {}, iconArt = {} }
 			button.alBarArt = barW
 			if not PlaceBarShape(barW, bar, max(8, W - IS - 2), H, g.border ~= false or g.background ~= false) then
-				PlaceDecor(barW, s.decor, "decor", bar, H, function(dd)
-					if dd.under then return false end
-					return g.border ~= false
-				end)
+				PlaceDecor(barW, s.decor, "decor", bar, H, function(dd) return BarPieceWanted(dd, g.border ~= false) end)
 			end
 			if g.iconFrame ~= false then
 				local e1 = PlaceCleanEdge(w, icon, IS, true)
