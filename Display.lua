@@ -479,10 +479,22 @@ end
 -- available to the Blizzard UI".
 local function ViewerDonor(viewer)
 	if not viewer or not viewer.GetChildren then return end
-	for _, child in ipairs({ viewer:GetChildren() }) do
-		if FindStatusBar(child, 0) or FindIcon(child) then return child end
+	local okC, kids = pcall(function() return { viewer:GetChildren() } end)
+	if not okC then return end
+	local fallback
+	for _, child in ipairs(kids) do
+		if FindStatusBar(child, 0) or FindIcon(child) then
+			-- A hidden item has no place on screen, and its art cannot be measured. Most of a
+			-- display's pool is hidden, so the one that is showing is the one worth reading.
+			local okS, shown = pcall(function() return child:IsShown() end)
+			if okS and shown then return child end
+			fallback = fallback or child
+		end
 	end
+	return fallback
 end
+
+Display.ViewerDonorForTest = function(v) return ViewerDonor(v) end
 
 local skin
 
@@ -538,7 +550,6 @@ local function PlaceBarShape(w, ref, width, height, want)
 	end
 	for i, def in ipairs(pieces) do
 		local tex = pool[i]
-		local skip = def.layer == "BACKGROUND"
 		if not tex then
 			local under = def.layer == "BACKGROUND" or def.layer == "BORDER"
 			tex = (under and (w.under or w) or (w.over or w)):CreateTexture(nil, def.layer, nil, def.sub)
@@ -549,12 +560,14 @@ local function PlaceBarShape(w, ref, width, height, want)
 			end
 			pool[i] = tex
 		end
+		-- The piece drawn behind is the plate the manager's bars wear, gold frame and all, sized for
+		-- the manager's own item: it is laid on the bar rather than given the reach it was measured
+		-- with. Sideways, any other reach is so many pixels of the bar's height, because a frame
+		-- that grows with the bar's width is a fat inset on a long bar and a hairline on a short one.
 		local rect = def.rect
-		-- Sideways too, a reach is so many pixels of the bar's height: a border is a frame, and a
-		-- frame that grows with the bar's width is a fat inset on a long bar and a hairline on a
-		-- short one.
+		if def.layer == "BACKGROUND" then rect = { l = 0, r = 0, t = 0, b = 0 } end
 		ApplyRectWH(tex, ref, rect, (def.aspect or 1) * height, height)
-		tex:SetShown(not skip)
+		tex:Show()
 	end
 	for i = #pieces + 1, #pool do pool[i]:Hide() end
 	return true
@@ -1307,10 +1320,8 @@ end
 local function HaveBarFrame()
 	local s = skin
 	if not (ns.db and ns.db.barArt == "reckoned") then
-		for _, def in ipairs((s and s.barShape) or {}) do
-			if def.layer ~= "BACKGROUND" then return true end
-		end
-		return false
+		-- Any of it: on this client the one piece is the plate, and that plate is the frame.
+		return #((s and s.barShape) or {}) > 0
 	end
 	for _, dd in ipairs((s and s.decor) or {}) do
 		if dd.layer ~= "BACKGROUND" and not tostring(dd.atlas or dd.file or ""):lower():find("pip") then return true end
@@ -1343,7 +1354,6 @@ end
 -- manager's own item and cannot fit a bar with its own icon beside it, nor its pip, which is the
 -- mark it slides along a fill the addon draws itself.
 local function BarPieceWanted(dd, border)
-	if dd.layer == "BACKGROUND" then return false end
 	local name = tostring(dd.atlas or dd.file or ""):lower()
 	if name:find("pip") then return false end
 	return border

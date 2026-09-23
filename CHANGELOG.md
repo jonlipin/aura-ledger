@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.50.6
+
+- The gold frame is back. The one piece this client gives for a bar is named a background, and it is the framed plate the manager's own bars wear, gold edge and all: dropping it in 1.49.8 as "the backing" is what took the frame away, and the releases after that were looking for a border the client had already handed over. It is drawn again and laid exactly on the bar, which is all it ever needed. It was never the wrong art, only the wrong size.
+
+## 1.50.5
+
+- The look is read off one of the manager's items that is actually on screen. Each of its displays keeps a pool of items and most of them are hidden; the addon took the first one it found with a bar in it, and a hidden frame has no place on screen, so measuring its art gives nothing back. The item that is showing is preferred, and a hidden one is used only when there is no other.
+
 ## 1.50.4
 
 - Hovering a tracker the game draws gives one tooltip, not two. The cell underneath takes the mouse so that hovering any tracker says what it is, and the slot the game lays over that cell takes the mouse as well and shows the game's own aura tooltip, so both answered at once. A cell under a slot leaves the mouse to the slot, whose tooltip is the better of the two: it is the live aura, with the time remaining.
