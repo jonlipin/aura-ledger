@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.59.0"
+ns.VERSION = "1.60.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -326,6 +326,7 @@ function ns.NewTracker(h)
 		uid = ns.NewUid(),
 		name = h.name, id = h.id, icon = h.icon,
 		kind = "buff",
+		cd = h.cd or nil,
 		matchId = (idOnly or h.byId) and true or false,
 		show = "active",
 		mine = false,
@@ -576,7 +577,40 @@ local function Reindex()
 end
 
 -- The live aura a tracker is about, or nil. With several matches the longest-lasting one wins.
+-- A spell's cooldown, as an entry of the same shape an aura makes, so everything that draws a
+-- tracker works on it unchanged. Cooldowns are not secret on this client: this reads the same in a
+-- fight as out of one, which is why a cooldown tracker is never handed to the game.
+-- The global cooldown is not a cooldown worth showing, so anything under two seconds long is
+-- treated as ready.
+function ns.CooldownFor(t)
+	local key = t.id or t.name
+	if not key then return nil end
+	local start, duration, enabled
+	if C_Spell and C_Spell.GetSpellCooldown then
+		local ok, info = pcall(C_Spell.GetSpellCooldown, key)
+		if ok and type(info) == "table" then
+			start, duration, enabled = info.startTime, info.duration, info.isEnabled
+		end
+	end
+	if start == nil and GetSpellCooldown then
+		local ok, a, b, c = pcall(GetSpellCooldown, key)
+		if ok then start, duration, enabled = a, b, c end
+	end
+	start, duration, enabled = Clean(start), Clean(duration), Clean(enabled)
+	start, duration = tonumber(start), tonumber(duration)
+	if not start or not duration then return nil end
+	local icon = t.icon
+	if not icon then local _, i = ns.SpellInfo(key) icon = i end
+	if duration <= 1.5 or start <= 0 or enabled == false or enabled == 0 then
+		-- Ready: an entry with nothing left on it, so "show when ready" has something to show.
+		return { name = t.name, id = t.id, icon = icon, kind = "cooldown", ready = true, duration = 0, expires = 0, mine = true }
+	end
+	return { name = t.name, id = t.id, icon = icon, kind = "cooldown", duration = duration, expires = start + duration, mine = true }
+end
+
 function ns.Find(t)
+	-- A cooldown tracker asks the spell, not the aura table.
+	if t.cd then return ns.CooldownFor(t) end
 	local unit = t.unit or "player"
 	local list
 	if t.matchId and t.id then
@@ -2165,6 +2199,7 @@ local function Help()
 	Print("v" .. ns.VERSION .. " commands:")
 	Print("  /auraledger - open or close the window")
 	Print("  /auraledger add <spell name or ID> - add an aura and start tracking it")
+	Print("  /auraledger cooldown <spell name or ID> - follow a spell's cooldown instead of a buff")
 	Print("  /auraledger import <string> - import a tracker or group from an export string")
 	Print("  /auraledger edit - turn arranging on or off: drag trackers about and click one to change it")
 	Print("  /auraledger minimap - show or hide the minimap button")
@@ -2353,6 +2388,19 @@ SlashCmdList.AURALEDGER = function(msg)
 		if not h then Print(err) return end
 		ns.TrackHistory(h)
 		Print("Tracking " .. (h.name or ("spell " .. tostring(h.id))) .. ". Open /auraledger to move it or change how it shows.")
+		if ns.UI and ns.UI.RefreshHistory then ns.UI:RefreshHistory() end
+	elseif cmd == "cooldown" or cmd == "cd" then
+		if rest == "" then
+			Print("|cffffd000/auraledger cooldown <spell name or ID>|r follows that spell's cooldown. An aura you already track can be switched over under Watch in its options.")
+			return
+		end
+		local h, err = ns.AddManual(rest)
+		if not h then Print(err) return end
+		local t = ns.TrackHistory(h)
+		t.cd = true
+		ns.Changed()
+		if ns.Display then ns.Display:Rebuild() end
+		Print("Following the cooldown of " .. (h.name or ("spell " .. tostring(h.id))) .. ". A cooldown is not hidden from addons the way an aura is, so this one keeps counting in a fight.")
 		if ns.UI and ns.UI.RefreshHistory then ns.UI:RefreshHistory() end
 	elseif cmd == "edit" or cmd == "lock" or cmd == "unlock" then
 		local on = (cmd == "unlock") or (cmd == "edit" and not ns.db.unlocked)

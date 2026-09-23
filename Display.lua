@@ -1855,10 +1855,15 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 	ConfigureWidget(w, g)
 	w.icon:SetTexture((entry and entry.icon) or t.icon or QUESTION)
 	local isActive = entry ~= nil
+	-- A spell on cooldown is there but not ready, which is what the drained look says.
+	local onCooldown = entry ~= nil and entry.kind == "cooldown" and not entry.ready
 	local flagMissing = (not isActive) and (t.show ~= "active")
-	if w.icon.SetDesaturated then w.icon:SetDesaturated(not isActive) end
+	if w.icon.SetDesaturated then w.icon:SetDesaturated(not isActive or onCooldown) end
 	local redMissing = ns.db and ns.db.missingStyle == "red"
-	if isActive then
+	if onCooldown then
+		w.icon:SetVertexColor(0.85, 0.85, 0.85)
+		w.icon:SetAlpha(1)
+	elseif isActive then
 		w.icon:SetVertexColor(1, 1, 1)
 		w.icon:SetAlpha(1)
 	elseif flagMissing then
@@ -2332,6 +2337,9 @@ local function TrackerSlots(f, g, t, ids)
 	local unit = t.unit or "player"
 	local c = SlotContainer(f, g, unit)
 	if not c then return nil end
+	-- A cooldown is not an aura: the game's slots know nothing about it, and the addon can read it
+	-- through a fight anyway.
+	if t.cd then return nil end
 	if t.kind == "debuff" then return nil end
 	local kinds = { "HELPFUL" }
 	local frames = {}
@@ -2582,6 +2590,14 @@ Display.Expiring = Expiring
 local function Wants(t, entry, now, unlocked, groupPass)
 	if unlocked then return true, false end
 	if not groupPass or not ns.CondPass(t.cond) then return false, false end
+	-- A spell is always there, so for a cooldown tracker it is the cooldown that is on or off:
+	-- "active" means on cooldown, "missing" means ready to cast.
+	if t.cd then
+		local onCd = entry ~= nil and not entry.ready
+		if t.show == "missing" then return not onCd, false
+		elseif t.show == "always" then return true, false
+		else return onCd, false end
+	end
 	if t.unit == "target" and not ns.env.target then return false, false end
 	local expiring = Expiring(t, entry, now)
 	if t.show == "missing" then return entry == nil or expiring, expiring
@@ -2666,17 +2682,24 @@ function Display:Tick(now)
 	for _, f in pairs(active) do
 		local g = f.group
 		if g then
-			-- A warn window opens with no event, so trackers that have one are re-checked each tick.
+			-- A warn window opens with no event, and so does a cooldown starting or coming back, so
+			-- trackers that watch either are re-checked each tick.
 			if not unlocked then
 				local groupPass = ns.CondPass(g.cond)
 				for _, t in ipairs(g.trackers) do
-					if (t.warn or 0) > 0 then
-						local want, expiring = Wants(t, ns.Find(t), now, false, groupPass)
-						local shown, wasExpiring = false, false
+					if (t.warn or 0) > 0 or t.cd then
+						local entry = ns.Find(t)
+						local want, expiring = Wants(t, entry, now, false, groupPass)
+						local shown, wasExpiring, was = false, false, nil
 						for _, w in ipairs(f.widgets) do
-							if w:IsShown() and w.tracker == t then shown, wasExpiring = true, w.expiring or false break end
+							if w:IsShown() and w.tracker == t then shown, wasExpiring, was = true, w.expiring or false, w.entry break end
 						end
-						if want ~= shown or expiring ~= wasExpiring then self:RefreshGroup(g) break end
+						-- A tracker that is on screen either way only changes by its time changing.
+						local restarted = false
+						if t.cd and shown then
+							restarted = abs((was and was.expires or -1) - (entry and entry.expires or -1)) > 0.25
+						end
+						if want ~= shown or expiring ~= wasExpiring or restarted then self:RefreshGroup(g) break end
 					end
 				end
 			end

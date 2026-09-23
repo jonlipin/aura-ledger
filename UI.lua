@@ -1585,11 +1585,33 @@ local function BuildTrackerPanel(width)
 		local g = t and ns.FindGroupOf(t)
 		return not (g and g.gameDrawn)
 	end
+	local function TrackerIsCooldown()
+		local t = T()
+		return (t and t.cd) and true or false
+	end
+	local function TrackerIsAura() return not TrackerIsCooldown() end
 	b:Header("Tracker")
+	b:Cycle("Watch", { { false, "The buff on me" }, { true, "This spell's cooldown" } },
+		function() local t = T() return (t and t.cd) and true or false end,
+		function(v)
+			local t = T()
+			if not t then return end
+			if v and not (t.id or t.name) then ns.Print("Nothing is known about this spell yet, so its cooldown cannot be read.") return end
+			t.cd = v or nil
+			TrackerChanged()
+			b:Sync()
+		end,
+		"A cooldown is not hidden from addons the way an aura is, so a cooldown tracker keeps counting through a fight, and the addon always draws it itself.")
 	b:Cycle("Show the aura when it is", { { "active", "Active" }, { "missing", "Missing" }, { "always", "Either (red when missing)" } },
 		function() local t = T() return t and t.show or "active" end,
 		function(v) local t = T() if t then t.show = v TrackerChanged() b:Sync() end end,
 		"Active: on screen while you have it. Missing: on screen only while you do not. Either: on screen both ways, red while missing. In a group the game draws, Missing behaves like Either.")
+	b:AppliesWhen(TrackerIsAura)
+	b:Cycle("Show the cooldown when it is", { { "active", "Running" }, { "missing", "Ready" }, { "always", "Either" } },
+		function() local t = T() return t and t.show or "active" end,
+		function(v) local t = T() if t then t.show = v TrackerChanged() b:Sync() end end,
+		"Running: on screen while the spell is on cooldown, counting down. Ready: on screen only while it can be cast again. Either: on screen both ways, drained of colour while it is on cooldown.")
+	b:AppliesWhen(TrackerIsCooldown)
 	b:Slider("Warn before it runs out (seconds, 0 = off)", { min = 0, max = 300, step = 1,
 		get = function() local t = T() return t and (t.warn or 0) end,
 		set = function(v) local t = T() if t then t.warn = (v > 0) and v or nil TrackerChanged() end end,
@@ -1597,6 +1619,8 @@ local function BuildTrackerPanel(width)
 	b:AppliesWhen(TrackerIsAddonDrawn)
 	b:Note("With Missing: also shows while the aura has this long or less left, with a red border. With Always: the border turns red that early.")
 	b:AppliesWhen(TrackerIsAddonDrawn)
+	b:Note("A cooldown shorter than a second and a half is the global cooldown, not this spell's, so it counts as ready.")
+	b:AppliesWhen(TrackerIsCooldown)
 	b:Cycle("Match by", { { false, "Name (any rank)" }, { true, "Exact spell ID" } },
 		function() local t = T() return t and t.matchId and true or false end,
 		function(v)
@@ -1608,9 +1632,11 @@ local function BuildTrackerPanel(width)
 			TrackerChanged()
 		end,
 		"Each rank of a spell has its own ID, so matching by name is usually what you want.")
+	b:AppliesWhen(TrackerIsAura)
 	b:Check("Only when it was cast by me", function() local t = T() return t and t.mine end,
 		function(v) local t = T() if t then t.mine = v TrackerChanged() end end,
 		"Ignores the same aura when it comes from someone else.")
+	b:AppliesWhen(TrackerIsAura)
 	b:Edit("Bar label (optional)", function() local t = T() return t and t.label or "" end,
 		function(text) local t = T() if t then t.label = (text ~= "" and text) or nil TrackerChanged() end end)
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.60.0
+
+- New: a tracker can watch a spell's cooldown instead of a buff. `/auraledger cooldown <spell name or ID>` starts one, and any tracker you already have can be switched over under Watch in its options. A cooldown is not hidden from addons on this client the way an aura is, so a cooldown tracker keeps reading and counting straight through a fight, which is why the addon always draws it itself rather than handing it to the game.
+- The three show-states read differently for a cooldown, and the options say so: Running is on screen while the spell is spent and counting down, Ready is on screen only while it can be cast again, and Either keeps it on screen both ways, drained of colour while it is on cooldown. The icon wears the spell's own swipe while it runs.
+- A cooldown shorter than a second and a half is the global cooldown rather than the spell's own, so it counts as ready and nothing flashes up between casts.
+- Nothing about a cooldown arrives as an event here, so a cooldown tracker is re-read on the display's own tick: one starting, being recast, or coming back is picked up within a tenth of a second without a full aura scan.
+- The questions that only make sense for an aura, Match by and "only when it was cast by me", step out of the way while a tracker is watching a cooldown.
+
 ## 1.59.0
 
 - The Life Tap panel added in 1.57.0 is withdrawn. It has become an addon of its own, Tapline, which is where it belongs: nothing it did needed the ledger, and it was only ever going to get in the way here. `/auraledger lifetap` and `/auraledger debug lifetap` are gone with it, along with the rank tables and the spell-id lists that were added for it. Existing trackers, groups and settings are untouched.
