@@ -2101,10 +2101,12 @@ local function InitSlotFrame(g, mode, filter, store)
 			artHolder:EnableMouse(false)
 			local barW = { under = bar, over = artHolder, decor = {}, iconArt = {} }
 			button.alBarArt = barW
-			if not PlaceBarShape(barW, bar, max(8, W - IS - 2), H, g.border ~= false or g.background ~= false) then
-				PlaceDecor(barW, s.decor, "decor", bar, H, function(dd) return BarPieceWanted(dd, g.border ~= false) end)
-			end
-			PlaceBarFrame(barW, bar, H, g.border ~= false and not HaveBarFrame())
+			-- The cell under this slot draws the plate, and its overhang above and below the bar
+			-- reaches past this backing, so the frame is seen whether the game is drawing the aura or
+			-- not. A second plate here would sit exactly on the first and read as a heavier frame.
+			PlaceBarShape(barW, bar, max(8, W - IS - 2), H, false)
+			PlaceDecor(barW, {}, "decor", bar, H)
+			PlaceBarFrame(barW, bar, H, false)
 			PlaceBarPip(barW, bar:GetStatusBarTexture(), H, g.border ~= false)
 			if g.iconFrame ~= false then
 				local e1 = PlaceCleanEdge(w, icon, IS, true)

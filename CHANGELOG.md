@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.54.4
+
+- A bar the game draws wears one frame rather than two. The readout settled it: the cell underneath and the slot over it are the same size and pinned the same way, so nothing was mis-measured; both were simply drawing the plate the frame sits on, one exactly over the other, and two coats of the same art read as a heavier frame that does not fit. The slot leaves the plate to the cell, whose overhang above and below the bar reaches past the slot's backing and so shows whether the game is drawing the aura or not, while that backing still covers the cell's fill and its "Missing" inside the bar.
+
 ## 1.54.3
 
 - Reading a slot's bar in /auraledger debug icon no longer stops the readout. The frames in a slot belong to the game and what they answer can be a secret value, which cannot even be tested: asking whether the bar was shown was enough to end the readout with "attempt to perform boolean test on a secret boolean value". Every reading is taken through a guard now, and a line that cannot be had says so instead.
