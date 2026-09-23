@@ -1236,7 +1236,8 @@ function Display:IconReport(emit)
 				emit("      fallback border frame: " .. (w.edge and ((w.edge:IsShown() and "shown" or "hidden") .. " (the skin had no art of its own)") or "none"))
 				emit("      " .. TextLine("name", w.name))
 				emit("      " .. TextLine("time", w.duration))
-				emit("      frame: " .. (HaveBarFrame() and "copied from the client" or ("drawn by the addon, " .. #(w.barFrame or {}) .. " lines")))
+				emit("      frame: " .. ((Display.HaveBarFrame and Display.HaveBarFrame()) and "copied from the client"
+					or ("drawn by the addon, " .. #(w.barFrame or {}) .. " lines")))
 				local shaped = w.barShape or {}
 				emit(("      bar art measured off the donor's bar: %d piece%s"):format(#shaped, #shaped == 1 and "" or "s"))
 				for i, tex in ipairs(shaped) do emit("        " .. TexLine("piece " .. i, tex)) end
@@ -1404,6 +1405,7 @@ local function BarInset(height)
 end
 
 Display.BarInset = function(h) return BarInset(h) end
+Display.HaveBarFrame = function() return HaveBarFrame() end
 
 -- What a bar keeps of the manager's art: its frame, and not its backing, which is sized for the
 -- manager's own item and cannot fit a bar with its own icon beside it, nor its pip, which is the

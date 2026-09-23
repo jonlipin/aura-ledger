@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.52.2
+
+- The readout runs to the end on a group shown as bars. HaveBarFrame is the second helper it calls that is declared below it in the file, after the margin in 1.52.1, and a local is in scope only below where it is declared. Both are asked for through the display now, and a scan of the readout says these two were the last of them.
+
 ## 1.52.1
 
 - Fixed /auraledger debug icon dying with "attempt to call a nil value". The line added in 1.52.0 to report the bar fill margin asks for it from a local that is declared further down the file, and a local is only in scope below where it is declared, so the readout stopped there. It asks through the display instead, which is looked up when it is called rather than when it is written.
