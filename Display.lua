@@ -1023,6 +1023,7 @@ end
 -- the icon. Read by /auraledger debug icon.
 function Display:IconReport(emit)
 	local s = BuildSkin()
+	emit("bar skin from: " .. tostring(s.source) .. (s.backdrop and " (no art: a plain border is drawn instead)" or ""))
 	emit("icon art from: " .. tostring(s.iconSource or s.source))
 	emit("icon edge: " .. BorderMode())
 	emit(("shadow depth: %d layer%s of the manager's own art (/auraledger shadow <0-4>)"):format(ShadowLayers(0), ShadowLayers(0) == 1 and "" or "s"))
@@ -1092,6 +1093,16 @@ function Display:IconReport(emit)
 			end
 			emit("    " .. TexLine("the addon's own shadow", w.shapeShadow))
 			emit("    " .. TexLine("state ring", w.shapeRing))
+			if g.style == "bars" then
+				emit("    bar: " .. (w.bar and ((w.bar:IsShown() and "shown" or "hidden") .. (", %.0fx%.0f"):format(w.bar:GetWidth() or 0, w.bar:GetHeight() or 0)) or "none"))
+				emit("      " .. TexLine("fill", w.fill))
+				emit("      " .. TexLine("background", w.bar and w.bar.bg))
+				emit("      " .. TexLine("pip", w.bar and w.bar.spark))
+				emit("      fallback border frame: " .. (w.edge and ((w.edge:IsShown() and "shown" or "hidden") .. " (the skin had no art of its own)") or "none"))
+				local pool = w.decor or {}
+				emit(("      copied bar art: %d piece%s"):format(#pool, #pool == 1 and "" or "s"))
+				for i, tex in ipairs(pool) do emit("        " .. TexLine("piece " .. i, tex)) end
+			end
 			emit("    shape masks on the picture: " .. tostring(w.shapeMasks and #w.shapeMasks or 0))
 			emit("    " .. TexLine("dispel border", w.border))
 			emit("    mask: " .. (w.icon and w.icon.alMask and "on" or "off"))

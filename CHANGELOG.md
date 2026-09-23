@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.48.2
+
+- /auraledger debug icon covers a bar as well as an icon: which donor the bar skin came from, whether a plain border is standing in for art the skin never found, and, for each group shown as bars, the bar's own size with its fill, background, pip and every piece of copied art, each with where its corners are pinned.
+
 ## 1.48.1
 
 - A tracker the game draws has one shadow rather than two. The cell underneath a slot draws the shadow, and the icon handed to the slot was drawing another; both reach the same distance past the picture, so in that ring the two stacked and came out twice as deep. The slot leaves the shadow to the cell, and the cell counts the layer the game draws itself towards the depth.
