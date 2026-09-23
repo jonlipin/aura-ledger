@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.52.3
+
+- The frame round a bar sits square on it. The plate it is drawn on reaches two pixels above the manager's own bar and seven below, because on the manager's items that plate covers the padding under the bar as well; carried over as measured, the frame sat low and looked the wrong height. It keeps the height it was measured with, which is what stops it being squashed, but that height is now shared evenly above and below the bar.
+
 ## 1.52.2
 
 - The readout runs to the end on a group shown as bars. HaveBarFrame is the second helper it calls that is declared below it in the file, after the margin in 1.52.1, and a local is in scope only below where it is declared. Both are asked for through the display now, and a scan of the readout says these two were the last of them.

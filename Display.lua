@@ -573,10 +573,15 @@ local function PlaceBarShape(w, ref, width, height, want)
 		-- the manager's own item: it is laid on the bar rather than given the reach it was measured
 		-- with. Sideways, any other reach is so many pixels of the bar's height, because a frame
 		-- that grows with the bar's width is a fat inset on a long bar and a hairline on a short one.
-		-- Sideways the plate is laid on the bar, because it is sized for the manager's whole item;
-		-- up and down it keeps what it was measured with, or the frame drawn on it is squashed.
+		-- Sideways the plate is laid on the bar, because it is sized for the manager's whole item.
+		-- Up and down it keeps the height it was measured with, or the frame drawn on it is
+		-- squashed, but that height is shared evenly above and below: on the manager's items the
+		-- plate covers the padding under its bar, so carried over as measured it sits low.
 		local rect = def.rect
-		if def.layer == "BACKGROUND" then rect = { l = 0, r = 0, t = rect.t, b = rect.b } end
+		if def.layer == "BACKGROUND" then
+			local half = ((rect.t or 0) + (rect.b or 0)) / 2
+			rect = { l = 0, r = 0, t = half, b = half }
+		end
 		ApplyRectWH(tex, ref, rect, (def.aspect or 1) * height, height)
 		tex:Show()
 	end
