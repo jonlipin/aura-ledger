@@ -2215,6 +2215,35 @@ local function Build()
 	UI.editButton = editButton
 	UI.parts = { book = left, options = right, tree = mid, toolbar = { searchBox, hint, editButton } }
 	for _, tab in pairs(book.tabs) do UI.parts.toolbar[#UI.parts.toolbar + 1] = tab end
+	-- The ? that starts the walk-through, sitting beside minimize whichever of the two ways that
+	-- button was built.
+	function UI.MakeHelpButton(leftOf)
+		if UI.helpButton then
+			UI.helpButton:ClearAllPoints()
+			UI.helpButton:SetPoint("RIGHT", leftOf, "LEFT", 0, 0)
+			return UI.helpButton
+		end
+		local b = CreateFrame("Button", nil, frame)
+		b:SetSize(22, 22)
+		local above = frame.CloseButton or frame
+		b:SetFrameStrata(above:GetFrameStrata())
+		b:SetFrameLevel((above:GetFrameLevel() or frame:GetFrameLevel()) + 1)
+		if leftOf then b:SetPoint("RIGHT", leftOf, "LEFT", 0, 0)
+		else b:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -56, -2) end
+		local t = Ink(b:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"), "head")
+		t:SetPoint("CENTER", 0, 0)
+		t:SetText("?")
+		b.text = t
+		b:SetHighlightTexture("Interface\\Buttons\\UI-Common-MouseHilight", "ADD")
+		b:SetScript("OnClick", function() UI:StartTour() end)
+		b:SetScript("OnEnter", function(self)
+			TextTooltip(self, "Show me around", "Walks you through the window a step at a time, pointing at what each part is for. It can be left at any point, and this button brings it back.")
+		end)
+		b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+		UI.helpButton = b
+		return b
+	end
+
 	local MiniButton, StepMode
 	function UI.UseFallbackMini()
 		if UI.miniButton then return end
@@ -2230,6 +2259,7 @@ local function Build()
 		end)
 		mini:SetScript("OnLeave", function() GameTooltip:Hide() end)
 		UI.miniButton = mini
+		UI.MakeHelpButton(mini)
 		ns.report["minimize button art"] = (ns.report["minimize button art"] or "?") .. " -> fallback button"
 	end
 	MiniButton = function(parent, expand)
@@ -2435,6 +2465,7 @@ local function Build()
 			btn:SetSize(23, 24)
 		end
 		UI.mmFrame = mm
+		UI.MakeHelpButton(mm)
 		-- The template's own atlases draw nothing on this client, but the spellbook's copy of the same
 		-- widget has art: borrow its textures (once the spellbook has been opened), and remember them.
 		local function CopyButtonArt(src, dst)
@@ -2618,6 +2649,7 @@ local function Build()
 			frame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", ns.db.window.x, ns.db.window.y)
 		end
 		UI:SyncToolbar()
+		UI:OfferTour()
 		-- Always: the page art is anchored in here, and a stale anchor shows as a flash.
 		UI:SetMode(ns.db.openMode or "full")
 		ns.Display:Rebuild()
@@ -2636,6 +2668,9 @@ local function Build()
 		acc = acc + elapsed
 		if acc > 20 then acc = 0 UI:RefreshHistory() end
 	end)
+	-- Whichever minimize button this client ended up with, the ? sits beside it; a client that got
+	-- neither still has one, at the place the minimize button would have been.
+	UI.MakeHelpButton(UI.mmFrame or UI.miniButton)
 end
 
 -- ------------------------------------------------------------------
@@ -3060,6 +3095,247 @@ function UI:UpdateMinimapButton()
 end
 
 -- ------------------------------------------------------------------
+-- The walk-through
+-- ------------------------------------------------------------------
+local tour = { step = 0 }
+UI.tour = tour
+
+local function TrackerCount()
+	local n = 0
+	if not ns.profile then return 0 end
+	for _, g in ipairs(ns.profile.groups) do n = n + #g.trackers end
+	return n
+end
+
+-- Each step says what it is about, what to look at, and, for the ones that are about doing
+-- something, how to tell that it has been done.
+local STEPS = {
+	{
+		title = "Aura Ledger",
+		text = "This follows the buffs you care about, the cooldowns of your spells, and the things you carry, and draws them where you want them on screen.\n\nThis walk-through has ten steps. Leave it whenever you like: the |cffffd000?|r button at the top of this window brings it back.",
+		target = function() return frame end,
+	},
+	{
+		title = "The book",
+		text = "Every spell this client knows, a chapter for each class, plus your racials, consumables, and everything you are carrying that has a use on it.\n\nThe tabs down the side change chapter, and the search box at the top finds anything by name.",
+		target = function() return UI.parts and UI.parts.book end,
+	},
+	{
+		title = "Start following something",
+		text = "Double-click any row in the book to start following it, or drag it out onto the screen to put it exactly where you want it.\n\n|cffffd000Try one now|r, and this moves on by itself.",
+		target = function() return UI.parts and UI.parts.book end,
+		done = function(startedWith) return TrackerCount() > startedWith end,
+		watch = function() return TrackerCount() end,
+	},
+	{
+		title = "Groups and trackers",
+		text = "What you are following. A |cffffd000tracker|r is one thing being watched. A |cffffd000group|r is a box of them that share a look and a place on screen.\n\nDrag a row onto another group to move it there, or out on its own for a group of its own.",
+		target = function() return UI.parts and UI.parts.tree end,
+	},
+	{
+		title = "Click a row",
+		text = "Click any row in that list and its settings appear on this side. A group's settings are how it looks; a tracker's are what it watches and when it shows.\n\n|cffffd000Click one now.|r",
+		target = function() return UI.parts and UI.parts.options end,
+		done = function() return ns.selected ~= nil and (ns.selected.tracker ~= nil or ns.selected.group ~= nil) end,
+	},
+	{
+		title = "When it shows",
+		text = "A tracker can be on screen while you have the buff, only while you do |cffffd000not|r have it, or both ways with the missing one drained of color.\n\nShowing what is missing is the useful one: it is how you notice a buff has dropped.",
+		target = function() return UI.parts and UI.parts.options end,
+	},
+	{
+		title = "Cooldowns and what you carry",
+		text = "Under |cffffd000Watch|r, a tracker can follow a spell's cooldown instead of a buff. The |cffffd000What you are carrying|r chapter of the book does the same for a trinket or a potion.\n\nCooldowns are not hidden from addons on this client, so those keep counting right through a fight.",
+		target = function() return UI.parts and UI.parts.options end,
+	},
+	{
+		title = "In a fight",
+		text = "This client hides auras from addons during a fight, which no addon can get around.\n\nSo a group can be handed to the game to draw instead: those stay right the whole way through. The addon's own groups carry their last reading and update between fights. It is set per group, under |cffffd000Only show this group when|r.",
+		target = function() return UI.parts and UI.parts.options end,
+	},
+	{
+		title = "Arranging",
+		text = "|cffffd000Click Edit layout|r and the trackers on screen can be dragged about.\n\nDrag a tracker to move it, drop it on another group to join it, or in the open for a place of its own. The titled plate behind a group moves the whole group.",
+		target = function() return UI.editButton end,
+		done = function() return ns.db and ns.db.unlocked == true end,
+	},
+	{
+		title = "Building a cluster",
+		text = "While arranging, hold one icon against a free side of another, above, below or either side, and it hangs there. The side you are aiming at lights up green.\n\nA group you shape this way keeps every icon in its place, gaps and all. |cffffd000Lay the icons out in rows again|r in the group's settings undoes it.\n\nThat is everything. The |cffffd000?|r button brings this back whenever you want it.",
+		target = function() return UI.editButton end,
+	},
+}
+
+local function TourSpot()
+	if tour.spot then return tour.spot end
+	local spot = CreateFrame("Frame", nil, UIParent)
+	spot:SetFrameStrata("FULLSCREEN_DIALOG")
+	spot:Hide()
+	spot.edges = {}
+	for i = 1, 4 do
+		local line = spot:CreateTexture(nil, "OVERLAY")
+		line:SetColorTexture(1, 0.82, 0, 0.9)
+		spot.edges[i] = line
+	end
+	local t, b, l, r = spot.edges[1], spot.edges[2], spot.edges[3], spot.edges[4]
+	t:SetPoint("TOPLEFT") t:SetPoint("TOPRIGHT") t:SetHeight(2)
+	b:SetPoint("BOTTOMLEFT") b:SetPoint("BOTTOMRIGHT") b:SetHeight(2)
+	l:SetPoint("TOPLEFT") l:SetPoint("BOTTOMLEFT") l:SetWidth(2)
+	r:SetPoint("TOPRIGHT") r:SetPoint("BOTTOMRIGHT") r:SetWidth(2)
+	tour.spot = spot
+	return spot
+end
+
+local function TourBubble()
+	if tour.bubble then return tour.bubble end
+	local bubble = TryCreateFrame("Frame", "AuraLedgerTourFrame", UIParent, { { "BackdropTemplate" } })
+	bubble:SetSize(330, 190)
+	bubble:SetFrameStrata("FULLSCREEN_DIALOG")
+	bubble:SetFrameLevel(20)
+	bubble:EnableMouse(true)
+	bubble:SetMovable(true)
+	bubble:RegisterForDrag("LeftButton")
+	bubble:SetScript("OnDragStart", function(self) self:StartMoving() end)
+	bubble:SetScript("OnDragStop", function(self) self:StopMovingOrSizing() self.moved = true end)
+	if bubble.SetBackdrop then
+		bubble:SetBackdrop({
+			bgFile = "Interface\\DialogFrame\\UI-DialogBox-Background",
+			edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+			tile = true, tileSize = 16, edgeSize = 14,
+			insets = { left = 4, right = 4, top = 4, bottom = 4 },
+		})
+		bubble:SetBackdropBorderColor(1, 0.82, 0)
+	else
+		local bg = bubble:CreateTexture(nil, "BACKGROUND")
+		bg:SetAllPoints()
+		bg:SetColorTexture(0.05, 0.05, 0.08, 0.95)
+	end
+
+	bubble.title = Ink(bubble:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge"), "head")
+	bubble.title:SetPoint("TOPLEFT", 14, -12)
+	bubble.title:SetPoint("TOPRIGHT", -14, -12)
+	bubble.title:SetJustifyH("LEFT")
+
+	bubble.body = Ink(bubble:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
+	bubble.body:SetPoint("TOPLEFT", 14, -38)
+	bubble.body:SetPoint("TOPRIGHT", -14, -38)
+	bubble.body:SetJustifyH("LEFT")
+	bubble.body:SetJustifyV("TOP")
+	bubble.body:SetSpacing(2)
+
+	bubble.count = Ink(bubble:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall"), "dim")
+	bubble.count:SetPoint("BOTTOMLEFT", 14, 14)
+
+	bubble.next = MakeButton(bubble, "Next", 80)
+	bubble.next:SetPoint("BOTTOMRIGHT", -12, 10)
+	bubble.next:SetScript("OnClick", function() UI:TourStep(tour.step + 1) end)
+
+	bubble.back = MakeButton(bubble, "Back", 70)
+	bubble.back:SetPoint("RIGHT", bubble.next, "LEFT", -4, 0)
+	bubble.back:SetScript("OnClick", function() UI:TourStep(tour.step - 1) end)
+
+	local close = CreateFrame("Button", nil, bubble, "UIPanelCloseButton")
+	close:SetPoint("TOPRIGHT", 2, 2)
+	close:SetScript("OnClick", function() UI:EndTour() end)
+
+	bubble:SetScript("OnUpdate", function(self, elapsed)
+		self.acc = (self.acc or 0) + elapsed
+		if self.acc < 0.2 then return end
+		self.acc = 0
+		UI:TourTick()
+	end)
+	bubble:Hide()
+	tour.bubble = bubble
+	return bubble
+end
+
+-- The ring goes round whatever the step is about; the bubble sits on whichever side has the room.
+local function PlaceTour(target)
+	local spot, bubble = TourSpot(), TourBubble()
+	if target and target.GetLeft and target:GetLeft() then
+		spot:ClearAllPoints()
+		spot:SetPoint("TOPLEFT", target, "TOPLEFT", -4, 4)
+		spot:SetPoint("BOTTOMRIGHT", target, "BOTTOMRIGHT", 4, -4)
+		spot:Show()
+	else
+		spot:Hide()
+	end
+	if bubble.moved then return end
+	bubble:ClearAllPoints()
+	if target and target.GetCenter and target:GetCenter() then
+		local cx = target:GetCenter()
+		local mid = (UIParent:GetWidth() or 1024) / 2
+		if cx and cx < mid then
+			bubble:SetPoint("LEFT", target, "RIGHT", 18, 0)
+		else
+			bubble:SetPoint("RIGHT", target, "LEFT", -18, 0)
+		end
+	else
+		bubble:SetPoint("CENTER", UIParent, "CENTER", 0, -150)
+	end
+end
+
+function UI:TourStep(n)
+	local step = STEPS[n]
+	if not step then UI:EndTour() return end
+	tour.step = n
+	-- A step that waits for something needs to know where things stood when it began.
+	tour.mark = step.watch and step.watch() or nil
+	local bubble = TourBubble()
+	bubble.title:SetText(step.title)
+	bubble.body:SetText(step.text)
+	bubble.count:SetText(("Step %d of %d"):format(n, #STEPS))
+	bubble.back:SetShown(n > 1)
+	bubble.next:SetText(n == #STEPS and "Done" or "Next")
+	bubble:Show()
+	PlaceTour(step.target and step.target() or nil)
+end
+
+-- The steps that are about doing something move on when it has been done.
+function UI:TourTick()
+	local step = STEPS[tour.step]
+	if not step then return end
+	PlaceTour(step.target and step.target() or nil)
+	if step.done and step.done(tour.mark) then UI:TourStep(tour.step + 1) end
+end
+
+function UI:StartTour()
+	if ns.db then ns.db.tourSeen = true end
+	if not frame then return end
+	if not frame:IsShown() or ns.db.openMode ~= "full" then UI:SetMode("full") end
+	TourBubble().moved = nil
+	UI:TourStep(1)
+end
+
+function UI:EndTour()
+	tour.step = 0
+	if tour.bubble then tour.bubble:Hide() end
+	if tour.spot then tour.spot:Hide() end
+	if ns.db then ns.db.tourSeen = true end
+end
+
+function UI:TourRunning() return tour.step > 0 end
+
+-- The first time the window is opened on a profile with nothing in it. Only ever once: after that
+-- the ? button is the way back to it.
+function UI:OfferTour()
+	if not ns.db or ns.db.tourSeen then return end
+	if tour.step > 0 then return end
+	if TrackerCount() > 0 then
+		-- Trackers already: this is not somebody's first look, so the offer is not made at all.
+		ns.db.tourSeen = true
+		return
+	end
+	ns.db.tourSeen = true
+	if C_Timer and C_Timer.After then
+		-- After the window has finished laying itself out, so the ring lands in the right place.
+		C_Timer.After(0.2, function() if not ns.db.tourOff then UI:StartTour() end end)
+	else
+		UI:StartTour()
+	end
+end
+
+-- ------------------------------------------------------------------
 -- The game's own Options, under AddOns
 -- ------------------------------------------------------------------
 -- A page with a button on it, and nothing else registered. See the note at the top of this block
@@ -3099,6 +3375,13 @@ local function BuildOptionsPage()
 	local open = MakeButton(page, "Open Aura Ledger", 200)
 	open:SetPoint("TOPLEFT", sub, "BOTTOMLEFT", 0, -16)
 	open:SetScript("OnClick", function() UI:OpenFromOptions() end)
+
+	local tourBtn = MakeButton(page, "Show me around", 200)
+	tourBtn:SetPoint("TOPLEFT", open, "BOTTOMLEFT", 0, -6)
+	tourBtn:SetScript("OnClick", function()
+		UI:OpenFromOptions()
+		UI:StartTour()
+	end)
 
 	local lines = Ink(page:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall"))
 	lines:SetPoint("TOPLEFT", open, "BOTTOMLEFT", 2, -18)

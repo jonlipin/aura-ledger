@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.64.0
+
+- New: a walk-through. The |cffffd000?|r button at the top of the window, beside minimize, steps you through the whole thing: the book, following your first buff, groups and trackers, where the settings are, cooldowns and carried items, what happens in a fight, arranging, and building a cluster of icons. Ten steps, and it can be left at any point and started again from that button.
+- It is not just reading. A ring of light goes round whatever is being talked about, and the three steps that ask you to do something, follow a spell, click a row, turn on arranging, wait for you to actually do it and then move on by themselves. The bubble can be dragged out of the way.
+- The window offers it once, the first time it is opened on a profile with nothing set up yet. Anyone who already has trackers is never interrupted by it.
+- "Show me around" is on the Aura Ledger page in the game's Options too, next to "Open Aura Ledger".
+- Fixed while building it: the ? button was hung off whichever minimize button the client managed to build, so a client that got neither would have had no ? at all. It is built on its own now and only borrows the minimize button's position.
+
 ## 1.63.0
 
 - New: Aura Ledger has a page in the game's own Options, under AddOns, with a button on it that opens the ledger. The page also lists the slash commands worth knowing.
