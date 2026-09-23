@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.49.0
+
+- The art round a bar is measured the way the art round an icon is. It was still placed by the old reckoning, which reads a piece's anchors and scales everything by the donor bar's height: that is how a background came out eight pixels taller than the bar it sits on and hanging six below it, which is the look of a buff group shown as bars. Each piece is now measured where it sits against the manager's own bar, in fractions of that bar's width and height, and drawn on ours at whatever size ours is. The old reckoning stays for a client that gives no bar to measure.
+
 ## 1.48.2
 
 - /auraledger debug icon covers a bar as well as an icon: which donor the bar skin came from, whether a plain border is standing in for art the skin never found, and, for each group shown as bars, the bar's own size with its fill, background, pip and every piece of copied art, each with where its corners are pinned.

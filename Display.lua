@@ -405,6 +405,37 @@ local function ShapeFromDonor(item)
 	return shape
 end
 
+-- The art round the manager's own bar, measured against that bar rather than reckoned from its
+-- anchors. Everything but the fill, which is drawn as the bar's own texture.
+local function BarShapeFromDonor(root, bar, fillTex)
+	if not bar then return end
+	local pieces = {}
+	local seen = { [fillTex] = true }
+	local holders = { bar }
+	local mid = bar.GetParent and bar:GetParent()
+	if mid and mid ~= UIParent then holders[#holders + 1] = mid end
+	if root and root ~= bar and root ~= mid then holders[#holders + 1] = root end
+	for _, holder in ipairs(holders) do
+		if holder and holder.GetRegions then
+			local okR, regions = pcall(function() return { holder:GetRegions() } end)
+			for _, r in ipairs(okR and regions or {}) do
+				if IsA(r, "Texture") and not seen[r] then
+					seen[r] = true
+					local okS, hidden = pcall(function() return not r:IsShown() end)
+					if not (okS and hidden) then
+						local art, rect = ArtOf(r), RelRect(r, bar)
+						local layer, sub = "ARTWORK", 0
+						if r.GetDrawLayer then local okL, l, sl = pcall(r.GetDrawLayer, r) if okL and l then layer, sub = l, sl or 0 end end
+						if art and rect then pieces[#pieces + 1] = { art = art, rect = rect, layer = layer, sub = sub } end
+					end
+				end
+			end
+		end
+	end
+	if #pieces == 0 then return end
+	return pieces
+end
+
 local function SkinFromDonor(root, sourceName)
 	local bar = FindStatusBar(root, 0)
 	if not bar then return end
@@ -419,6 +450,7 @@ local function SkinFromDonor(root, sourceName)
 	local mid = bar:GetParent()
 	if mid and mid ~= root and mid ~= UIParent then Collect(mid, bar, nil, s.decor, true) end
 	Collect(bar, bar, fillTex, s.decor, false)
+	s.barShape = BarShapeFromDonor(root, bar, fillTex)
 	local nameFS, durFS = FindStrings(bar)
 	s.nameFont, s.durFont = DescribeFont(nameFS, bar), DescribeFont(durFS, bar)
 	local iconTex, iconFrame = FindIcon(root)
@@ -478,6 +510,41 @@ end
 -- and the next, and is not covered by the game's icon on a cell the game fills.
 -- Places a region by a rectangle measured off the donor: outwards is positive, and both axes scale
 -- with the icon, which is square, so the shape keeps its proportions.
+local function ApplyRectWH(tex, ref, rect, w, h)
+	tex:ClearAllPoints()
+	tex:SetPoint("TOPLEFT", ref, "TOPLEFT", -rect.l * w, rect.t * h)
+	tex:SetPoint("BOTTOMRIGHT", ref, "BOTTOMRIGHT", rect.r * w, -rect.b * h)
+end
+
+-- The art round a bar, on the bar. Returns whether there was any.
+local function PlaceBarShape(w, ref, width, height, want)
+	local s = skin
+	local pieces = s and s.barShape
+	local pool = w.barShape or {}
+	w.barShape = pool
+	if not pieces or not want then
+		for _, tex in ipairs(pool) do tex:Hide() end
+		return false
+	end
+	for i, def in ipairs(pieces) do
+		local tex = pool[i]
+		if not tex then
+			local under = def.layer == "BACKGROUND" or def.layer == "BORDER"
+			tex = (under and (w.under or w) or (w.over or w)):CreateTexture(nil, def.layer, nil, def.sub)
+			if def.art.atlas then tex:SetAtlas(def.art.atlas)
+			else
+				tex:SetTexture(def.art.file)
+				if def.art.coords then tex:SetTexCoord(def.art.coords[1], def.art.coords[2], def.art.coords[3], def.art.coords[4]) end
+			end
+			pool[i] = tex
+		end
+		ApplyRectWH(tex, ref, def.rect, width, height)
+		tex:Show()
+	end
+	for i = #pieces + 1, #pool do pool[i]:Hide() end
+	return true
+end
+
 local function ApplyRect(tex, ref, rect, size)
 	tex:ClearAllPoints()
 	tex:SetPoint("TOPLEFT", ref, "TOPLEFT", -rect.l * size, rect.t * size)
@@ -1099,8 +1166,11 @@ function Display:IconReport(emit)
 				emit("      " .. TexLine("background", w.bar and w.bar.bg))
 				emit("      " .. TexLine("pip", w.bar and w.bar.spark))
 				emit("      fallback border frame: " .. (w.edge and ((w.edge:IsShown() and "shown" or "hidden") .. " (the skin had no art of its own)") or "none"))
+				local shaped = w.barShape or {}
+				emit(("      bar art measured off the donor's bar: %d piece%s"):format(#shaped, #shaped == 1 and "" or "s"))
+				for i, tex in ipairs(shaped) do emit("        " .. TexLine("piece " .. i, tex)) end
 				local pool = w.decor or {}
-				emit(("      copied bar art: %d piece%s"):format(#pool, #pool == 1 and "" or "s"))
+				emit(("      bar art by the old reckoning: %d piece%s"):format(#pool, #pool == 1 and "" or "s"))
 				for i, tex in ipairs(pool) do emit("        " .. TexLine("piece " .. i, tex)) end
 			end
 			emit("    shape masks on the picture: " .. tostring(w.shapeMasks and #w.shapeMasks or 0))
@@ -1342,7 +1412,11 @@ local function ConfigureWidget(w, g)
 		w.bar:SetSize(max(8, g.barW - IS - 2), H)
 		w.bar:SetPoint("LEFT", w, "LEFT", IS + 2, 0)
 		w.bar:Show()
-		PlaceDecor(w, s.decor, "decor", w.bar, H, wantBar)
+		if PlaceBarShape(w, w.bar, max(8, g.barW - IS - 2), H, g.border ~= false or g.background ~= false) then
+			PlaceDecor(w, {}, "decor", w.bar, H, wantBar)
+		else
+			PlaceDecor(w, s.decor, "decor", w.bar, H, wantBar)
+		end
 		-- Both are asked every time: the one that is not wanted takes itself off screen.
 		w.ringRef = w.ringHolder
 		ShapeMask(w, w.icon, IS, g.iconFrame ~= false)
@@ -1713,7 +1787,9 @@ local function InitSlotFrame(g, mode, filter, store)
 			bg:SetColorTexture(0, 0, 0, g.background ~= false and 0.55 or 0)
 			local dir = DrainDirection()
 			if not pcall(button.SetDurationBar, button, bar, dir ~= nil and { direction = dir } or nil) then pcall(button.SetDurationBar, button, bar) end
-			PlaceDecor(w, s.decor, "decor", bar, H, function(dd) if dd.under then return g.background ~= false else return g.border ~= false end end)
+			if not PlaceBarShape(w, bar, max(8, W - IS - 2), H, g.border ~= false or g.background ~= false) then
+				PlaceDecor(w, s.decor, "decor", bar, H, function(dd) if dd.under then return g.background ~= false else return g.border ~= false end end)
+			end
 			if g.iconFrame ~= false then
 				local e1 = PlaceCleanEdge(w, icon, IS, true)
 				local e2 = PlaceClientFrame(w, icon, IS, true)
