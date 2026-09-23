@@ -69,11 +69,26 @@ What the addon itself cannot do in combat, on this client: notice a buff being c
 
 `/auraledger debug` reports what the client actually allowed, which is the first thing to send with a bug report; `/auraledger log` keeps that output in the saved variables so it can be read from disk.
 
+## The Life Tap panel
+
+`/auraledger lifetap` opens a small panel for the one question a warlock keeps asking: can this health be spared? It shows your health and mana, what one tap costs and how many taps the floor you set leaves room for, whether anything is healing you, and settles on TAP, tap ok, WAIT or no need.
+
+Whether anything is healing you gets answered three different ways, and the panel says which one it is giving:
+
+- **read** out of combat, and anywhere else the auras are legible, the heal over time is read straight off you and the time shown is the real one
+- **estimated** in combat nothing can read an aura here at all, so the health itself is watched. A jump in health that nothing you did accounts for is a tick, and two of them about three seconds apart is somebody healing you. It is marked with a `~`, because it is late by up to one tick, it cannot name the spell, and a tick landing in the same tenth of a second as a hit is lost in the arithmetic
+- **drawn** `/auraledger lifetap setup` builds a group of heal trackers with "track in combat" turned on, so the game draws them itself and keeps them right the whole fight. The addon cannot read what the game drew, but you can, and it is the version to trust when the two disagree
+
+`/auraledger lifetap sound applied` and `lapsed` hand a sound to the game against every rank of every heal, so it plays the instant one lands on you or runs out, in combat included. Your own Drain Life, Death Coil, bandages, healthstones and potions are not counted as somebody healing you.
+
+`/auraledger debug lifetap` says what it can read and what it has worked out.
+
 ## Commands
 
 | Command | What it does |
 | --- | --- |
 | `/auraledger` | open or close the window (`/aledger` works too) |
+| `/auraledger lifetap` | the Life Tap panel: health, mana, what a tap costs and whether anything is healing you |
 | `/auraledger add <name or ID>` | add an aura and start tracking it |
 | `/auraledger import <string>` | import a tracker or group from an export string |
 | `/auraledger edit` | turn layout editing on or off: drag trackers about and click one to change it (`lock` and `unlock` still work) |
@@ -83,7 +98,7 @@ What the addon itself cannot do in combat, on this client: notice a buff being c
 | `/auraledger plainbook` | switch the book between parchment and a plain dark page |
 | `/auraledger sound test` / `sound clear` | play each sound the game itself can make, or remove the ones registered with it |
 | `/auraledger debug` | self report: what this client let the addon read (send this with a bug report) |
-| `/auraledger debug <topic>` | a closer look: log, api, gd, cdm, cdm2, frames, probe, container, slot, mixin, atlases, icon, combatlog |
+| `/auraledger debug <topic>` | a closer look: log, api, gd, cdm, cdm2, frames, probe, container, slot, mixin, atlases, icon, combatlog, lifetap |
 
 ## Notes
 
