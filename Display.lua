@@ -1820,16 +1820,30 @@ local function InitSlotFrame(g, mode, filter, store)
 				if s.fill.blend then fillTex:SetBlendMode(s.fill.blend) end
 			end
 			-- The same tints the addon's own bars use, so the text stays readable on the light fill.
-			if filter == "HARMFUL" then bar:SetStatusBarColor(0.85, 0.22, 0.2) else bar:SetStatusBarColor(0.25, 0.6, 1) end
-			local bg = bar:CreateTexture(nil, "BACKGROUND")
+			-- As the addon tints its own: art copied from the client keeps the colour it came with,
+			-- and only a stand-in fill is tinted, or the two look nothing like each other.
+			if s.tint then
+				if filter == "HARMFUL" then bar:SetStatusBarColor(0.85, 0.22, 0.2) else bar:SetStatusBarColor(0.25, 0.6, 1) end
+			else
+				bar:SetStatusBarColor(1, 1, 1)
+			end
+			local bg = bar:CreateTexture(nil, "BACKGROUND", nil, -8)
 			bg:SetAllPoints()
 			-- Opaque: the cell under this slot is painted as missing, text and all, and a translucent
 			-- backing lets "Missing" read through the name and the time the game is drawing.
 			bg:SetColorTexture(0, 0, 0, 1)
 			local dir = DrainDirection()
 			if not pcall(button.SetDurationBar, button, bar, dir ~= nil and { direction = dir } or nil) then pcall(button.SetDurationBar, button, bar) end
-			if not PlaceBarShape(w, bar, max(8, W - IS - 2), H, g.border ~= false or g.background ~= false) then
-				PlaceDecor(w, s.decor, "decor", bar, H, function(dd) if dd.under then return g.background ~= false else return g.border ~= false end end)
+			-- The art belongs with the bar: anything behind goes on the bar itself, above the cover
+			-- that hides the cell, and anything in front on a frame above the fill.
+			local artHolder = CreateFrame("Frame", nil, button)
+			artHolder:SetAllPoints(bar)
+			artHolder:SetFrameLevel(bar:GetFrameLevel() + 3)
+			artHolder:EnableMouse(false)
+			local barW = { under = bar, over = artHolder, decor = {}, iconArt = {} }
+			button.alBarArt = barW
+			if not PlaceBarShape(barW, bar, max(8, W - IS - 2), H, g.border ~= false or g.background ~= false) then
+				PlaceDecor(barW, s.decor, "decor", bar, H, function(dd) if dd.under then return g.background ~= false else return g.border ~= false end end)
 			end
 			if g.iconFrame ~= false then
 				local e1 = PlaceCleanEdge(w, icon, IS, true)

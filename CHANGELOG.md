@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.49.6
+
+- A bar the game draws looks like one the addon draws. Opening the window hands every tracker back to the addon, which is why the difference showed there. Two things caused it: the cover that hides the cell underneath a game-drawn bar was burying the art copied from the manager, because that art hung on the button while the cover sits on the bar above it, so the game's bars had no border; and the game's bars were tinted blue whatever the skin, while the addon leaves art copied from the client its own colour and tints only a stand-in fill.
+
 ## 1.49.5
 
 - A bar the game draws is the height the group asks for. It was pinned to the top and bottom of its cell, and a cell is as tall as the taller of the bar and the icon, so in any group whose icon stands proud of its bar the game's bar was stretched to the icon's height while the addon's kept the bar's own: one bar taller than the rest. The slot's bar keeps the group's bar height and holds the middle of its cell, as the addon's has since 1.42.3.
