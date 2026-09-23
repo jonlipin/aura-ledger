@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.54.1
+
+- /auraledger debug icon reads out the bar inside a slot the game fills, beside the cell's own: its size, where it is pinned, its icon and the plate drawn on it. The cell is what the addon draws and the slot is what the game draws over it, and when only one of the two is wrong they have to be read side by side.
+
 ## 1.54.0
 
 - /auraledger tune opens a small panel for nudging the look, with a pair of buttons on every number: how far the bar's frame reaches above and below the bar, the margins between the fill and that frame, the depth of an icon's shadow, how far the icon's frame reaches and sits, and how much larger the mask is drawn. Each nudge applies at once, and one button puts the lot back to the defaults. These are the numbers that cannot be read off the client, so they are settled by eye.

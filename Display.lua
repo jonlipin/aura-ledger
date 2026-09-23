@@ -1255,6 +1255,29 @@ function Display:IconReport(emit)
 				emit("      " .. TextLine("time", w.duration))
 				emit("      frame: " .. ((Display.HaveBarFrame and Display.HaveBarFrame()) and "copied from the client"
 					or ("drawn by the addon, " .. #(w.barFrame or {}) .. " lines")))
+				-- And the slot's own bar, which the game draws over this cell.
+				local f2 = Display.ActiveFrame and Display:ActiveFrame(g.uid)
+				local sc = f2 and f2.slotC and f2.slotC.player
+				local anySlot
+				for _, st in pairs((sc and sc.alStore) or {}) do
+					if st and st.frame and st.frame.alBar then anySlot = st.frame break end
+				end
+				if anySlot then
+					local sb = anySlot.alBar
+					emit(("      the game's own bar: %s, %.0fx%.0f"):format((sb:IsShown() and "shown" or "hidden"), sb:GetWidth() or 0, sb:GetHeight() or 0))
+					local pts = ""
+					for i = 1, (sb.GetNumPoints and sb:GetNumPoints() or 0) do
+						local p, _, rp, x, y = sb:GetPoint(i)
+						if p then pts = pts .. (" [%s->%s %+.1f %+.1f]"):format(p, tostring(rp), x or 0, y or 0) end
+					end
+					emit("        pinned" .. (pts ~= "" and pts or " nowhere"))
+					emit("        " .. TexLine("its icon", anySlot.alIcon))
+					local pool = anySlot.alBarArt and (anySlot.alBarArt.barShape or anySlot.alBarArt.decor) or {}
+					emit(("        its plate: %d piece%s"):format(#pool, #pool == 1 and "" or "s"))
+					for i, tex in ipairs(pool) do emit("          " .. TexLine("piece " .. i, tex)) end
+				else
+					emit("      the game's own bar: none on screen")
+				end
 				local shaped = w.barShape or {}
 				emit(("      bar art measured off the donor's bar: %d piece%s"):format(#shaped, #shaped == 1 and "" or "s"))
 				for i, tex in ipairs(shaped) do emit("        " .. TexLine("piece " .. i, tex)) end
