@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.49.7
+
+- A bar's border fits the bar. Each piece of copied art is measured in fractions of the manager's own bar, which is right for something that stretches with the bar and wrong for a frame round it: a border measured as a fraction of a short donor bar came out as a wide inset on a long one, which is why it sat inside the bar instead of round it. A piece's reach is carried over as pixels against the bar's height now, the way the icons' art is, so a border is the same thickness whatever width the bar is set to.
+
 ## 1.49.6
 
 - A bar the game draws looks like one the addon draws. Opening the window hands every tracker back to the addon, which is why the difference showed there. Two things caused it: the cover that hides the cell underneath a game-drawn bar was burying the art copied from the manager, because that art hung on the button while the cover sits on the bar above it, so the game's bars had no border; and the game's bars were tinted blue whatever the skin, while the addon leaves art copied from the client its own colour and tints only a stand-in fill.

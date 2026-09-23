@@ -409,6 +409,8 @@ end
 -- anchors. Everything but the fill, which is drawn as the bar's own texture.
 local function BarShapeFromDonor(root, bar, fillTex)
 	if not bar then return end
+	local dw, dh = bar:GetWidth(), bar:GetHeight()
+	local aspect = (dw and dh and dh > 0) and (dw / dh) or 1
 	local pieces = {}
 	local seen = { [fillTex] = true }
 	local holders = { bar }
@@ -430,7 +432,7 @@ local function BarShapeFromDonor(root, bar, fillTex)
 						-- piece it is a gold bookmark at the end of the bar, so it is left behind.
 						local name = tostring(art and (art.atlas or art.file) or "")
 						if art and rect and not name:lower():find("pip") then
-							pieces[#pieces + 1] = { art = art, rect = rect, layer = layer, sub = sub }
+							pieces[#pieces + 1] = { art = art, rect = rect, layer = layer, sub = sub, aspect = aspect }
 						end
 					end
 				end
@@ -547,7 +549,10 @@ local function PlaceBarShape(w, ref, width, height, want)
 		-- out to cover their icon as well, which here has a bar of its own to sit beside.
 		local rect = def.rect
 		if def.layer == "BACKGROUND" then rect = { l = 0, r = 0, t = 0, b = 0 } end
-		ApplyRectWH(tex, ref, rect, width, height)
+		-- Sideways too, a reach is so many pixels of the bar's height: a border is a frame, and a
+		-- frame that grows with the bar's width is a fat inset on a long bar and a hairline on a
+		-- short one.
+		ApplyRectWH(tex, ref, rect, (def.aspect or 1) * height, height)
 		tex:Show()
 	end
 	for i = #pieces + 1, #pool do pool[i]:Hide() end
