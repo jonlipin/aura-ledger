@@ -2626,6 +2626,8 @@ local function Build()
 	end)
 	frame:SetScript("OnHide", function()
 		GameTooltip:Hide()
+		-- Opened from the game's options the window is lifted over them; closing it puts it back.
+		frame:SetFrameStrata("HIGH")
 		ns.Display:Rebuild()
 	end)
 	-- The ledger's "5m ago" text ages while the window sits open.
@@ -3057,6 +3059,90 @@ function UI:UpdateMinimapButton()
 	PlaceMinimapButton()
 end
 
+-- ------------------------------------------------------------------
+-- The game's own Options, under AddOns
+-- ------------------------------------------------------------------
+-- A page with a button on it, and nothing else registered. See the note at the top of this block
+-- in the changelog for why nothing of ours is handed to the game's settings system.
+local nativeCategory
+
+-- The ledger, opened from that page. The options window is drawn over everything, so the ledger is
+-- lifted above it for as long as it is up, and put back where it belongs when it closes.
+function UI:OpenFromOptions()
+	if not frame then return end
+	if not frame:IsShown() then UI:SetMode(ns.db and ns.db.openMode or "full") end
+	local panel = SettingsPanel or InterfaceOptionsFrame
+	local up = false
+	if panel and panel.IsShown then
+		local ok, shown = pcall(panel.IsShown, panel)
+		up = (ok and shown == true)
+	end
+	if up then
+		frame:SetFrameStrata("FULLSCREEN_DIALOG")
+		if frame.Raise then pcall(frame.Raise, frame) end
+	end
+end
+
+local function BuildOptionsPage()
+	local page = CreateFrame("Frame")
+	page.name = "Aura Ledger"
+	page:Hide()
+
+	local title = Ink(page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge"), "head")
+	title:SetPoint("TOPLEFT", 16, -16)
+	title:SetText("Aura Ledger")
+
+	local sub = Ink(page:CreateFontString(nil, "ARTWORK", "GameFontHighlight"), "dim")
+	sub:SetPoint("TOPLEFT", title, "BOTTOMLEFT", 0, -6)
+	sub:SetText("Version " .. tostring(ns.VERSION))
+
+	local open = MakeButton(page, "Open Aura Ledger", 200)
+	open:SetPoint("TOPLEFT", sub, "BOTTOMLEFT", 0, -16)
+	open:SetScript("OnClick", function() UI:OpenFromOptions() end)
+
+	local lines = Ink(page:CreateFontString(nil, "ARTWORK", "GameFontHighlightSmall"))
+	lines:SetPoint("TOPLEFT", open, "BOTTOMLEFT", 2, -18)
+	lines:SetPoint("RIGHT", page, "RIGHT", -16, 0)
+	lines:SetJustifyH("LEFT")
+	lines:SetJustifyV("TOP")
+	lines:SetText(table.concat({
+		"|cffffd000/auraledger|r opens and closes this window.",
+		"|cffffd000/auraledger edit|r turns arranging on, so trackers can be dragged about.",
+		"|cffffd000/auraledger add <spell>|r starts tracking a buff.",
+		"|cffffd000/auraledger cooldown <spell>|r follows a spell's cooldown instead.",
+		"|cffffd000/auraledger useitem <item>|r follows the cooldown of something you are carrying.",
+		"|cffffd000/auraledger debug|r reports what this client let the addon read. Send it with a bug report.",
+	}, "\n"))
+
+	local note = Ink(page:CreateFontString(nil, "ARTWORK", "GameFontDisableSmall"), "dim")
+	note:SetPoint("TOPLEFT", lines, "BOTTOMLEFT", 0, -18)
+	note:SetPoint("RIGHT", page, "RIGHT", -16, 0)
+	note:SetJustifyH("LEFT")
+	note:SetWordWrap(true)
+	note:SetText("Everything is set from the ledger's own window rather than from here. Nothing of this addon is registered with the game's settings, because doing that put this addon's mark on the game's own code on this client.")
+
+	if not (Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory) then
+		-- An older client keeps its addon pages in a list of its own.
+		if InterfaceOptions_AddCategory then
+			InterfaceOptions_AddCategory(page)
+			nativeCategory = page
+			return "ok (old interface options)"
+		end
+		return "no options API on this client"
+	end
+	local category = Settings.RegisterCanvasLayoutCategory(page, "Aura Ledger")
+	if not category then return "the category was refused" end
+	Settings.RegisterAddOnCategory(category)
+	nativeCategory = category
+	return "ok (canvas page)"
+end
+
+function UI:SetupOptionsEntry()
+	if nativeCategory then return end
+	local ok, result = pcall(BuildOptionsPage)
+	ns.report["options entry"] = ok and tostring(result) or ("FAILED: " .. tostring(result))
+end
+
 function UI:Init()
 	if frame then return end
 	local ok, err = pcall(Build)
@@ -3066,5 +3152,6 @@ function UI:Init()
 	else
 		ns.report["window"] = "ok"
 	end
+	self:SetupOptionsEntry()
 	self:UpdateMinimapButton()
 end

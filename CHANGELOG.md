@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.63.0
+
+- New: Aura Ledger has a page in the game's own Options, under AddOns, with a button on it that opens the ledger. The page also lists the slash commands worth knowing.
+- The page registers itself and nothing else. None of this addon's settings are handed to the game's settings system: doing that on this client once put this addon's mark on the game's own code, and the nameplates started throwing "attempt to compare a secret number value". Everything is still set from the ledger's own window.
+- The game's options window is drawn over everything, so a ledger opened from that button is lifted above it and put back where it belongs when you close it. The options window is never closed from here: closing it is protected on this client, and asking would only raise a blocked-action warning.
+- Fixed while building it: closing the ledger window used to drop a hook another part of the window had installed on the same event, because a later SetScript on a frame throws away anything hooked before it. Both now live in the one handler.
+- `/auraledger debug` says which way the page was registered, or why it could not be.
+
 ## 1.62.1
 
 - The addon now spells things the way the game does. It had been written in British spelling throughout, so it said centre, colour and grey next to a client that says Center, Color and Gray. Every word you read is changed, and the source comments with it.
