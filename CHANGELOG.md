@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.49.2
+
+- A group shown as icons no longer has empty bars beside it. The art measured off the manager's bar in 1.49.0 is drawn from a pool of its own, and the icons branch, which hides the bar and clears the old pool, knew nothing about the new one: the art stayed on screen with nothing in it. It is taken off with the bar now.
+
+## 1.49.1
+
+- /auraledger debug icon says what a bar's text is doing: what the name and the time actually say, how wide each is allowed to be, how wide it wants to be, and where each is pinned. Two strings landing on each other cannot be seen in the art lines. It also lists what each piece of bar art was measured as against the manager's own bar, so a piece that reaches somewhere odd can be told from one that is drawn wrongly.
+
 ## 1.49.0
 
 - The art round a bar is measured the way the art round an icon is. It was still placed by the old reckoning, which reads a piece's anchors and scales everything by the donor bar's height: that is how a background came out eight pixels taller than the bar it sits on and hanging six below it, which is the look of a buff group shown as bars. Each piece is now measured where it sits against the manager's own bar, in fractions of that bar's width and height, and drawn on ours at whatever size ours is. The old reckoning stays for a client that gives no bar to measure.

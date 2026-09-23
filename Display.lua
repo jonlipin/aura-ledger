@@ -1015,6 +1015,25 @@ Display.BorderMode = BorderMode
 Display.EvenOverhang = EvenOverhang
 Display.IconInset = IconInset
 
+-- One line for a string on screen: what it says, how wide it is allowed to be, and where it is
+-- pinned. Two strings landing on each other shows up here and nowhere else.
+local function TextLine(label, fs)
+	if not fs then return label .. ": none" end
+	local shown = (fs.IsShown and fs:IsShown()) and "shown" or "hidden"
+	local text = (fs.GetText and fs:GetText()) or ""
+	local w, h = 0, 0
+	if fs.GetSize then w, h = fs:GetSize() end
+	local strw = (fs.GetStringWidth and fs:GetStringWidth()) or 0
+	local pts = ""
+	if fs.GetNumPoints and fs.GetPoint then
+		for i = 1, (fs:GetNumPoints() or 0) do
+			local p, rel, rp, x, y = fs:GetPoint(i)
+			if p then pts = pts .. (" [%s->%s %+.1f %+.1f]"):format(p, tostring(rp), x or 0, y or 0) end
+		end
+	end
+	return ("%s: %q, %s, box %.0fx%.0f, text wants %.0f%s"):format(label, tostring(text), shown, w or 0, h or 0, strw, pts)
+end
+
 -- One line for a texture that is actually on screen: its art, the size it is drawn at, where its
 -- corners are pinned, and how it is cropped.
 local function TexLine(label, tex)
@@ -1091,6 +1110,11 @@ end
 function Display:IconReport(emit)
 	local s = BuildSkin()
 	emit("bar skin from: " .. tostring(s.source) .. (s.backdrop and " (no art: a plain border is drawn instead)" or ""))
+	for i, def in ipairs(s.barShape or {}) do
+		emit(("  bar art %d: %s (%s %d), reaches l %.3f r %.3f t %.3f b %.3f of the donor's bar"):format(i,
+			tostring(def.art.atlas or def.art.file), tostring(def.layer), def.sub or 0,
+			def.rect.l, def.rect.r, def.rect.t, def.rect.b))
+	end
 	emit("icon art from: " .. tostring(s.iconSource or s.source))
 	emit("icon edge: " .. BorderMode())
 	emit(("shadow depth: %d layer%s of the manager's own art (/auraledger shadow <0-4>)"):format(ShadowLayers(0), ShadowLayers(0) == 1 and "" or "s"))
@@ -1166,6 +1190,8 @@ function Display:IconReport(emit)
 				emit("      " .. TexLine("background", w.bar and w.bar.bg))
 				emit("      " .. TexLine("pip", w.bar and w.bar.spark))
 				emit("      fallback border frame: " .. (w.edge and ((w.edge:IsShown() and "shown" or "hidden") .. " (the skin had no art of its own)") or "none"))
+				emit("      " .. TextLine("name", w.name))
+				emit("      " .. TextLine("time", w.duration))
 				local shaped = w.barShape or {}
 				emit(("      bar art measured off the donor's bar: %d piece%s"):format(#shaped, #shaped == 1 and "" or "s"))
 				for i, tex in ipairs(shaped) do emit("        " .. TexLine("piece " .. i, tex)) end
@@ -1471,6 +1497,7 @@ local function ConfigureWidget(w, g)
 		local c = IconCrop(s.soloIconCoords or s.iconCoords)
 		w.icon:SetTexCoord(c[1], c[2], c[3], c[4])
 		w.bar:Hide()
+		PlaceBarShape(w, w.bar, S, S, false)
 		PlaceDecor(w, {}, "decor", w.bar, S)
 		w.ringRef = w.ringHolder
 		ShapeMask(w, w.icon, S, g.iconFrame ~= false)
