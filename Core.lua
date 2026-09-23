@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.57.1"
+ns.VERSION = "1.58.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1658,6 +1658,7 @@ local function Startup()
 	loaded = true
 	ns.InitDB()
 	ns.ClearMaskDiagnostics()
+	ns.ClearSettledLook()
 	ns.ApplyMaskSettings()
 	ns.playerGUID = UnitGUID and UnitGUID("player")
 	ns.targetGUID = UnitGUID and Clean(UnitGUID("target")) or nil
@@ -2145,6 +2146,16 @@ end
 
 -- 1.42.2: the mask shift and the mask being off were both diagnostics aimed at a layer that turned
 -- out to be innocent, and the shift is what bent the frame out of shape. Cleared once.
+-- 1.58.0: the numbers found by eye are the defaults now, so a saved setting that matches one is
+-- dropped once: the tuning panel says "default", and a later change to a default is picked up.
+function ns.ClearSettledLook()
+	if not ns.db or ns.db.lookSettled then return end
+	ns.db.lookSettled = true
+	if tonumber(ns.db.fillInsetX) == 0.22 then ns.db.fillInsetX = nil end
+	if tonumber(ns.db.plateTop) == 0.08 then ns.db.plateTop = nil end
+	if tonumber(ns.db.plateBottom) == 0.35 then ns.db.plateBottom = nil end
+end
+
 function ns.ClearMaskDiagnostics()
 	if ns.db and not ns.db.maskDiagCleared then
 		ns.db.maskDiagCleared = true
@@ -2447,8 +2458,11 @@ SlashCmdList.AURALEDGER = function(msg)
 	elseif cmd == "barplate" then
 		local a, b = rest:match("^(%S*)%s*(%S*)$")
 		if strlower(a or "") == "even" then
-			ns.db.plateTop, ns.db.plateBottom = nil, nil
+			ns.db.plateTop, ns.db.plateBottom, ns.db.plateEven = nil, nil, true
+		elseif strlower(a or "") == "default" then
+			ns.db.plateTop, ns.db.plateBottom, ns.db.plateEven = nil, nil, nil
 		else
+			ns.db.plateEven = nil
 			local t, bt = tonumber(a), tonumber(b)
 			if t then ns.db.plateTop = t end
 			if bt then ns.db.plateBottom = bt end
@@ -2456,18 +2470,19 @@ SlashCmdList.AURALEDGER = function(msg)
 		ns.MASK_EPOCH = (ns.MASK_EPOCH or 0) + 1
 		if ns.Display then ns.Display:Rebuild() end
 		Print(("Bar plate reach: %s above, %s below, as shares of the bar's height. |cffffd000/auraledger barplate <above> <below>|r, or |cffffd000even|r to share what was measured."):format(
-			ns.db.plateTop and ("%.3f"):format(ns.db.plateTop) or "even", ns.db.plateBottom and ("%.3f"):format(ns.db.plateBottom) or "even"))
+			ns.db.plateEven and "even" or ("%.3f"):format(tonumber(ns.db.plateTop) or 0.08),
+			ns.db.plateEven and "even" or ("%.3f"):format(tonumber(ns.db.plateBottom) or 0.35)))
 	elseif cmd == "barfill" then
 		local a, b = rest:match("^(%S*)%s*(%S*)$")
 		local x, y = tonumber(a), tonumber(b)
-		if x then ns.db.fillInsetX = (x ~= 0.18) and x or nil end
+		if x then ns.db.fillInsetX = (x ~= 0.22) and x or nil end
 		if y then ns.db.fillInsetY = (y ~= 0.06) and y or nil end
 		if x or y then
 			ns.MASK_EPOCH = (ns.MASK_EPOCH or 0) + 1
 			if ns.Display then ns.Display:Rebuild() end
 		end
 		Print(("Bar fill margin: %.3f sideways, %.3f up and down, each as a share of the bar's height. |cffffd000/auraledger barfill <sideways> <up and down>|r."):format(
-			tonumber(ns.db.fillInsetX) or 0.18, tonumber(ns.db.fillInsetY) or 0.06))
+			tonumber(ns.db.fillInsetX) or 0.22, tonumber(ns.db.fillInsetY) or 0.06))
 	elseif cmd == "barart" then
 		local word = strlower(rest or "")
 		if word == "measured" or word == "reckoned" then

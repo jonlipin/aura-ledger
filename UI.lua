@@ -2653,13 +2653,13 @@ end
 -- to settle them, so they are nudged by eye rather than typed as commands.
 local TUNE = {
 	{ head = "The bar's frame" },
-	{ label = "Reaches above the bar", key = "plateTop", step = 0.02, fallback = "even" },
-	{ label = "Reaches below the bar", key = "plateBottom", step = 0.02, fallback = "even" },
+	{ label = "Reaches above the bar", key = "plateTop", step = 0.02, default = 0.08 },
+	{ label = "Reaches below the bar", key = "plateBottom", step = 0.02, default = 0.35 },
 	{ label = "The bar sits sideways", key = "barOffsetX", step = 0.05, default = 0 },
 	{ label = "The bar sits up", key = "barOffsetY", step = 0.05, default = 0 },
 	{ label = "Frame reaches left of the bar", key = "plateLeft", step = 0.02, default = 0 },
 	{ label = "Frame reaches right of the bar", key = "plateRight", step = 0.02, default = 0 },
-	{ label = "Fill margin, sideways", key = "fillInsetX", step = 0.02, default = 0.18 },
+	{ label = "Fill margin, sideways", key = "fillInsetX", step = 0.02, default = 0.22 },
 	{ label = "Fill margin, up and down", key = "fillInsetY", step = 0.02, default = 0.06 },
 	{ head = "The icon" },
 	{ label = "Shadow, layers of the game's art", key = "shadowLayers", step = 1, default = 2, whole = true, min = 0, max = 4 },

@@ -582,9 +582,13 @@ local function PlaceBarShape(w, ref, width, height, want)
 			-- The plate is laid on the bar and then reaches out by whatever it is told on each of
 			-- the four sides: where the frame sits inside this art cannot be read from outside, so
 			-- the reach is set by eye. Up and down it shares out what was measured until it is.
+			-- Where the frame sits inside this art cannot be read from outside; these are where it
+			-- was found to sit by eye, against the manager's own bars. The measured reach, shared
+			-- evenly, is what "even" falls back to.
 			local half = ((rect.t or 0) + (rect.b or 0)) / 2
-			local t = tonumber(ns.db and ns.db.plateTop)
-			local b = tonumber(ns.db and ns.db.plateBottom)
+			local t = tonumber(ns.db and ns.db.plateTop) or 0.08
+			local b = tonumber(ns.db and ns.db.plateBottom) or 0.35
+			if ns.db and ns.db.plateEven then t, b = half, half end
 			-- Sideways is scaled by the donor bar's shape when it is drawn, so these are divided by
 			-- it here: on the panel they mean shares of the bar's height, as every other number does.
 			local across = (def.aspect or 1)
@@ -1166,8 +1170,8 @@ function Display:IconReport(emit)
 	local s = BuildSkin()
 	do
 		local hh = 20
-		local t = tonumber(ns.db and ns.db.plateTop)
-		local b = tonumber(ns.db and ns.db.plateBottom)
+		local t = (ns.db and ns.db.plateEven) and nil or (tonumber(ns.db and ns.db.plateTop) or 0.08)
+		local b = (ns.db and ns.db.plateEven) and nil or (tonumber(ns.db and ns.db.plateBottom) or 0.35)
 		emit(("bar plate reach: %s above, %s below, %.3f left, %.3f right (shares of the bar's height)"):format(
 			t and ("%.3f"):format(t) or "even", b and ("%.3f"):format(b) or "even",
 			tonumber(ns.db and ns.db.plateLeft) or 0, tonumber(ns.db and ns.db.plateRight) or 0))
@@ -1477,7 +1481,7 @@ end
 -- thicker at the ends than along the top and bottom. /auraledger barfill sets them.
 local function BarInset(height)
 	if not HaveBarFrame() then return 0, 0 end
-	local fx = tonumber(ns.db and ns.db.fillInsetX) or 0.18
+	local fx = tonumber(ns.db and ns.db.fillInsetX) or 0.22
 	local fy = tonumber(ns.db and ns.db.fillInsetY) or 0.06
 	return max(0, floor(height * fx + 0.5)), max(0, floor(height * fy + 0.5))
 end
@@ -2025,6 +2029,7 @@ local function SlotKey(g)
 		.. tostring(g.background ~= false) .. tostring(g.timers ~= false) .. tostring(g.names ~= false)
 		-- and the look itself: the art read off the client, the plate's reach, the fill's margins.
 		.. ":" .. tostring(ns.MASK_EPOCH or 0) .. ":" .. tostring(ns.db and ns.db.plateTop) .. "," .. tostring(ns.db and ns.db.plateBottom)
+		.. "," .. tostring(ns.db and ns.db.plateEven)
 		.. ":" .. tostring(ns.db and ns.db.fillInsetX) .. "," .. tostring(ns.db and ns.db.fillInsetY)
 		.. ":" .. tostring(ns.db and ns.db.barOffsetX) .. "," .. tostring(ns.db and ns.db.barOffsetY)
 		.. ":" .. tostring(ns.db and ns.db.plateLeft) .. "," .. tostring(ns.db and ns.db.plateRight)

@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.58.0
+
+- The look settled by eye is what the addon ships with. A bar's fill keeps 0.22 of the bar's height clear at each end, and the plate the frame is drawn on reaches 0.08 above the bar and 0.35 below, which is where the frame sits inside that art. Nothing changes on screen for anyone who had already nudged to these: they are simply no longer settings, so the tuning panel says "default" and "back to the defaults" comes here.
+- /auraledger barplate even still shares out the reach measured off the manager, and /auraledger barplate default returns to the numbers above.
+
 ## 1.57.1
 
 - A bar the game draws wears one frame, at the right size. The cell under a slot is painted with no aura on purpose, so that it shows the missing look the moment the game stops drawing; that meant asking the paint whether the aura was known always answered no, and the cell kept its frame beside the slot's. What the group knows is passed to the cell separately now. And the slot's frame was drawn round its status bar, which 1.54.5 inset inside the frame so the fill would not run over it, so the frame came out small: it is drawn round the bar's own outer size, with the status bar inside it.
