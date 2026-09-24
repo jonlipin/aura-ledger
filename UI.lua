@@ -1726,19 +1726,21 @@ local function BuildTrackerPanel(width)
 		function(v) local t = T() if t then t.show = v TrackerChanged() b:Sync() end end,
 		"Running: on screen while the spell is on cooldown, counting down. Ready: on screen only while it can be cast again. Either: on screen both ways, drained of color while it is on cooldown.")
 	b:AppliesWhen(TrackerIsCooldown)
-	b:Slider("Warn before it runs out (seconds, 0 = off)", { min = 0, max = 300, step = 1,
+	b:Slider("Show it again before it runs out (seconds, 0 = off)", { min = 0, max = 300, step = 1,
 		get = function() local t = T() return t and (t.warn or 0) end,
 		set = function(v) local t = T() if t then t.warn = (v > 0) and v or nil TrackerChanged() end end,
 		format = function(v) return v == 0 and "off" or (v .. "s") end })
 	b:AppliesWhen(function() return TrackerIsAddonDrawn() and not TrackerIsCooldown() end)
-	b:Note("With Missing: also shows while the aura has this long or less left, with a red border. With Always: the border turns red that early.")
+	b:Note("With Missing: brings the tracker back on screen this long before the aura runs out, with a red border, instead of waiting for it to go. With Active or Either: it is on screen already, so the border turns red that early instead.")
 	b:AppliesWhen(function() return TrackerIsAddonDrawn() and not TrackerIsCooldown() end)
+	b:Note("|cffffd000Showing it early is not offered here:|r this group is drawn by the game, and the game decides when a tracker is on screen. To use it, set In combat, under this group's Only show this group when, to Shown, drawn by the addon.")
+	b:AppliesWhen(function() return not TrackerIsAddonDrawn() and not TrackerIsCooldown() end)
 	b:Slider("Show it again before it is ready (seconds, 0 = off)", { min = 0, max = 300, step = 1,
 		get = function() local t = T() return t and (t.warn or 0) end,
 		set = function(v) local t = T() if t then t.warn = (v > 0) and v or nil TrackerChanged() end end,
 		format = function(v) return v == 0 and "off" or (v .. "s") end })
 	b:AppliesWhen(TrackerIsCooldown)
-	b:Note("With Ready: brings it back on screen this long before the cooldown is up, with a red border, so it is there by the time you can use it. With Either: the border turns red that early.")
+	b:Note("With Ready: brings the tracker back on screen this long before the cooldown is up, with a red border, so it is there by the time you can use it. With Running or Either: it is on screen already, so the border turns red that early instead.")
 	b:AppliesWhen(TrackerIsCooldown)
 	b:Note("A cooldown shorter than a second and a half is the global cooldown, not this spell's, so it counts as ready.")
 	b:AppliesWhen(function() return TrackerIsCooldown() and not TrackerIsItem() end)

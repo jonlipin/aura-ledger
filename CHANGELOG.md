@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.67.1
+
+- The buff setting is called Show it again before it runs out, to match Show it again before it is ready on a cooldown. It was called Warn before it runs out, so the pair read as two unrelated things and the buff one was hard to find when looking for the other. It is the same setting doing the same job; nothing you have set changes.
+- It does something now whatever Show is set to. On Active it did nothing at all, because the tracker is already on screen there, so the warning it can give is the border turning red and it was not giving it. Same for a cooldown on Running.
+- If the setting is not offered at all, the panel now says why instead of simply leaving it out: the group is drawn by the game, the game decides when a tracker is on screen, and nothing can be brought back early. It says which setting to change to get it back.
+
 ## 1.67.0
 
 - Fixed: a tracked cooldown blinked out for a second and a half whenever anything at all was used. Every use starts a short cooldown that everything shares, and the client reports that one in place of the real cooldown while it runs, so a trinket on a five minute cooldown was reading as ready. What was last seen is kept now, and while the shared one is being reported the real cooldown is answered from memory. A cooldown that is genuinely over reports nothing rather than a short something, which is how a reset is still told apart from the shared one. Spells had the same fault and are fixed with it.

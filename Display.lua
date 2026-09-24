@@ -2674,13 +2674,14 @@ local function Wants(t, entry, now, unlocked, groupPass)
 		local nearly = onCd and Expiring(t, entry, now) or false
 		if t.show == "missing" then return (not onCd) or nearly, nearly
 		elseif t.show == "always" then return true, nearly
-		else return onCd, false end
+		else return onCd, nearly end
 	end
 	if t.unit == "target" and not ns.env.target then return false, false end
 	local expiring = Expiring(t, entry, now)
 	if t.show == "missing" then return entry == nil or expiring, expiring
 	elseif t.show == "always" then return true, expiring
-	else return entry ~= nil, false end
+	-- Already on screen, so the warning it can give is the red border rather than appearing.
+	else return entry ~= nil, expiring end
 end
 
 -- What each tracker looked like last time, so sounds play only on a change (never on the first look).
