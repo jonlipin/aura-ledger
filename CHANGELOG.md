@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.70.2
+
+- Fixed: a cluster that already had an empty row in it kept it. Closing the gap only happened when a tracker left the group, so a shape that arrived with one, saved by an older version or set down with a hole in it, was never gone back over. A cluster with a row of nothing in it is now closed up whenever the shape is worked out, however the gap came about.
+- Gaps within a row are still left alone: those are put there on purpose. It is only a whole row of nothing that closes.
+
 ## 1.70.1
 
 - Dragging the last icon out of a row of a cluster closes that row up, and the rows under it move up with it. A row is only ever made by opening one and filling it at the same time, so a row left with nothing in it is never one you meant to keep.

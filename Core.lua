@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.70.1"
+ns.VERSION = "1.70.2"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -274,9 +274,9 @@ function ns.NormalizeCells(g)
 	end
 end
 
--- A row left with nothing in it closes up, and the rows under it move up. Only called when a
--- tracker has actually left the group: a gap somewhere else in the shape is there on purpose, and
--- so is the one a block of marked icons carries while it is being put down one at a time.
+-- A row left with nothing in it closes up, and the rows under it move up. A row is only ever made
+-- by opening one and filling it at the same time, so an empty one is never something somebody
+-- wanted. Gaps within a row are left alone: those are put there on purpose.
 function ns.CloseEmptyRows(g)
 	local cells = g and g.cells
 	if not cells or #cells == 0 then return end
@@ -309,6 +309,7 @@ function ns.FitCells(g)
 	end
 	ns.SortCells(g)
 	ns.NormalizeCells(g)
+	ns.CloseEmptyRows(g)
 end
 
 function ns.FitAllCells()
@@ -620,7 +621,7 @@ function ns.RemoveTracker(t)
 	if not g then return end
 	-- Its own cell goes with it, so the icons after it keep the places they had, and a row it
 	-- leaves empty closes up.
-	if g.cells and g.cells[ti] then table.remove(g.cells, ti) ns.CloseEmptyRows(g) end
+	if g.cells and g.cells[ti] then table.remove(g.cells, ti) end
 	table.remove(g.trackers, ti)
 	if ns.selected and ns.selected.tracker == t then ns.selected = { group = g } end
 	if #g.trackers == 0 then return ns.DeleteGroup(g) end
@@ -631,7 +632,7 @@ end
 function ns.MoveTracker(t, to, index)
 	local from, ti = ns.FindGroupOf(t)
 	if from then
-		if from.cells and from.cells[ti] then table.remove(from.cells, ti) ns.CloseEmptyRows(from) end
+		if from.cells and from.cells[ti] then table.remove(from.cells, ti) end
 		table.remove(from.trackers, ti)
 		if from == to and index and index > ti then index = index - 1 end
 	end
