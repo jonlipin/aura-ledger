@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.69.0
+
+- Fixed: adding a tracker to a cluster pushed the icons above it out of their places. A tracker joins the end of the group's list, but its cell was the first free one reading across, which in a shape with gaps is a hole further up; taking that place shifted every icon after it along by one. A new icon now takes the first free cell after the last one in use, so nothing that was already placed moves.
+- Fixed: removing a tracker from the middle of a cluster moved everything after it back a place, because the shape dropped its last cell rather than that tracker's own. A tracker now takes its own cell with it, wherever in the shape it was, and the same goes for one dragged out to another group.
+- Fixed: the mark showing which side an icon would attach to was a short flame in the middle of the edge rather than a line along it. It was being turned a quarter for a top or bottom edge, and a texture turned inside its own bounds is drawn in the turned shape and then clipped to the box, which left a sliver. It is not turned at all now, and it runs the full length of the edge.
+- New: an icon can be slotted in between two that are touching. Holding one against a side that is already taken says "Slot in beside", marks that seam, and puts the icon in at that point with the rest of the shape moving along. Before, a taken side offered nothing at all.
+- The middle third of an icon counts as "squarely on it", rather than half of it. Half swallowed the whole gap between two touching icons, which is exactly where somebody aims when slotting one in between them.
+
 ## 1.68.0
 
 - The description and the how-to are rewritten. The old ones still described the addon as it was several releases ago: no cooldowns, nothing about the things you carry, no clusters, no walk-through, and arranging explained as Shift-dragging, which has not been how it works since 1.61.0.

@@ -2918,15 +2918,19 @@ function Display:DropCell(f, g, cx, cy, dragged)
 	end
 	if not best then return end
 	local ox, oy = cx - best.x, cy - best.y
-	local reach = max(6, ((g.size or 40) * s) / 2)
-	-- Squarely on an icon is not held against a side of it; that is an ordinary drop.
+	-- Squarely on an icon is not held against a side of it; that is an ordinary drop. The middle
+	-- third is what counts as squarely: half the icon would swallow the seam between two that are
+	-- touching, which is exactly where somebody aims to slot one in between them.
+	local reach = max(4, ((g.size or 40) * s) * 0.3)
 	if abs(ox) < reach and abs(oy) < reach then return end
 	local sx, sy = 0, 0
 	if abs(ox) > abs(oy) then sx = (ox > 0) and 1 or -1 else sy = (oy > 0) and 1 or -1 end
 	local dc = sx * axis.c[1] + sy * axis.c[2]
 	local dr = sx * axis.r[1] + sy * axis.r[2]
 	local c, r = bestW.cellC + dc, bestW.cellR + dr
-	if not ns.CellFree(g, c, r, dragged) then return end
+	-- A side with an icon already on it is not a place to hang one, but it is a place to slot one
+	-- in between: the caller is told which side, with no cell, and puts it in at that point.
+	if not ns.CellFree(g, c, r, dragged) then return nil, nil, bestW, sx, sy, true end
 	return c, r, bestW, sx, sy
 end
 
@@ -2970,7 +2974,7 @@ local function GetDropMark()
 	return mark
 end
 
-local function ShowDropMark(f, g, against, sx, sy)
+local function ShowDropMark(f, g, against, sx, sy, between)
 	if not f or not against then
 		if dropMark then dropMark:Hide() end
 		return
@@ -2979,17 +2983,22 @@ local function ShowDropMark(f, g, against, sx, sy)
 	mark:SetParent(f)
 	mark:SetFrameStrata("HIGH")
 	local size = g.size or 40
-	local thick = max(12, size * 0.5)
+	-- As long as the edge it marks, and thin across it. It is never turned: a texture turned inside
+	-- its own bounds is drawn in the turned shape and then clipped to the box, which left a sliver
+	-- down the middle of a wide one rather than a line along the edge.
+	local thick = max(6, size * 0.22)
+	local along = size + 2
 	mark:ClearAllPoints()
 	if sx ~= 0 then
-		mark:SetSize(thick, size + 10)
+		mark:SetSize(thick, along)
 		mark:SetPoint("CENTER", against, sx > 0 and "RIGHT" or "LEFT", 0, 0)
 	else
-		mark:SetSize(size + 10, thick)
+		mark:SetSize(along, thick)
 		mark:SetPoint("CENTER", against, sy > 0 and "TOP" or "BOTTOM", 0, 0)
 	end
-	-- The spark's own glow runs across it, so it is turned a quarter for a top or bottom edge.
-	if mark.spark.SetRotation then pcall(mark.spark.SetRotation, mark.spark, (sx ~= 0) and 0 or (math.pi / 2)) end
+	-- Slotting in between reads differently from hanging one on a free side.
+	mark.spark:SetVertexColor(1, 0.95, 0.45)
+	mark.spark:SetAlpha(between and 1 or 0.9)
 	mark:Show()
 end
 Display.ShowDropMark = ShowDropMark
@@ -3015,16 +3024,20 @@ local function GetGhost()
 		local g, f
 		if not overWindow then g, f = Display:GroupAt(cx, cy, self.except) end
 		Highlight(f)
-		local cellC, cellR, against, sx, sy
-		if g and not overWindow then cellC, cellR, against, sx, sy = Display:DropCell(f, g, cx, cy, self.dragTracker) end
-		ShowDropMark(cellC and f or nil, g, cellC and against or nil, sx or 0, sy or 0)
+		local cellC, cellR, against, sx, sy, between
+		if g and not overWindow then cellC, cellR, against, sx, sy, between = Display:DropCell(f, g, cx, cy, self.dragTracker) end
+		ShowDropMark((cellC or between) and f or nil, g, against, sx or 0, sy or 0, between)
 		if overWindow then
 			-- Over the window, the list knows best what a drop would do.
 			local label = ns.UI and ns.UI.TreeDropLabel and ns.UI:TreeDropLabel(cy, self.dragTracker)
 			self.text:SetText(label or self.windowText or "|cffff6060Cancel|r")
-		elseif cellC then
+		elseif cellC or between then
 			local name = against and against.tracker and (against.tracker.name or ("spell " .. tostring(against.tracker.id)))
-			self.text:SetText("|cff40ff60Attach to " .. (name or ns.GroupName(g)) .. "|r")
+			if between then
+				self.text:SetText("|cff40ff60Slot in beside " .. (name or ns.GroupName(g)) .. "|r")
+			else
+				self.text:SetText("|cff40ff60Attach to " .. (name or ns.GroupName(g)) .. "|r")
+			end
 		elseif g then self.text:SetText("|cff40ff60Add to " .. ns.GroupName(g) .. "|r")
 		else self.text:SetText(self.freeText or "Place here") end
 	end)
@@ -3048,8 +3061,19 @@ function Display:EndGhost()
 	if ns.UI and ns.UI.frame and ns.UI.frame:IsShown() and ns.UI.frame:IsMouseOver() then return true, cx, cy end
 	local g, f = self:GroupAt(cx, cy, gh.except)
 	if g then
-		local c, r = self:DropCell(f, g, cx, cy, gh.dragTracker)
-		return false, cx, cy, g, self:InsertIndex(f, g, cx, cy), c, r
+		local c, r, against, sx, sy, between = self:DropCell(f, g, cx, cy, gh.dragTracker)
+		local index = self:InsertIndex(f, g, cx, cy)
+		if between and against and against.tracker then
+			-- In between: the icon takes the place of the one whose side was pointed at, or the one
+			-- after it, and the rest of the shape moves along.
+			for i, other in ipairs(g.trackers) do
+				if other == against.tracker then
+					index = ((sx > 0) or (sy < 0)) and (i + 1) or i
+					break
+				end
+			end
+		end
+		return false, cx, cy, g, index, c, r
 	end
 	return false, cx, cy
 end

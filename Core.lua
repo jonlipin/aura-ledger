@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.68.0"
+ns.VERSION = "1.69.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -209,15 +209,22 @@ end
 local function CellKey(c, r) return tostring(r) .. ":" .. tostring(c) end
 local function CellOrder(cell) return (cell.r or 0) * 8192 + (cell.c or 0) end
 
--- Where the next tracker goes: the first free cell reading across a band of the group's width.
+-- Where the next tracker goes. A tracker joins the end of the group's list, so its cell has to join
+-- the end of the shape: a cell that read earlier than one already in use would take that place and
+-- push every icon after it along. In plain rows the two are the same thing, because rows are filled
+-- without gaps. In a shape somebody has built, it is the first free cell after the last one in use.
 function ns.NextFreeCell(g)
 	local perRow = max(1, tonumber(g.perRow) or 8)
-	local taken = {}
-	for _, cell in ipairs(g.cells or {}) do taken[CellKey(cell.c, cell.r)] = true end
+	local taken, last = {}, -1
+	for _, cell in ipairs(g.cells or {}) do
+		taken[CellKey(cell.c, cell.r)] = true
+		local order = CellOrder(cell)
+		if order > last then last = order end
+	end
 	local r = 0
 	while r < 500 do
 		for c = 0, perRow - 1 do
-			if not taken[CellKey(c, r)] then return c, r end
+			if not taken[CellKey(c, r)] and CellOrder({ c = c, r = r }) > last then return c, r end
 		end
 		r = r + 1
 	end
@@ -557,6 +564,8 @@ end
 function ns.RemoveTracker(t)
 	local g, ti = ns.FindGroupOf(t)
 	if not g then return end
+	-- Its own cell goes with it, so the icons after it keep the places they had.
+	if g.cells and g.cells[ti] then table.remove(g.cells, ti) end
 	table.remove(g.trackers, ti)
 	if ns.selected and ns.selected.tracker == t then ns.selected = { group = g } end
 	if #g.trackers == 0 then return ns.DeleteGroup(g) end
@@ -567,6 +576,7 @@ end
 function ns.MoveTracker(t, to, index)
 	local from, ti = ns.FindGroupOf(t)
 	if from then
+		if from.cells and from.cells[ti] then table.remove(from.cells, ti) end
 		table.remove(from.trackers, ti)
 		if from == to and index and index > ti then index = index - 1 end
 	end
