@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.66.3"
+ns.VERSION = "1.67.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -746,6 +746,33 @@ end
 -- fight as out of one, which is why a cooldown tracker is never handed to the game.
 -- The global cooldown is not a cooldown worth showing, so anything under two seconds long is
 -- treated as ready.
+-- Every use starts a short cooldown that everything shares, and the client reports that one in
+-- place of the real cooldown for as long as it runs. Read plainly, a spell or item on a five minute
+-- cooldown therefore says "ready" for a second and a half every time anything at all is used. What
+-- was last seen is kept, so while the shared one is being reported the real cooldown is answered
+-- from memory. A cooldown that is genuinely over reports nothing at all rather than a short
+-- something, which is how a reset is told apart from the shared one.
+local GCD_MAX = 1.5
+local cdSeen = {}
+
+-- The real cooldown behind a reading: its length and when it ends, or nothing if there is none.
+local function RealCooldown(key, start, duration, enabled)
+	local now = GetTime()
+	if not start or not duration or start <= 0 or duration <= 0 or enabled == false or enabled == 0 then
+		cdSeen[key] = nil
+		return nil
+	end
+	if duration > GCD_MAX then
+		cdSeen[key] = { expires = start + duration, duration = duration }
+		return duration, start + duration
+	end
+	local seen = cdSeen[key]
+	if seen and now < seen.expires then return seen.duration, seen.expires end
+	cdSeen[key] = nil
+	return nil
+end
+ns.RealCooldown = RealCooldown
+
 -- What is left on an item's cooldown. Items are read by id, so a trinket that is swapped out of a
 -- bag still answers, and the answer is the same in a fight as out of one.
 function ns.ItemCooldownRead(id)
@@ -785,11 +812,12 @@ function ns.CooldownFor(t)
 	if not start or not duration then return nil end
 	local icon = t.icon
 	if not icon then local _, i = ns.SpellInfo(key) icon = i end
-	if duration <= 1.5 or start <= 0 or enabled == false or enabled == 0 then
+	local dur, expires = RealCooldown("s:" .. tostring(key), start, duration, enabled)
+	if not dur then
 		-- Ready: an entry with nothing left on it, so "show when ready" has something to show.
 		return { name = t.name, id = t.id, icon = icon, kind = "cooldown", ready = true, duration = 0, expires = 0, mine = true }
 	end
-	return { name = t.name, id = t.id, icon = icon, kind = "cooldown", duration = duration, expires = start + duration, mine = true }
+	return { name = t.name, id = t.id, icon = icon, kind = "cooldown", duration = dur, expires = expires, mine = true }
 end
 
 -- An item's cooldown, as an entry of the shape everything that draws a tracker already understands.
@@ -800,12 +828,11 @@ function ns.ItemCooldownFor(t)
 	if not start or not duration then return nil end
 	local icon = t.icon or (ns.ItemIcon and ns.ItemIcon(id))
 	local name = t.name or (ns.ItemName and ns.ItemName(id))
-	-- Under two seconds is the little shared cooldown a use shares with everything else, not the
-	-- item's own, so it counts as ready.
-	if duration <= 1.5 or start <= 0 or enabled == false or enabled == 0 then
+	local dur, expires = RealCooldown("i:" .. tostring(id), start, duration, enabled)
+	if not dur then
 		return { name = name, item = id, icon = icon, kind = "cooldown", ready = true, duration = 0, expires = 0, mine = true }
 	end
-	return { name = name, item = id, icon = icon, kind = "cooldown", duration = duration, expires = start + duration, mine = true }
+	return { name = name, item = id, icon = icon, kind = "cooldown", duration = dur, expires = expires, mine = true }
 end
 
 function ns.Find(t)

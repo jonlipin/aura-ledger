@@ -1730,9 +1730,16 @@ local function BuildTrackerPanel(width)
 		get = function() local t = T() return t and (t.warn or 0) end,
 		set = function(v) local t = T() if t then t.warn = (v > 0) and v or nil TrackerChanged() end end,
 		format = function(v) return v == 0 and "off" or (v .. "s") end })
-	b:AppliesWhen(TrackerIsAddonDrawn)
+	b:AppliesWhen(function() return TrackerIsAddonDrawn() and not TrackerIsCooldown() end)
 	b:Note("With Missing: also shows while the aura has this long or less left, with a red border. With Always: the border turns red that early.")
-	b:AppliesWhen(TrackerIsAddonDrawn)
+	b:AppliesWhen(function() return TrackerIsAddonDrawn() and not TrackerIsCooldown() end)
+	b:Slider("Show it again before it is ready (seconds, 0 = off)", { min = 0, max = 300, step = 1,
+		get = function() local t = T() return t and (t.warn or 0) end,
+		set = function(v) local t = T() if t then t.warn = (v > 0) and v or nil TrackerChanged() end end,
+		format = function(v) return v == 0 and "off" or (v .. "s") end })
+	b:AppliesWhen(TrackerIsCooldown)
+	b:Note("With Ready: brings it back on screen this long before the cooldown is up, with a red border, so it is there by the time you can use it. With Either: the border turns red that early.")
+	b:AppliesWhen(TrackerIsCooldown)
 	b:Note("A cooldown shorter than a second and a half is the global cooldown, not this spell's, so it counts as ready.")
 	b:AppliesWhen(function() return TrackerIsCooldown() and not TrackerIsItem() end)
 	b:Note("A cooldown shorter than a second and a half is the little one every use shares, not this item's own, so it counts as ready.")
@@ -3478,20 +3485,16 @@ end
 
 function UI:TourRunning() return tour.step > 0 end
 
--- The first time the window is opened on a profile with nothing in it. Only ever once: after that
--- the ? button is the way back to it.
+-- The first time the window is ever opened, and only that once: from then on the ? button is the
+-- way back to it. It is offered whatever is already set up, because somebody who has been using
+-- this for a while has no other way of learning that the walk-through exists at all.
 function UI:OfferTour()
 	if not ns.db or ns.db.tourSeen then return end
 	if tour.step > 0 then return end
-	if TrackerCount() > 0 then
-		-- Trackers already: this is not somebody's first look, so the offer is not made at all.
-		ns.db.tourSeen = true
-		return
-	end
 	ns.db.tourSeen = true
 	if C_Timer and C_Timer.After then
 		-- After the window has finished laying itself out, so the ring lands in the right place.
-		C_Timer.After(0.2, function() if not ns.db.tourOff then UI:StartTour() end end)
+		C_Timer.After(0.2, function() UI:StartTour() end)
 	else
 		UI:StartTour()
 	end

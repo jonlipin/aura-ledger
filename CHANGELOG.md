@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.67.0
+
+- Fixed: a tracked cooldown blinked out for a second and a half whenever anything at all was used. Every use starts a short cooldown that everything shares, and the client reports that one in place of the real cooldown while it runs, so a trinket on a five minute cooldown was reading as ready. What was last seen is kept now, and while the shared one is being reported the real cooldown is answered from memory. A cooldown that is genuinely over reports nothing rather than a short something, which is how a reset is still told apart from the shared one. Spells had the same fault and are fixed with it.
+- New: a cooldown tracker can come back on screen before it is ready. Show it again before it is ready, in a tracker settings, does for a cooldown what Warn before it runs out does for a buff: with Ready it brings the tracker back that long before the cooldown is up, with a red border, so it is there by the time you can use it, and with Either the border turns red that early. It had never applied to cooldowns at all.
+- The walk-through is offered the first time the window is opened, once ever, whatever you already have set up. It used to be offered only to a profile with nothing in it, so anyone already using the addon had no way of learning it existed.
+
 ## 1.66.3
 
 - The tooltip on In combat is laid out in paragraphs: the one thing this client will not let an addon do, then what each of the two choices means, then what the second one costs.

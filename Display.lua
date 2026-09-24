@@ -2669,8 +2669,11 @@ local function Wants(t, entry, now, unlocked, groupPass)
 	-- "active" means on cooldown, "missing" means ready to cast.
 	if t.cd then
 		local onCd = entry ~= nil and not entry.ready
-		if t.show == "missing" then return not onCd, false
-		elseif t.show == "always" then return true, false
+		-- The warn window works the same way round as it does for an aura: it brings the tracker
+		-- back before the thing you are waiting for happens, which for a cooldown is being ready.
+		local nearly = onCd and Expiring(t, entry, now) or false
+		if t.show == "missing" then return (not onCd) or nearly, nearly
+		elseif t.show == "always" then return true, nearly
 		else return onCd, false end
 	end
 	if t.unit == "target" and not ns.env.target then return false, false end
