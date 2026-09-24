@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.70.0"
+ns.VERSION = "1.70.1"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -259,7 +259,7 @@ function ns.SortCells(g)
 end
 
 -- The shape is held against its own top left corner, so that building upwards or to the left does
--- not drag the group across the screen.
+-- not drag the group across the screen, and a row with nothing left in it closes up.
 function ns.NormalizeCells(g)
 	local cells = g.cells
 	if not cells or #cells == 0 then return end
@@ -269,8 +269,29 @@ function ns.NormalizeCells(g)
 		if not mc or cell.c < mc then mc = cell.c end
 		if not mr or cell.r < mr then mr = cell.r end
 	end
-	if (mc or 0) == 0 and (mr or 0) == 0 then return end
-	for _, cell in ipairs(cells) do cell.c, cell.r = cell.c - mc, cell.r - mr end
+	if (mc or 0) ~= 0 or (mr or 0) ~= 0 then
+		for _, cell in ipairs(cells) do cell.c, cell.r = cell.c - mc, cell.r - mr end
+	end
+end
+
+-- A row left with nothing in it closes up, and the rows under it move up. Only called when a
+-- tracker has actually left the group: a gap somewhere else in the shape is there on purpose, and
+-- so is the one a block of marked icons carries while it is being put down one at a time.
+function ns.CloseEmptyRows(g)
+	local cells = g and g.cells
+	if not cells or #cells == 0 then return end
+	local used = {}
+	for _, cell in ipairs(cells) do used[cell.r] = true end
+	local rows = {}
+	for r in pairs(used) do rows[#rows + 1] = r end
+	table.sort(rows)
+	local rank, moved = {}, false
+	for i, r in ipairs(rows) do
+		rank[r] = i - 1
+		if rank[r] ~= r then moved = true end
+	end
+	if not moved then return end
+	for _, cell in ipairs(cells) do cell.r = rank[cell.r] end
 end
 
 -- One cell per tracker, no more and no less. A tracker that has just been added takes the next
@@ -597,8 +618,9 @@ end
 function ns.RemoveTracker(t)
 	local g, ti = ns.FindGroupOf(t)
 	if not g then return end
-	-- Its own cell goes with it, so the icons after it keep the places they had.
-	if g.cells and g.cells[ti] then table.remove(g.cells, ti) end
+	-- Its own cell goes with it, so the icons after it keep the places they had, and a row it
+	-- leaves empty closes up.
+	if g.cells and g.cells[ti] then table.remove(g.cells, ti) ns.CloseEmptyRows(g) end
 	table.remove(g.trackers, ti)
 	if ns.selected and ns.selected.tracker == t then ns.selected = { group = g } end
 	if #g.trackers == 0 then return ns.DeleteGroup(g) end
@@ -609,7 +631,7 @@ end
 function ns.MoveTracker(t, to, index)
 	local from, ti = ns.FindGroupOf(t)
 	if from then
-		if from.cells and from.cells[ti] then table.remove(from.cells, ti) end
+		if from.cells and from.cells[ti] then table.remove(from.cells, ti) ns.CloseEmptyRows(from) end
 		table.remove(from.trackers, ti)
 		if from == to and index and index > ti then index = index - 1 end
 	end

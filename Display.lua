@@ -1429,6 +1429,11 @@ local function WidgetTooltip(w)
 			GameTooltip:AddLine("Hold it against a free side of another icon to hang it there", 0.7, 0.7, 0.7)
 		end
 		GameTooltip:AddLine("Drag the titled plate behind the group to move the whole group", 0.7, 0.7, 0.7)
+		if Display.IsMarked and Display:IsMarked(t) then
+			GameTooltip:AddLine("Shift-click: let this one go again. Dragging any marked one moves them all", 0.45, 0.8, 1)
+		else
+			GameTooltip:AddLine("Shift-click: mark it, to move several together", 0.7, 0.7, 0.7)
+		end
 		GameTooltip:AddLine("Click: options", 0.7, 0.7, 0.7)
 	end
 	GameTooltip:Show()

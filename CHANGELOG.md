@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.70.1
+
+- Dragging the last icon out of a row of a cluster closes that row up, and the rows under it move up with it. A row is only ever made by opening one and filling it at the same time, so a row left with nothing in it is never one you meant to keep.
+- Gaps within a row are left alone, because those are put there on purpose. The closing only happens when a tracker actually leaves the group, so a block of marked icons still carries its own spacing across intact.
+- The tooltip on a tracker says how to mark icons: shift-click to mark one, and dragging any marked one moves them all. Once an icon is marked it says how to let it go again.
+
 ## 1.70.0
 
 - Dropping an icon on the seam between two rows of a cluster now opens a new row there, and everything below moves down. It used to be an ordinary insert into the group's list, so an icon aimed at the gap simply joined the row underneath.
