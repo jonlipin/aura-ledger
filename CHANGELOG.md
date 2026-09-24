@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.68.0
+
+- The description and the how-to are rewritten. The old ones still described the addon as it was several releases ago: no cooldowns, nothing about the things you carry, no clusters, no walk-through, and arranging explained as Shift-dragging, which has not been how it works since 1.61.0.
+- The new one leads with what it can follow now (a buff, a spell cooldown, an item you are carrying), says what a fight actually does to each, and lists every command in one table.
+- No change to the addon itself in this release.
+
 ## 1.67.1
 
 - The buff setting is called Show it again before it runs out, to match Show it again before it is ready on a cooldown. It was called Warn before it runs out, so the pair read as two unrelated things and the buff one was hard to find when looking for the other. It is the same setting doing the same job; nothing you have set changes.
