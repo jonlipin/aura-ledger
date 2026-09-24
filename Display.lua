@@ -1349,6 +1349,9 @@ end
 local function WidgetTooltip(w)
 	local t = w.tracker
 	if not t then return end
+	-- Something is on the cursor: its own label says what the drop would do, and a tooltip here
+	-- would cover the icons being aimed at.
+	if Display.Dragging and Display:Dragging() then return end
 	GameTooltip:SetOwner(w, "ANCHOR_RIGHT")
 	local shown = false
 	if t.item and GameTooltip.SetItemByID then
@@ -3044,8 +3047,15 @@ local function GetGhost()
 	return ghost
 end
 
+-- Is something on the cursor? Anything that would draw over the screen asks first.
+function Display:Dragging()
+	return (ghost ~= nil and ghost:IsShown()) and true or false
+end
+
 function Display:BeginGhost(icon, freeText, except, windowText, dragTracker)
 	local gh = GetGhost()
+	-- Whatever was being hovered when the drag started goes away with it.
+	GameTooltip:Hide()
 	gh.icon:SetTexture(icon or QUESTION)
 	gh.freeText, gh.except, gh.windowText, gh.dragTracker = freeText, except, windowText, dragTracker
 	gh:Show()

@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.69.1
+
+- Fixed: dragging an icon across a cluster raised the tooltip of every tracker it passed over, which covers the very icons being aimed at. Nothing puts up a tooltip now while something is on the cursor, and whatever was being hovered when the drag started goes away with it. Hovering with nothing in hand still gives the tooltip, drag hints and all, which is when it is wanted.
+
 ## 1.69.0
 
 - Fixed: adding a tracker to a cluster pushed the icons above it out of their places. A tracker joins the end of the group's list, but its cell was the first free one reading across, which in a shape with gaps is a hole further up; taking that place shifted every icon after it along by one. A new icon now takes the first free cell after the last one in use, so nothing that was already placed moves.
