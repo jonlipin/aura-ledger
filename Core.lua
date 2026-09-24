@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.69.1"
+ns.VERSION = "1.70.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -312,14 +312,47 @@ function ns.MarkShapedGroups()
 	end
 end
 
+-- Makes room at (c, r) and puts the tracker in it. "row" opens a whole line there and moves
+-- everything from that line on along; "col" opens one place in that line only. The tracker's own
+-- cell is taken out first, so a move within the same group does not shove itself along.
+function ns.OpenCellAt(g, t, c, r, axis)
+	if not g or not t or g.style == "bars" then return false end
+	ns.FitCells(g)
+	local _, idx = ns.CellOf(g, t)
+	if not idx then return false end
+	local mine = table.remove(g.cells, idx)
+	table.remove(g.trackers, idx)
+	if axis == "row" then
+		for _, cell in ipairs(g.cells) do
+			if cell.r >= r then cell.r = cell.r + 1 end
+		end
+	else
+		for _, cell in ipairs(g.cells) do
+			if cell.r == r and cell.c >= c then cell.c = cell.c + 1 end
+		end
+	end
+	mine.c, mine.r = c, r
+	g.cells[#g.cells + 1] = mine
+	ns.SortCells(g)
+	local pos
+	for i, cell in ipairs(g.cells) do if cell == mine then pos = i break end end
+	ns.NormalizeCells(g)
+	if not pos then return false end
+	table.insert(g.trackers, pos, t)
+	g.shaped = true
+	return true
+end
+
 -- Where a dragged tracker lands. Held against a free cell it takes that cell and nothing else
--- moves; otherwise it is an ordinary drop at a place in the group's list.
-function ns.DropTracker(t, to, index, c, r)
+-- moves. Held against a seam it opens a place there. Otherwise it is an ordinary drop at a place in
+-- the group's list.
+function ns.DropTracker(t, to, index, c, r, axis)
 	if not t or not to then return false end
 	if c and to.style ~= "bars" then
 		local from = ns.FindGroupOf(t)
 		if from ~= to then ns.MoveTracker(t, to) else ns.FitCells(to) end
-		if ns.PlaceTrackerCell(to, t, c, r) then
+		local placed = axis and ns.OpenCellAt(to, t, c, r, axis) or ns.PlaceTrackerCell(to, t, c, r)
+		if placed then
 			ns.Changed()
 			return true
 		end

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.70.0
+
+- Dropping an icon on the seam between two rows of a cluster now opens a new row there, and everything below moves down. It used to be an ordinary insert into the group's list, so an icon aimed at the gap simply joined the row underneath.
+- The same on the seam between two icons in a row: it opens one place in that row, and only the icons to that side of it move along. Nothing in any other row is touched.
+- New: shift-click marks icons, and dragging any marked one moves them all together, keeping their places relative to the one in your hand. So a block of a cluster can be picked up and set down somewhere else with its shape intact. A marked ring shows which are held, a plain click puts them all down, and turning arranging off releases them.
+- If a marked icon would land on a place another icon already holds, it goes on the end of the shape instead of standing on it, so nothing is lost or doubled up.
+- Dragging every icon of a group at once moves the group rather than emptying it into a new one.
+
 ## 1.69.1
 
 - Fixed: dragging an icon across a cluster raised the tooltip of every tracker it passed over, which covers the very icons being aimed at. Nothing puts up a tooltip now while something is on the cursor, and whatever was being hovered when the drag started goes away with it. Hovering with nothing in hand still gives the tooltip, drag hints and all, which is when it is wanted.

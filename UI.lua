@@ -862,7 +862,7 @@ local function CreateBookButton(parent, onParchment, art)
 		-- The list is checked before the ghost goes away, while the cursor is still over the row.
 		local _, cursorY = ns.Display.CursorUI()
 		local listGroup, listIndex, kind = UI:TreeDropAt(cursorY)
-		local cancelled, cx, cy, target, index, cellC, cellR = ns.Display:EndGhost()
+		local cancelled, cx, cy, target, index, cellC, cellR, cellAxis = ns.Display:EndGhost()
 		if kind then
 			ns.TrackHistory(h, listGroup, listIndex)
 		elseif cancelled then
@@ -872,7 +872,11 @@ local function CreateBookButton(parent, onParchment, art)
 			-- there keep their places, and is then moved into the cell it was held against.
 			local held = target and cellC
 			local t = ns.TrackHistory(h, target, held and nil or index, cx - 20, cy + 20)
-			if held and t and ns.PlaceTrackerCell(target, t, cellC, cellR) then ns.Changed() end
+			if held and t then
+				local placed = cellAxis and ns.OpenCellAt(target, t, cellC, cellR, cellAxis)
+					or ns.PlaceTrackerCell(target, t, cellC, cellR)
+				if placed then ns.Changed() end
+			end
 		end
 		UI:ShowSelection()
 		UI:RefreshHistory()
@@ -1347,7 +1351,7 @@ local function CreateTreeRow(parent)
 		if not from then ns.Display:EndGhost() return end
 		local _, cursorY = ns.Display.CursorUI()
 		local listGroup, listIndex, kind, overT = UI:TreeDropAt(cursorY)
-		local cancelled, cx, cy, screenGroup, index, cellC, cellR = ns.Display:EndGhost()
+		local cancelled, cx, cy, screenGroup, index, cellC, cellR, cellAxis = ns.Display:EndGhost()
 		if kind == "before" or kind == "after" then
 			if overT ~= t then ns.MoveTracker(t, listGroup, listIndex) end
 		elseif kind == "group" then
@@ -1355,7 +1359,7 @@ local function CreateTreeRow(parent)
 		elseif kind == "new" or cancelled then
 			if #from.trackers > 1 then ns.MoveTracker(t, ns.NewGroupLike(from)) end
 		elseif screenGroup then
-			ns.DropTracker(t, screenGroup, index, cellC, cellR)
+			ns.DropTracker(t, screenGroup, index, cellC, cellR, cellAxis)
 		else
 			if #from.trackers > 1 then ns.MoveTracker(t, ns.NewGroupLike(from, cx - 18, cy + 18))
 			else from.x, from.y = cx - 18, cy + 18 ns.Display:Rebuild() end
@@ -2836,6 +2840,8 @@ end
 
 function UI:SetEditMode(on, quiet)
 	on = on and true or false
+	-- Nothing stays marked once arranging is over.
+	if not on and ns.Display and ns.Display.ClearMarks then ns.Display:ClearMarks() end
 	ns.db.unlocked = on
 	GetEditBar():SetShown(on)
 	-- The window covers the things being arranged, so it steps aside for the duration and comes
@@ -3289,7 +3295,7 @@ local STEPS = {
 	},
 	{
 		title = "Building a cluster",
-		text = "While arranging, hold one icon against a free side of another, above, below or either side, and it hangs there. The side you are aiming at lights up green.\n\nA group you shape this way keeps every icon in its place, gaps and all. |cffffd000Lay the icons out in rows again|r in the group's settings undoes it.\n\nThat is everything. The |cffffd000?|r button brings this back whenever you want it.",
+		text = "While arranging, hold one icon against a free side of another, above, below or either side, and it hangs there. The side you are aiming at lights up. Aim at the seam between two rows to open a new row there. Shift-click several icons to mark them, and dragging one of them moves them all together.\n\nA group you shape this way keeps every icon in its place, gaps and all. |cffffd000Lay the icons out in rows again|r in the group's settings undoes it.\n\nThat is everything. The |cffffd000?|r button brings this back whenever you want it.",
 		target = function() return UI.editButton end,
 	},
 }

@@ -44,6 +44,8 @@ local ready = false
 -- ------------------------------------------------------------------
 -- Helpers
 -- ------------------------------------------------------------------
+function Display:ForgetMarks() marked = {} end
+
 function Display:IsUnlocked()
 	if not ns.db then return false end
 	if ns.db.unlocked then return true end
@@ -1346,6 +1348,39 @@ end
 -- ------------------------------------------------------------------
 -- Tracker widgets
 -- ------------------------------------------------------------------
+-- Icons marked with shift-click, to be moved as one. Held by tracker, and only while arranging.
+local marked = {}
+
+function Display:IsMarked(t) return t ~= nil and marked[t] == true end
+
+function Display:ToggleMark(t)
+	if not t then return end
+	if marked[t] then marked[t] = nil else marked[t] = true end
+	self:Rebuild()
+end
+
+function Display:ClearMarks()
+	if not next(marked) then return end
+	marked = {}
+	self:Rebuild()
+end
+
+-- The marked ones, in the order their group lists them, so they land in a predictable order.
+function Display:MarkedList(g)
+	local out = {}
+	if not ns.profile then return out end
+	for _, group in ipairs(ns.profile.groups) do
+		if not g or group == g then
+			for _, t in ipairs(group.trackers) do
+				if marked[t] then out[#out + 1] = t end
+			end
+		end
+	end
+	return out
+end
+
+function Display:MarkedCount() return #self:MarkedList() end
+
 local function WidgetTooltip(w)
 	local t = w.tracker
 	if not t then return end
@@ -1680,6 +1715,12 @@ local function CreateWidget(parent)
 	w:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	w:SetScript("OnClick", function(self)
 		if not self.tracker then return end
+		-- Shift-click gathers icons up to be moved together; a plain click puts them all down.
+		if IsShiftKeyDown and IsShiftKeyDown() and Display:IsUnlocked() then
+			Display:ToggleMark(self.tracker)
+			return
+		end
+		Display:ClearMarks()
 		ns.selected = { group = self.group, tracker = self.tracker }
 		if ns.UI and ns.UI.ShowSelection then ns.UI:ShowSelection(true) end
 	end)
@@ -2608,6 +2649,25 @@ local function LayoutGroup(f, g, visible, unlocked)
 		end
 		widget.cellC, widget.cellR = rawA[k], rawB[k]
 		PointAtCell(widget, f, flow, cellA[k], cellB[k], stepX, stepY)
+		-- Marked to be moved with the others: a ring in a color nothing else here uses.
+		if unlocked and Display:IsMarked(item.t) then
+			if not widget.markRing then
+				widget.markRing = {}
+				for i = 1, 4 do
+					local line = widget:CreateTexture(nil, "OVERLAY")
+					line:SetColorTexture(0.4, 0.85, 1, 0.95)
+					widget.markRing[i] = line
+				end
+				local mt, mb, ml, mr = widget.markRing[1], widget.markRing[2], widget.markRing[3], widget.markRing[4]
+				mt:SetPoint("TOPLEFT", -2, 2) mt:SetPoint("TOPRIGHT", 2, 2) mt:SetHeight(2)
+				mb:SetPoint("BOTTOMLEFT", -2, -2) mb:SetPoint("BOTTOMRIGHT", 2, -2) mb:SetHeight(2)
+				ml:SetPoint("TOPLEFT", -2, 2) ml:SetPoint("BOTTOMLEFT", -2, -2) ml:SetWidth(2)
+				mr:SetPoint("TOPRIGHT", 2, 2) mr:SetPoint("BOTTOMRIGHT", 2, -2) mr:SetWidth(2)
+			end
+			for _, line in ipairs(widget.markRing) do line:Show() end
+		elseif widget.markRing then
+			for _, line in ipairs(widget.markRing) do line:Hide() end
+		end
 		widget:EnableMouse(unlocked)
 		-- Motion without clicks: a tooltip on hover during play, with clicks still going past to
 		-- whatever is behind, which is where they belong while the window is shut. A cell under a
@@ -2931,9 +2991,14 @@ function Display:DropCell(f, g, cx, cy, dragged)
 	local dc = sx * axis.c[1] + sy * axis.c[2]
 	local dr = sx * axis.r[1] + sy * axis.r[2]
 	local c, r = bestW.cellC + dc, bestW.cellR + dr
-	-- A side with an icon already on it is not a place to hang one, but it is a place to slot one
-	-- in between: the caller is told which side, with no cell, and puts it in at that point.
-	if not ns.CellFree(g, c, r, dragged) then return nil, nil, bestW, sx, sy, true end
+	-- A side with an icon already on it is a seam, and a seam is a place to open. The place that
+	-- opens is the one on the far side of the seam: below the icon it is the next line down, above
+	-- it, the icon's own line, which everything from there on then moves out of.
+	if not ns.CellFree(g, c, r, dragged) then
+		local ic = (dc < 0) and bestW.cellC or c
+		local ir = (dr < 0) and bestW.cellR or r
+		return ic, ir, bestW, sx, sy, (dr ~= 0) and "row" or "col"
+	end
 	return c, r, bestW, sx, sy
 end
 
@@ -3027,17 +3092,19 @@ local function GetGhost()
 		local g, f
 		if not overWindow then g, f = Display:GroupAt(cx, cy, self.except) end
 		Highlight(f)
-		local cellC, cellR, against, sx, sy, between
-		if g and not overWindow then cellC, cellR, against, sx, sy, between = Display:DropCell(f, g, cx, cy, self.dragTracker) end
-		ShowDropMark((cellC or between) and f or nil, g, against, sx or 0, sy or 0, between)
+		local cellC, cellR, against, sx, sy, axis
+		if g and not overWindow then cellC, cellR, against, sx, sy, axis = Display:DropCell(f, g, cx, cy, self.dragTracker) end
+		ShowDropMark(cellC and f or nil, g, against, sx or 0, sy or 0, axis)
 		if overWindow then
 			-- Over the window, the list knows best what a drop would do.
 			local label = ns.UI and ns.UI.TreeDropLabel and ns.UI:TreeDropLabel(cy, self.dragTracker)
 			self.text:SetText(label or self.windowText or "|cffff6060Cancel|r")
-		elseif cellC or between then
+		elseif cellC then
 			local name = against and against.tracker and (against.tracker.name or ("spell " .. tostring(against.tracker.id)))
-			if between then
-				self.text:SetText("|cff40ff60Slot in beside " .. (name or ns.GroupName(g)) .. "|r")
+			if axis == "row" then
+				self.text:SetText("|cff40ff60Open a new row here|r")
+			elseif axis == "col" then
+				self.text:SetText("|cff40ff60Make room beside " .. (name or ns.GroupName(g)) .. "|r")
 			else
 				self.text:SetText("|cff40ff60Attach to " .. (name or ns.GroupName(g)) .. "|r")
 			end
@@ -3071,19 +3138,8 @@ function Display:EndGhost()
 	if ns.UI and ns.UI.frame and ns.UI.frame:IsShown() and ns.UI.frame:IsMouseOver() then return true, cx, cy end
 	local g, f = self:GroupAt(cx, cy, gh.except)
 	if g then
-		local c, r, against, sx, sy, between = self:DropCell(f, g, cx, cy, gh.dragTracker)
-		local index = self:InsertIndex(f, g, cx, cy)
-		if between and against and against.tracker then
-			-- In between: the icon takes the place of the one whose side was pointed at, or the one
-			-- after it, and the rest of the shape moves along.
-			for i, other in ipairs(g.trackers) do
-				if other == against.tracker then
-					index = ((sx > 0) or (sy < 0)) and (i + 1) or i
-					break
-				end
-			end
-		end
-		return false, cx, cy, g, index, c, r
+		local c, r, _, _, _, axis = self:DropCell(f, g, cx, cy, gh.dragTracker)
+		return false, cx, cy, g, self:InsertIndex(f, g, cx, cy), c, r, axis
 	end
 	return false, cx, cy
 end
@@ -3129,22 +3185,79 @@ end
 
 -- Dragging a tracker moves that tracker, wherever it came from. The group itself is moved by the
 -- titled plate edit mode draws behind it, which is what that plate is for.
+-- Several at once. The one actually dragged lands where it was aimed, and the rest keep their
+-- places relative to where it came from. A place already taken when they arrive is given up rather
+-- than fought over: that tracker goes on the end of the shape instead.
+function Display:DropMarked(list, anchor, from, target, index, cellC, cellR, axis, cx, cy)
+	local offsets = {}
+	local base = ns.CellOf and ns.CellOf(from, anchor)
+	if base then
+		for _, t in ipairs(list) do
+			if t ~= anchor then
+				local cell = ns.CellOf(from, t)
+				if cell then offsets[t] = { c = cell.c - base.c, r = cell.r - base.r } end
+			end
+		end
+	end
+
+	local to = target
+	if not to then
+		if #from.trackers == #list then
+			-- The whole group is moving: it is simpler and kinder to move the group itself.
+			from.x, from.y = cx - 18, cy + 18
+			local f = active[from.uid]
+			if f then ApplyPosition(f, from) end
+			ns.Changed()
+			self:ClearMarks()
+			return
+		end
+		to = ns.NewGroupLike(from, cx - 18, cy + 18)
+	end
+
+	ns.DropTracker(anchor, to, index, cellC, cellR, axis)
+	local landed = ns.CellOf and ns.CellOf(to, anchor)
+	for _, t in ipairs(list) do
+		if t ~= anchor then
+			ns.MoveTracker(t, to)
+			local off = offsets[t]
+			if landed and off and to.style ~= "bars" then
+				ns.PlaceTrackerCell(to, t, landed.c + off.c, landed.r + off.r)
+			end
+		end
+	end
+	ns.Changed()
+	self:ClearMarks()
+end
+
 function Display:WidgetDragStart(w)
 	local g, t = w.group, w.tracker
 	if not g or not t or not self:IsUnlocked() then return end
 	w.pulling = true
-	-- The tracker goes with the ghost: its own cell must not count as being in its way.
-	self:BeginGhost(t.icon, (#g.trackers > 1) and "Drop it in the open for a place of its own" or "Drop it where you want it", nil, nil, t)
+	-- A marked icon brings the rest of the marked ones with it, keeping their places relative to it.
+	w.carrying = nil
+	if self:IsMarked(t) then
+		local list = self:MarkedList()
+		if #list > 1 then w.carrying = list end
+	end
+	local text = (#g.trackers > 1) and "Drop it in the open for a place of its own" or "Drop it where you want it"
+	if w.carrying then text = ("Moving %d together"):format(#w.carrying) end
+	self:BeginGhost(t.icon, text, nil, nil, t)
 end
 
 function Display:WidgetDragStop(w)
 	if not w.pulling then return end
 	w.pulling = false
 	local g, t = w.group, w.tracker
-	local cancelled, cx, cy, target, index, cellC, cellR = self:EndGhost()
+	local cancelled, cx, cy, target, index, cellC, cellR, axis = self:EndGhost()
+	local carrying = w.carrying
+	w.carrying = nil
 	if cancelled or not g or not t then return end
+	if carrying then
+		self:DropMarked(carrying, t, g, target, index, cellC, cellR, axis, cx, cy)
+		return
+	end
 	if target then
-		ns.DropTracker(t, target, index, cellC, cellR)
+		ns.DropTracker(t, target, index, cellC, cellR, axis)
 	elseif #g.trackers == 1 then
 		-- A tracker on its own is its whole group, so dropping it somewhere just puts the group
 		-- there: making a second group to hold it and throwing the first away moves nothing.
