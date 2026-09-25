@@ -1,0 +1,5 @@
+package-as: AuraLedger
+
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
