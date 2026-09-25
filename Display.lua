@@ -2033,6 +2033,8 @@ local function TickWidget(w, g, now)
 	-- The ~ is the one mark for a time the addon is carrying rather than reading: either it was
 	-- guessed, or it is the last clean read counting on.
 	local text = g.timers ~= false and (((e.estimated or e.stale) and "~" or "") .. ns.FormatTime(rem)) or ""
+	local sameText = (w.shownText == text)
+	w.shownText = text
 	if g.style == "bars" then
 		if w.underSlot then BarArtShown(w, not w.auraKnown) end
 		local frac = e.duration > 0 and min(1, rem / e.duration) or 1
@@ -2040,7 +2042,7 @@ local function TickWidget(w, g, now)
 		-- The manager's spark marks where a draining bar has got to. A full bar has nowhere to put
 		-- it, and a missing tracker draws a full bar, which is what put one at the end.
 		if w.barPip then w.barPip:SetShown(frac > 0 and frac < 1) end
-		w.duration:SetText(text)
+		if not sameText then w.duration:SetText(text) end
 		local width = w.bar:GetWidth() or 0
 		if frac > 0 and frac < 1 and width > 0 and #skin.decor == 0 then
 			w.bar.spark:ClearAllPoints()
@@ -2050,7 +2052,7 @@ local function TickWidget(w, g, now)
 			w.bar.spark:Hide()
 		end
 	else
-		w.time:SetText(text)
+		if not sameText then w.time:SetText(text) end
 	end
 end
 
@@ -2823,6 +2825,21 @@ function Display:Refresh()
 	self:Tick(GetTime())
 end
 
+-- Just the drawing: the fill, the spark and the time on whatever is already on screen. Cheap
+-- enough to run every frame, which is what makes a draining bar move smoothly rather than in
+-- tenth-of-a-second steps.
+function Display:Draw(now)
+	if not ready then return end
+	for _, f in pairs(active) do
+		if f.group and f:IsShown() then
+			for _, w in ipairs(f.widgets) do
+				if w:IsShown() then TickWidget(w, f.group, now) end
+			end
+		end
+	end
+end
+
+-- Deciding what should be on screen, which is the part worth doing only now and then.
 function Display:Tick(now)
 	if not ready then return end
 	local unlocked = self:IsUnlocked()

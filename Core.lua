@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.70.3"
+ns.VERSION = "1.71.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -2088,6 +2088,9 @@ function ns.OnUpdate(elapsed)
 		local gap = ns.restricted and 0.25 or 0.05
 		if not ns.lastScan or now - ns.lastScan >= gap then ns.Scan() end
 	end
+	-- Drawing every frame is what makes a bar drain smoothly; working out what should be on screen
+	-- is the expensive half and stays on its tenth of a second.
+	if ns.Display and ns.Display.Draw then ns.Display:Draw(now) end
 	tickAcc = tickAcc + elapsed
 	if tickAcc >= 0.1 then
 		tickAcc = 0
