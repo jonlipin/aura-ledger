@@ -756,8 +756,11 @@ local function BookTooltip(b)
 		if h.duration and h.duration > 0 then GameTooltip:AddLine("Lasts " .. ns.FormatTime(h.duration), 0.8, 0.8, 0.8) end
 	end
 	GameTooltip:AddLine(" ")
-	if ns.CombatTrackable and ns.CombatTrackable(h) then
+	local why = ns.CombatTrackableWhy and ns.CombatTrackableWhy(h) or "no"
+	if why == "yes" then
 		GameTooltip:AddLine("Marked combat: the game can follow this one by spell, so a group drawn by the game stays correct all through a fight.", 0.45, 0.75, 1, true)
+	elseif why == "off" then
+		GameTooltip:AddLine("Nothing can be marked while the game's Cooldown Manager is switched off, which it is by default on this build. Turn it on in the game's Options, under Gameplay Enhancements, and the book will say which spells it can follow.", 0.8, 0.7, 0.5, true)
 	else
 		GameTooltip:AddLine("Not marked combat: the game cannot follow this one by spell, so the addon draws it, and during a fight it shows the reading taken before the fight started.", 0.8, 0.7, 0.5, true)
 	end

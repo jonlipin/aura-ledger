@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.70.2"
+ns.VERSION = "1.70.3"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1535,6 +1535,29 @@ function ns.CombatCatalogue(force)
 end
 
 -- A book row or ledger row the game could follow per spell.
+-- Is the game's Cooldown Manager switched on? It is off by default on this build, and with it off
+-- it has no catalogue to offer, which is a different thing from a spell it cannot follow.
+function ns.CooldownManagerOn()
+	if C_CVar and C_CVar.GetCVar then
+		local ok, v = pcall(C_CVar.GetCVar, "cooldownViewerEnabled")
+		if ok and v ~= nil then return v ~= "0" and v ~= false end
+	end
+	if GetCVar then
+		local ok, v = pcall(GetCVar, "cooldownViewerEnabled")
+		if ok and v ~= nil then return v ~= "0" and v ~= false end
+	end
+	-- No way to ask: judge by whether it gave us anything.
+	return ns.CombatCatalogue().count > 0
+end
+
+-- Whether the manager could follow this one, and if not, why not: "off" when the manager itself is
+-- switched off, "no" when it is on and does not know this spell.
+function ns.CombatTrackableWhy(h)
+	if ns.CombatTrackable(h) then return "yes" end
+	if ns.CombatCatalogue().count == 0 and not ns.CooldownManagerOn() then return "off" end
+	return "no"
+end
+
 function ns.CombatTrackable(h)
 	if not h then return false end
 	local cat = ns.CombatCatalogue()

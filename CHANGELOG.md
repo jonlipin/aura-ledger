@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.70.3
+
+- The game's Cooldown Manager is switched off by default on this build, and with it off it offers no list of what it can follow. The book was reading that as "the game cannot follow this one by spell" and saying so on every row, which is not true: the game can, once the manager is on. A row now says which of the two it is, and where to turn the manager on (the game's Options, under Gameplay Enhancements).
+- Nothing else changes. Handing a group to the game to draw does not go through the Cooldown Manager, so it is unaffected by whether the manager is on, and so are cooldown and carried item trackers.
+
 ## 1.70.2
 
 - Fixed: a cluster that already had an empty row in it kept it. Closing the gap only happened when a tracker left the group, so a shape that arrived with one, saved by an older version or set down with a hole in it, was never gone back over. A cluster with a row of nothing in it is now closed up whenever the shape is worked out, however the gap came about.
