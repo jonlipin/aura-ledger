@@ -569,7 +569,7 @@ local function PlaceBarShape(w, ref, width, height, want)
 	-- The measurement is right for art that stretches with the bar and wrong for a frame round it,
 	-- and what a bar copies is a frame: the old placement, which reckons everything in pixels off
 	-- the donor's height, is what fits. Kept for comparison, not for the asking.
-	local pieces = (ns.db and ns.db.barArt == "reckoned") and nil or (s and s.barShape)
+	local pieces = (not (ns.db and ns.db.barArt == "reckoned")) and (s and s.barShape) or nil
 	local pool = w.barShape or {}
 	w.barShape = pool
 	if not pieces or not want then
@@ -1189,8 +1189,8 @@ function Display:IconReport(emit)
 	local s = BuildSkin()
 	do
 		local hh = 20
-		local t = (ns.db and ns.db.plateEven) and nil or (tonumber(ns.db and ns.db.plateTop) or 0.08)
-		local b = (ns.db and ns.db.plateEven) and nil or (tonumber(ns.db and ns.db.plateBottom) or 0.35)
+		local t = (not (ns.db and ns.db.plateEven)) and (tonumber(ns.db and ns.db.plateTop) or 0.08) or nil
+		local b = (not (ns.db and ns.db.plateEven)) and (tonumber(ns.db and ns.db.plateBottom) or 0.35) or nil
 		emit(("bar plate reach: %s above, %s below, %.3f left, %.3f right (shares of the bar's height)"):format(
 			t and ("%.3f"):format(t) or "even", b and ("%.3f"):format(b) or "even",
 			tonumber(ns.db and ns.db.plateLeft) or 0, tonumber(ns.db and ns.db.plateRight) or 0))
@@ -2881,11 +2881,21 @@ end
 function Display:Rebuild()
 	if ns.SyncAuraSounds then ns.SyncAuraSounds() end
 	if not ready then return end
+	-- Every way arranging ends (Done, the minimap, the slash command, the window closing) comes
+	-- through here, before a group still being held can be hidden.
+	if not self:IsUnlocked() and self.EndGroupDrags then self:EndGroupDrags() end
 	local wanted = {}
 	for _, g in ipairs(ns.profile.groups) do wanted[g.uid] = g end
 	for uid, f in pairs(active) do
 		if not wanted[uid] then
 			f:Hide()
+			-- A group taken away mid-drag must not carry the drag into the group this frame is used
+			-- for next.
+			if f.moving then
+				f.moving, f.dragFrom, f.dragL, f.dragT = false, nil, nil, nil
+				f:SetScript("OnUpdate", nil)
+				if Display.ShowGuides then Display.ShowGuides(nil, nil) end
+			end
 			f.group = nil
 			if f.slotC then
 				for _, c in pairs(f.slotC) do
@@ -3203,14 +3213,28 @@ function Display:SyncGrid()
 end
 function Display:GridFrame() return gridFrame end
 
--- What there is to line up with: every other group, and every tracker in it. What is being
--- dragged is left out, so it never lines up with itself.
+-- How close a box's middle has to come to the middle of the screen to be put there: half a grid
+-- step, so the lines either side of the centre keep their own share, and never more than this.
+local CENTRE_MAX = 12
+-- How far apart the other way a tracker inside a group can be and still offer its middle to line up
+-- with. A group's outline counts from anywhere; the trackers inside groups far away would only be a
+-- dense row of magnets.
+local NEAR_DIST = 160
+
+-- What there is to line up with, in the order the groups are listed, so that a tie always breaks the
+-- same way: every other group's outline, marked whole, and every tracker in it. What is being dragged
+-- is left out, so it never lines up with itself.
 function Display:AlignTargets(ignoreGroup, ignoreWidget)
 	local out = {}
-	for _, f in pairs(active) do
-		if f.group and f.group ~= ignoreGroup and f:IsShown() then
+	if not ns.profile then return out end
+	for _, g in ipairs(ns.profile.groups) do
+		local f = active[g.uid]
+		if f and g ~= ignoreGroup and f:IsShown() then
 			local fb = BoxOf(f)
-			if fb then out[#out + 1] = fb end
+			if fb then
+				fb.whole = true
+				out[#out + 1] = fb
+			end
 			for _, w in ipairs(f.widgets or {}) do
 				if w ~= ignoreWidget and w:IsShown() and w.tracker then
 					local wb = BoxOf(w)
@@ -3226,47 +3250,139 @@ local function NearestLine(v, origin, size)
 	return origin + floor((v - origin) / size + 0.5) * size
 end
 
--- How far to nudge a box so it lines up. Lining up with a tracker already placed comes first,
--- because it is what somebody is usually aiming for; failing that the nearest grid line, by
--- whichever of the box's edges or its middle is closest to one. Returns the nudge, and where the
--- guide lines go when it lined up with something.
+-- How far apart two spans are, or 0 when they overlap.
+local function SpanGap(lo1, hi1, lo2, hi2)
+	if lo2 > hi1 then return lo2 - hi1 end
+	if lo1 > hi2 then return lo1 - hi2 end
+	return 0
+end
+
+-- Everything a box could line up with one way across the screen: one of its points and a line, like
+-- with like, an edge with an edge and the middle with a middle. a and z are its edges this way, lo
+-- and hi its extent the other way, and ka, kz, klo, khi name the same sides on a target. The
+-- middle of the screen is offered to the edges here; the middle has a rule of its own.
+local function Pairs(a, z, lo, hi, targets, ka, kz, klo, khi, c)
+	local m = (a + z) / 2
+	local out = {}
+	local function Add(p, line, gap, kind, centred)
+		out[#out + 1] = { d = line - p, line = line, gap = gap, kind = kind, centred = centred }
+	end
+	Add(a, c, -1, "centre")
+	Add(z, c, -1, "centre")
+	for _, tb in ipairs(targets) do
+		local gap = SpanGap(lo, hi, tb[klo], tb[khi])
+		local ta, tz = tb[ka], tb[kz]
+		local tm = (ta + tz) / 2
+		if tb.whole then
+			local centred = abs(tm - c) < 0.01
+			Add(a, ta, gap, "edge", centred)
+			Add(a, tz, gap, "edge", centred)
+			Add(m, tm, gap, "middle", centred)
+			Add(z, ta, gap, "edge", centred)
+			Add(z, tz, gap, "edge", centred)
+		elseif gap <= NEAR_DIST then
+			Add(m, tm, gap, "middle", false)
+		end
+	end
+	return out, m
+end
+
+-- One way across the screen. Returns the nudge and where the guide goes, either of them nil for none.
+-- reach is how close the middle has to come to the centre c, edgeReach how close an edge has to come
+-- to it, and size the grid step, or nil with Snap to grid off.
+local function SnapAxis(a, z, lo, hi, targets, ka, kz, klo, khi, c, reach, edgeReach, size)
+	local pairs_, m = Pairs(a, z, lo, hi, targets, ka, kz, klo, khi, c)
+	-- A line that is not the centre but sits within CENTRE_MAX of it is left out, at every grid size:
+	-- all it could do is put a guide a few units beside the red one, which is what looked broken. The
+	-- edges of a neighbour that is itself centred are kept, since they are where that neighbour is.
+	local function Allowed(pr)
+		if pr.kind == "centre" or pr.centred then return true end
+		local off = abs(pr.line - c)
+		return off < 0.01 or off > CENTRE_MAX
+	end
+	local toCentre = c - m
+	-- Where something that belongs to the centre goes: its middle on the centre, or an edge of a
+	-- centred neighbour, whichever is the nearer landing, as long as the middle stays within reach.
+	-- Choosing the nearest of the two, rather than letting one win within some distance, is what
+	-- keeps it from going backwards as the cursor goes forwards.
+	local function Centre()
+		local best, at = toCentre, c
+		for _, pr in ipairs(pairs_) do
+			if pr.centred and pr.kind == "edge" and abs(m + pr.d - c) <= reach and abs(pr.d) < abs(best) then
+				best, at = pr.d, pr.line
+			end
+		end
+		return best, at
+	end
+	-- Whether a nudge would leave the middle within reach of the centre, without being on it.
+	local function NearCentre(nudge)
+		local off = abs(m + nudge - c)
+		return off > 0.01 and off <= reach
+	end
+
+	-- 1. The middle near the middle of the screen goes there, ahead of everything else.
+	if abs(toCentre) <= reach then return Centre() end
+
+	-- 2. Lining up, the nearest first. On a tie the middle of the screen, then whatever sits nearer
+	--    the other way, then whichever was found first. Lining up that would leave the middle within
+	--    reach of the centre goes to the centre instead, unless it is lining up with a centred
+	--    neighbour, which is how a bar is topped off level with one.
+	local near, nearAt, nearPr
+	for _, pr in ipairs(pairs_) do
+		local limit = (pr.kind == "centre") and edgeReach or ALIGN_DIST
+		if Allowed(pr) and abs(pr.d) <= limit then
+			local better = (near == nil) or abs(pr.d) < abs(near)
+			if not better and abs(pr.d) == abs(near) and nearPr.kind ~= "centre"
+				and (pr.kind == "centre" or pr.gap < nearPr.gap) then
+				better = true
+			end
+			if better then near, nearAt, nearPr = pr.d, pr.line, pr end
+		end
+	end
+	if near then
+		if not nearPr.centred and NearCentre(near) then return Centre() end
+		return near, nearAt
+	end
+	if not size then return nil end
+
+	-- 3. The grid: the nearest line, by whichever of the edges or the middle is closest to one.
+	local grid
+	for _, p in ipairs({ a, m, z }) do
+		local dd = NearestLine(p, c, size) - p
+		if not grid or abs(dd) < abs(grid) then grid = dd end
+	end
+	-- It never carries the box across a line it could line up with, or a box would jump backwards as
+	-- the cursor moved forwards: it stops at the first such line on the way instead.
+	local guide, stopPr
+	if grid ~= 0 then
+		for _, pr in ipairs(pairs_) do
+			if Allowed(pr) and pr.d ~= 0 and (pr.d > 0) == (grid > 0) and abs(pr.d) < abs(grid) then
+				grid, guide, stopPr = pr.d, pr.line, pr
+			end
+		end
+	end
+	-- A landing, stopped or not, that leaves the middle within reach of the centre goes to the centre;
+	-- only a stop at a centred neighbour keeps its place.
+	if not (stopPr and stopPr.centred) and NearCentre(grid) then return Centre() end
+	local after = m + grid - c
+	-- A landing on the centre line says so, as lining up does.
+	if not guide and (abs(a + grid - c) < 0.01 or abs(after) < 0.01 or abs(z + grid - c) < 0.01) then guide = c end
+	return grid, guide
+end
+
+-- How far to nudge a box so it lines up, each way on its own, and where the guide lines go. The
+-- middle of the screen and lining up with other trackers still happen with Snap to grid off, since
+-- neither is a grid step; only Alt, or the grid being down, turns everything off.
 function Display:SnapBox(box, ignoreGroup, ignoreWidget)
 	if not self:SnapActive() or not box then return 0, 0 end
-	local xs = { box.l, (box.l + box.r) / 2, box.r }
-	local ys = { box.t, (box.t + box.b) / 2, box.b }
-	local dx, dy, gx, gy
-	for _, tb in ipairs(self:AlignTargets(ignoreGroup, ignoreWidget)) do
-		local txs = { tb.l, (tb.l + tb.r) / 2, tb.r }
-		local tys = { tb.t, (tb.t + tb.b) / 2, tb.b }
-		for _, px in ipairs(xs) do
-			for _, tx in ipairs(txs) do
-				local dd = tx - px
-				if abs(dd) <= ALIGN_DIST and (not dx or abs(dd) < abs(dx)) then dx, gx = dd, tx end
-			end
-		end
-		for _, py in ipairs(ys) do
-			for _, ty in ipairs(tys) do
-				local dd = ty - py
-				if abs(dd) <= ALIGN_DIST and (not dy or abs(dd) < abs(dy)) then dy, gy = dd, ty end
-			end
-		end
-	end
-	if ns.db.gridSnap ~= false then
-		local W, H = UIParent:GetWidth() or 0, UIParent:GetHeight() or 0
-		local size = self:GridSize()
-		if not dx then
-			for _, px in ipairs(xs) do
-				local dd = NearestLine(px, W / 2, size) - px
-				if not dx or abs(dd) < abs(dx) then dx = dd end
-			end
-		end
-		if not dy then
-			for _, py in ipairs(ys) do
-				local dd = NearestLine(py, H / 2, size) - py
-				if not dy or abs(dd) < abs(dy) then dy = dd end
-			end
-		end
-	end
+	local W, H = UIParent:GetWidth() or 0, UIParent:GetHeight() or 0
+	local step = self:GridSize()
+	local reach = min(CENTRE_MAX, step / 2)
+	local edgeReach = min(ALIGN_DIST, step / 2)
+	local size = (ns.db.gridSnap ~= false) and step or nil
+	local targets = self:AlignTargets(ignoreGroup, ignoreWidget)
+	local dx, gx = SnapAxis(box.l, box.r, box.b, box.t, targets, "l", "r", "b", "t", W / 2, reach, edgeReach, size)
+	local dy, gy = SnapAxis(box.t, box.b, box.l, box.r, targets, "t", "b", "l", "r", H / 2, reach, edgeReach, size)
 	return dx or 0, dy or 0, gx, gy
 end
 
@@ -3319,6 +3435,7 @@ function Display:GhostLanding(cx, cy)
 	local gh = self.GetGhostFrame and self:GetGhostFrame()
 	local w, h = (gh and gh.boxW) or 40, (gh and gh.boxH) or 40
 	local l, t = cx - w / 2, cy + h / 2
+	if gh and gh.offX then l, t = cx - gh.offX, cy + gh.offY end
 	local dx, dy, gx, gy = self:SnapBox({ l = l, r = l + w, t = t, b = t - h }, gh and gh.ignoreGroup, gh and gh.ignoreWidget)
 	return l + dx, t + dy, w, h, gx, gy
 end
@@ -3432,23 +3549,48 @@ end
 
 -- Is something on the cursor? Anything that would draw over the screen asks first.
 function Display:Dragging()
-	return (ghost ~= nil and ghost:IsShown()) and true or false
+	if ghost ~= nil and ghost:IsShown() then return true end
+	-- A group moved by its plate is being dragged just as much as a tracker on the cursor is.
+	for _, f in pairs(active) do
+		if f.moving and f:IsShown() then return true end
+	end
+	return false
 end
 
 function Display:GetGhostFrame() return GetGhost() end
 
+-- The widget on screen for a tracker, and its group, if it is showing.
+function Display:WidgetFor(t)
+	local g = t and ns.FindGroupOf(t)
+	local f = g and active[g.uid]
+	if not f then return nil end
+	for _, w in ipairs(f.widgets or {}) do
+		if w.tracker == t and w:IsShown() then return w, g end
+	end
+	return nil
+end
+
 -- What is being dragged, so a landing can be the right size and it does not line up with itself.
-function Display:SetGhostSource(w, g)
+function Display:SetGhostSource(w, g, whole)
 	local gh = GetGhost()
 	local box = BoxOf(w)
 	if box then gh.boxW, gh.boxH = box.r - box.l, box.t - box.b end
 	gh.ignoreWidget = w
-	gh.ignoreGroup = (g and #g.trackers == 1) and g or nil
+	gh.ignoreGroup = (g and (whole or #g.trackers == 1)) and g or nil
+	-- The whole group on the cursor: the group is what lands, so the landing is its own outline, held
+	-- where it sits around the tracker being dragged, and it does not line up with where it was.
+	gh.offX, gh.offY = nil, nil
+	local f = whole and g and active[g.uid]
+	local fb = f and BoxOf(f)
+	if box and fb then
+		gh.boxW, gh.boxH = fb.r - fb.l, fb.t - fb.b
+		gh.offX, gh.offY = (box.l + box.r) / 2 - fb.l, fb.t - (box.t + box.b) / 2
+	end
 end
 
 function Display:BeginGhost(icon, freeText, except, windowText, dragTracker)
 	local gh = GetGhost()
-	gh.boxW, gh.boxH, gh.ignoreWidget, gh.ignoreGroup = nil, nil, nil, nil
+	gh.boxW, gh.boxH, gh.ignoreWidget, gh.ignoreGroup, gh.offX, gh.offY = nil, nil, nil, nil, nil, nil
 	-- Whatever was being hovered when the drag started goes away with it.
 	GameTooltip:Hide()
 	gh.icon:SetTexture(icon or QUESTION)
@@ -3485,6 +3627,8 @@ function Display:GroupDragStart(f)
 	local g = f.group
 	if not g or not self:IsUnlocked() then return end
 	f.moving = true
+	-- Whatever was being hovered when the drag started goes away with it.
+	GameTooltip:Hide()
 	local cx, cy = CursorUI()
 	local box = BoxOf(f)
 	f.dragFrom = { cx = cx, cy = cy, l = box and box.l or cx, t = box and box.t or cy }
@@ -3495,6 +3639,9 @@ end
 function Display:GroupDragUpdate(f)
 	local g, from = f.group, f.dragFrom
 	if not g or not from then return end
+	-- Arranging ended under the drag: let it go where it is. It is not a drop, so a lone tracker is
+	-- not put into whatever group happens to be under the cursor.
+	if not self:IsUnlocked() then self:EndGroupDrags() return end
 	local cx, cy = CursorUI()
 	local k = UIScaleOf(f)
 	local w, h = (f:GetWidth() or 0) * k, (f:GetHeight() or 0) * k
@@ -3540,6 +3687,26 @@ function Display:GroupDragStop(f)
 	end
 end
 
+-- Arranging is over while a plate is still held. A group hidden by that gets no OnUpdate and its
+-- plate no OnDragStop, so nothing else would ever end the drag: it is let go here, where the group
+-- was last put, and never dropped into another group, since the drop was never made.
+function Display:EndGroupDrags()
+	local ended = false
+	for _, f in pairs(active) do
+		if f.moving then
+			local g, l, t = f.group, f.dragL, f.dragT
+			f.moving, f.dragFrom, f.dragL, f.dragT = false, nil, nil, nil
+			f:SetScript("OnUpdate", nil)
+			if g and l then self:PlaceGroupTopLeft(g, l, t) end
+			ended = true
+		end
+	end
+	if ended then
+		Highlight(nil)
+		ShowGuides(nil, nil)
+	end
+end
+
 -- Dragging a tracker moves that tracker, wherever it came from. The group itself is moved by the
 -- titled plate edit mode draws behind it, which is what that plate is for.
 -- Several at once. The one actually dragged lands where it was aimed, and the rest keep their
@@ -3559,10 +3726,13 @@ function Display:DropMarked(list, anchor, from, target, index, cellC, cellR, axi
 
 	local to = target
 	if not to then
-		if #from.trackers == #list then
+		if #from.trackers == #list and #self:MarkedList(from) == #list then
 			-- The whole group is moving: it is simpler and kinder to move the group itself.
+			local gh = self:GetGhostFrame()
 			if landL then
 				self:PlaceGroupTopLeft(from, landL, landT)
+			elseif gh and gh.offX then
+				self:PlaceGroupTopLeft(from, cx - gh.offX, cy + gh.offY)
 			else
 				from.x, from.y = cx - 18, cy + 18
 				local f = active[from.uid]
@@ -3610,7 +3780,9 @@ function Display:WidgetDragStart(w)
 	local text = (#g.trackers > 1) and "Drop it in the open for a place of its own" or "Drop it where you want it"
 	if w.carrying then text = ("Moving %d together"):format(#w.carrying) end
 	self:BeginGhost(t.icon, text, nil, nil, t)
-	self:SetGhostSource(w, g)
+	-- Every tracker of the group marked and on the cursor: it is the group that is being moved.
+	local whole = w.carrying and #w.carrying == #g.trackers and #self:MarkedList(g) == #g.trackers
+	self:SetGhostSource(w, g, whole)
 end
 
 function Display:WidgetDragStop(w)

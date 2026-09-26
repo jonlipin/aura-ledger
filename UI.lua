@@ -865,7 +865,7 @@ local function CreateBookButton(parent, onParchment, art)
 		-- The list is checked before the ghost goes away, while the cursor is still over the row.
 		local _, cursorY = ns.Display.CursorUI()
 		local listGroup, listIndex, kind = UI:TreeDropAt(cursorY)
-		local cancelled, cx, cy, target, index, cellC, cellR, cellAxis = ns.Display:EndGhost()
+		local cancelled, cx, cy, target, index, cellC, cellR, cellAxis, landL, landT = ns.Display:EndGhost()
 		if kind then
 			ns.TrackHistory(h, listGroup, listIndex)
 		elseif cancelled then
@@ -874,7 +874,8 @@ local function CreateBookButton(parent, onParchment, art)
 			-- Held against a cell it goes on the end of the group first, so that the icons already
 			-- there keep their places, and is then moved into the cell it was held against.
 			local held = target and cellC
-			local t = ns.TrackHistory(h, target, held and nil or index, cx - 20, cy + 20)
+			local t, into = ns.TrackHistory(h, target, (not held) and index or nil, cx - 20, cy + 20)
+			if not target and landL and into then ns.Display:PlaceGroupTopLeft(into, landL, landT) end
 			if held and t then
 				local placed = cellAxis and ns.OpenCellAt(target, t, cellC, cellR, cellAxis)
 					or ns.PlaceTrackerCell(target, t, cellC, cellR)
@@ -1344,6 +1345,9 @@ local function CreateTreeRow(parent)
 		self.dragging = item
 		GameTooltip:Hide()
 		ns.Display:BeginGhost(item.t.icon, "New group here", nil, "|cff40ff60Drop on a group or tracker, or on empty space for a new group|r", item.t)
+		-- The landing is the size of what is actually being moved, when it is on screen.
+		local w, g = ns.Display:WidgetFor(item.t)
+		if w then ns.Display:SetGhostSource(w, g) end
 	end)
 	row:SetScript("OnDragStop", function(self)
 		local item = self.dragging
@@ -1354,7 +1358,7 @@ local function CreateTreeRow(parent)
 		if not from then ns.Display:EndGhost() return end
 		local _, cursorY = ns.Display.CursorUI()
 		local listGroup, listIndex, kind, overT = UI:TreeDropAt(cursorY)
-		local cancelled, cx, cy, screenGroup, index, cellC, cellR, cellAxis = ns.Display:EndGhost()
+		local cancelled, cx, cy, screenGroup, index, cellC, cellR, cellAxis, landL, landT = ns.Display:EndGhost()
 		if kind == "before" or kind == "after" then
 			if overT ~= t then ns.MoveTracker(t, listGroup, listIndex) end
 		elseif kind == "group" then
@@ -1364,8 +1368,17 @@ local function CreateTreeRow(parent)
 		elseif screenGroup then
 			ns.DropTracker(t, screenGroup, index, cellC, cellR, cellAxis)
 		else
-			if #from.trackers > 1 then ns.MoveTracker(t, ns.NewGroupLike(from, cx - 18, cy + 18))
-			else from.x, from.y = cx - 18, cy + 18 ns.Display:Rebuild() end
+			if #from.trackers > 1 then
+				local ng = ns.NewGroupLike(from, cx - 18, cy + 18)
+				ns.MoveTracker(t, ng)
+				if landL then ns.Display:PlaceGroupTopLeft(ng, landL, landT) end
+			elseif landL then
+				ns.Display:PlaceGroupTopLeft(from, landL, landT)
+				ns.Display:Rebuild()
+			else
+				from.x, from.y = cx - 18, cy + 18
+				ns.Display:Rebuild()
+			end
 		end
 		ns.selected = { group = ns.FindGroupOf(t), tracker = t }
 		UI:ShowSelection()
@@ -2849,7 +2862,7 @@ local function GetEditBar()
 		UI:SyncEditBar()
 	end)
 	grid:SetScript("OnEnter", function(self)
-		TextTooltip(self, "Alignment grid", "Lines over the whole screen, measured out from its middle, so a group can be put dead centre. The cross through the middle and every fourth line are drawn in their own colors, so distance can be counted.", "While it is up, trackers line up with each other's edges and middles as you drag them.")
+		TextTooltip(self, "Alignment grid", "Lines over the whole screen, measured out from its middle, so a group can be put dead centre. The cross through the middle and every fourth line are drawn in their own colors, so distance can be counted.", "While it is up, a group or tracker brought near the middle of the screen is centred on it, and trackers line up with each other edge to edge and middle to middle as you drag them.")
 	end)
 	grid:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
@@ -2884,7 +2897,7 @@ local function GetEditBar()
 		UI:SyncEditBar()
 	end)
 	snap:SetScript("OnEnter", function(self)
-		TextTooltip(self, "Snap to grid", "A group or a tracker you drag settles on the nearest line, by whichever of its edges or its middle is closest to one. Lining up with another tracker still happens either way.")
+		TextTooltip(self, "Snap to grid", "A group or a tracker you drag settles on the nearest line, by whichever of its edges or its middle is closest to one. Bring its middle near the middle of the screen and it goes there, and it lines up with other trackers edge to edge or middle to middle, either way. Hold Alt to place freely.")
 	end)
 	snap:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
@@ -3261,10 +3274,8 @@ function UI:UpdateMinimapButton()
 		border:SetTexture("Interface\\Minimap\\MiniMap-TrackingBorder")
 		mmButton:SetScript("OnClick", function(_, button)
 			if button == "RightButton" then
-				ns.db.unlocked = not ns.db.unlocked
-				ns.Display:Rebuild()
-				UI:SyncToolbar()
-				ns.Print(ns.db.unlocked and "Trackers unlocked: drag them where you want them." or "Trackers locked.")
+				-- The same as the Edit layout button, so the grid, the edit bar and the marks follow.
+				UI:SetEditMode(not ns.db.unlocked)
 			else
 				UI:Toggle()
 			end

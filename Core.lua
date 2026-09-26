@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.72.0"
+ns.VERSION = "1.72.1"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1806,7 +1806,7 @@ function ns.CDM.Restore()
 		C_Timer.After(0, function() if C_CVar and C_CVar.SetCVar then pcall(C_CVar.SetCVar, "cooldownViewerEnabled", "1") end end)
 	end
 	ns.db.cdmPrevious, ns.db.cdmLayout = nil, nil
-	return okW and true or false, okW and nil or "the game refused the layout"
+	return okW and true or false, (not okW) and "the game refused the layout" or nil
 end
 
 -- ------------------------------------------------------------------
