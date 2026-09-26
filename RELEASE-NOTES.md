@@ -11,3 +11,12 @@
 - Fixed: a group held by its plate when arranging ended, and hidden because its tracker only shows while its buff is up, never had its drag ended. Tooltips stayed off for the rest of the session, and the stale drag could later drop that tracker into another group. The drag is now let go where the group was when arranging ends, however it ends (Done, the minimap button, the slash command, or closing the window), and it is not treated as a drop.
 - Fixed: a spell dragged from the book against a free side of a cluster icon could shift icons already in the cluster. It now goes on the end first and then moves into the cell it was held against, so the others stay where they were.
 - A tracker dragged into the open from the book or from the Groups and trackers list now lands where the grid shows it will, at its own size.
+
+## 1.72.0
+
+- New: an alignment grid while arranging. The bar that appears in edit mode has a **Grid** checkbox that lays lines over the whole screen, measured out from its middle so a group can be put dead centre. The cross through the middle, every fourth line, and the rest are each drawn in their own color, so distance can be counted off it.
+- **-** and **+** beside it change how far apart the lines are, from 8 to 128.
+- **Snap to grid** settles a group or a tracker on the nearest line as you drag it, by whichever of its edges or its middle is closest to one. A group follows the grid as it moves, and a tracker dropped in the open shows where it will land before you let go.
+- While the grid is up, trackers also line up with each other: bring an edge or the middle close to another tracker's edge or middle and it lines up exactly, with a guide line drawn across the screen while it does. Lining up with another tracker takes priority over the grid, since it is usually what you are aiming for, and it still works with Snap to grid turned off.
+- Hold **Alt** while dragging to place something freely, with no snapping or lining up at all.
+- The grid is only there while arranging, and it remembers whether you left it on.
