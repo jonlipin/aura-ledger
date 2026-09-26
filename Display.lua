@@ -45,6 +45,7 @@ local ready = false
 -- Helpers
 -- ------------------------------------------------------------------
 function Display:ForgetMarks() marked = {} end
+-- (the grid is shown and hidden from Display:SyncGrid, called when arranging starts or stops)
 
 function Display:IsUnlocked()
 	if not ns.db then return false end
@@ -3038,6 +3039,290 @@ end
 -- The mark that says where a dragged icon would settle: a bright spark laid along the edge it is
 -- being held against, the way the cast bar wears one. It is put against the icon itself rather
 -- than the empty cell, because the edge is what the drop is really about.
+-- ------------------------------------------------------------------
+-- The alignment grid, and lining things up while arranging
+-- ------------------------------------------------------------------
+-- Everything here is in UIParent units: a frame's own position is multiplied by how much bigger it
+-- is drawn than UIParent, so a group at 150% scale lines up by where it actually is on screen.
+local GRID_SIZES = { 8, 12, 16, 20, 24, 32, 40, 48, 64, 80, 96, 128 }
+local GRID_MAJOR = 4          -- every fourth line is drawn stronger, to count distance by
+local ALIGN_DIST = 6          -- how close an edge or middle has to come to line up with another
+local GRID_COLORS = {
+	center = { 1, 0.35, 0.2, 0.9 },     -- the cross through the middle of the screen
+	major = { 1, 0.82, 0, 0.45 },       -- every fourth line
+	minor = { 1, 1, 1, 0.12 },          -- the rest
+}
+
+local function UIScaleOf(obj)
+	local ue = UIParent.GetEffectiveScale and UIParent:GetEffectiveScale() or 1
+	if not ue or ue == 0 then ue = 1 end
+	local oe = obj.GetEffectiveScale and obj:GetEffectiveScale() or 1
+	return (oe or 1) / ue
+end
+
+-- Where something is, as left, right, top and bottom in UIParent units.
+local function BoxOf(obj)
+	if not obj or not obj.GetLeft then return nil end
+	local l, r, t, b = obj:GetLeft(), obj:GetRight(), obj:GetTop(), obj:GetBottom()
+	if not (l and r and t and b) then return nil end
+	local k = UIScaleOf(obj)
+	return { l = l * k, r = r * k, t = t * k, b = b * k }
+end
+Display.BoxOf = BoxOf
+
+function Display:GridSize()
+	local want = tonumber(ns.db and ns.db.gridSize) or 32
+	for _, s in ipairs(GRID_SIZES) do if s == want then return s end end
+	return 32
+end
+
+-- One step bigger or smaller, along the sizes offered.
+function Display:StepGridSize(dir)
+	local now = self:GridSize()
+	local at = 1
+	for i, s in ipairs(GRID_SIZES) do if s == now then at = i end end
+	at = max(1, min(#GRID_SIZES, at + dir))
+	ns.db.gridSize = GRID_SIZES[at]
+	self:SyncGrid()
+	return ns.db.gridSize
+end
+
+-- Snapping, and lining up with other trackers, happen only while the grid is up in edit mode, and
+-- never while Alt is held.
+function Display:SnapActive()
+	if not (ns.db and ns.db.unlocked and ns.db.gridOn) then return false end
+	if IsAltKeyDown and IsAltKeyDown() then return false end
+	return true
+end
+
+local gridFrame
+local function GetGrid()
+	if gridFrame then return gridFrame end
+	local gf = CreateFrame("Frame", "AuraLedgerGrid", UIParent)
+	gf:SetAllPoints(UIParent)
+	gf:SetFrameStrata("BACKGROUND")
+	gf:EnableMouse(false)
+	gf.lines = {}
+	gf:Hide()
+	-- A different screen size moves the middle, so the lines are laid out again.
+	gf:SetScript("OnSizeChanged", function(self) if self:IsShown() then Display:DrawGrid() end end)
+	gridFrame = gf
+	return gf
+end
+
+function Display:DrawGrid()
+	local gf = GetGrid()
+	local W, H = UIParent:GetWidth() or 0, UIParent:GetHeight() or 0
+	if W <= 0 or H <= 0 then return end
+	local size = self:GridSize()
+	local cx, cy = W / 2, H / 2
+	local used = 0
+	local function Line(vertical, pos, kind)
+		used = used + 1
+		local tex = gf.lines[used]
+		if not tex then
+			tex = gf:CreateTexture(nil, "BACKGROUND")
+			gf.lines[used] = tex
+		end
+		local c = GRID_COLORS[kind]
+		tex:SetColorTexture(c[1], c[2], c[3], c[4])
+		tex:ClearAllPoints()
+		local thick = (kind == "center") and 2 or 1
+		if vertical then
+			tex:SetPoint("BOTTOM", gf, "BOTTOMLEFT", pos, 0)
+			tex:SetSize(thick, H)
+		else
+			tex:SetPoint("LEFT", gf, "BOTTOMLEFT", 0, pos)
+			tex:SetSize(W, thick)
+		end
+		tex.kind, tex.vertical, tex.pos = kind, vertical, pos
+		tex:Show()
+	end
+	-- Measured out from the middle, so the centre cross always falls on a line.
+	local nx, ny = floor(cx / size), floor(cy / size)
+	for i = -nx, nx do
+		Line(true, cx + i * size, (i == 0) and "center" or ((i % GRID_MAJOR == 0) and "major" or "minor"))
+	end
+	for i = -ny, ny do
+		Line(false, cy + i * size, (i == 0) and "center" or ((i % GRID_MAJOR == 0) and "major" or "minor"))
+	end
+	for i = used + 1, #gf.lines do gf.lines[i]:Hide() end
+	gf.used = used
+end
+
+-- The lines drawn while something lines up with something else, right across the screen.
+local guides
+local function ShowGuides(gx, gy)
+	if not gx and not gy then
+		if guides then guides:Hide() end
+		return
+	end
+	if not guides then
+		guides = CreateFrame("Frame", nil, UIParent)
+		guides:SetAllPoints(UIParent)
+		guides:SetFrameStrata("TOOLTIP")
+		guides:EnableMouse(false)
+		guides.v = guides:CreateTexture(nil, "OVERLAY")
+		guides.h = guides:CreateTexture(nil, "OVERLAY")
+		guides.v:SetColorTexture(1, 0.35, 1, 0.9)
+		guides.h:SetColorTexture(1, 0.35, 1, 0.9)
+	end
+	local W, H = UIParent:GetWidth() or 0, UIParent:GetHeight() or 0
+	if gx then
+		guides.v:ClearAllPoints()
+		guides.v:SetPoint("BOTTOM", guides, "BOTTOMLEFT", gx, 0)
+		guides.v:SetSize(1, H)
+		guides.v:Show()
+	else
+		guides.v:Hide()
+	end
+	if gy then
+		guides.h:ClearAllPoints()
+		guides.h:SetPoint("LEFT", guides, "BOTTOMLEFT", 0, gy)
+		guides.h:SetSize(W, 1)
+		guides.h:Show()
+	else
+		guides.h:Hide()
+	end
+	guides.gx, guides.gy = gx, gy
+	guides:Show()
+end
+Display.ShowGuides = ShowGuides
+function Display:Guides() return guides end
+
+function Display:SyncGrid()
+	local on = ns.db and ns.db.unlocked and ns.db.gridOn
+	local gf = GetGrid()
+	if on then
+		self:DrawGrid()
+		gf:Show()
+	else
+		gf:Hide()
+		ShowGuides(nil, nil)
+	end
+end
+function Display:GridFrame() return gridFrame end
+
+-- What there is to line up with: every other group, and every tracker in it. What is being
+-- dragged is left out, so it never lines up with itself.
+function Display:AlignTargets(ignoreGroup, ignoreWidget)
+	local out = {}
+	for _, f in pairs(active) do
+		if f.group and f.group ~= ignoreGroup and f:IsShown() then
+			local fb = BoxOf(f)
+			if fb then out[#out + 1] = fb end
+			for _, w in ipairs(f.widgets or {}) do
+				if w ~= ignoreWidget and w:IsShown() and w.tracker then
+					local wb = BoxOf(w)
+					if wb then out[#out + 1] = wb end
+				end
+			end
+		end
+	end
+	return out
+end
+
+local function NearestLine(v, origin, size)
+	return origin + floor((v - origin) / size + 0.5) * size
+end
+
+-- How far to nudge a box so it lines up. Lining up with a tracker already placed comes first,
+-- because it is what somebody is usually aiming for; failing that the nearest grid line, by
+-- whichever of the box's edges or its middle is closest to one. Returns the nudge, and where the
+-- guide lines go when it lined up with something.
+function Display:SnapBox(box, ignoreGroup, ignoreWidget)
+	if not self:SnapActive() or not box then return 0, 0 end
+	local xs = { box.l, (box.l + box.r) / 2, box.r }
+	local ys = { box.t, (box.t + box.b) / 2, box.b }
+	local dx, dy, gx, gy
+	for _, tb in ipairs(self:AlignTargets(ignoreGroup, ignoreWidget)) do
+		local txs = { tb.l, (tb.l + tb.r) / 2, tb.r }
+		local tys = { tb.t, (tb.t + tb.b) / 2, tb.b }
+		for _, px in ipairs(xs) do
+			for _, tx in ipairs(txs) do
+				local dd = tx - px
+				if abs(dd) <= ALIGN_DIST and (not dx or abs(dd) < abs(dx)) then dx, gx = dd, tx end
+			end
+		end
+		for _, py in ipairs(ys) do
+			for _, ty in ipairs(tys) do
+				local dd = ty - py
+				if abs(dd) <= ALIGN_DIST and (not dy or abs(dd) < abs(dy)) then dy, gy = dd, ty end
+			end
+		end
+	end
+	if ns.db.gridSnap ~= false then
+		local W, H = UIParent:GetWidth() or 0, UIParent:GetHeight() or 0
+		local size = self:GridSize()
+		if not dx then
+			for _, px in ipairs(xs) do
+				local dd = NearestLine(px, W / 2, size) - px
+				if not dx or abs(dd) < abs(dx) then dx = dd end
+			end
+		end
+		if not dy then
+			for _, py in ipairs(ys) do
+				local dd = NearestLine(py, H / 2, size) - py
+				if not dy or abs(dd) < abs(dy) then dy = dd end
+			end
+		end
+	end
+	return dx or 0, dy or 0, gx, gy
+end
+
+-- Puts a group with its top left corner at a spot, whichever corner the group actually grows from.
+function Display:PlaceGroupTopLeft(g, l, t)
+	if not g or not l or not t then return end
+	local f = active[g.uid]
+	local k = f and UIScaleOf(f) or (g.scale or 1)
+	local w = f and (f:GetWidth() or 0) * k or 0
+	local h = f and (f:GetHeight() or 0) * k or 0
+	local a = ANCHOR[g.grow] or "TOPLEFT"
+	g.x = (a == "TOPRIGHT") and (l + w) or ((a == "TOP") and (l + w / 2) or l)
+	g.y = (a == "BOTTOMLEFT") and (t - h) or ((a == "LEFT") and (t - h / 2) or t)
+	if f then ApplyPosition(f, g) end
+end
+
+-- The outline of where a tracker dropped in the open would land.
+local landMark
+local function ShowLanding(l, t, w, h)
+	if not l then
+		if landMark then landMark:Hide() end
+		return
+	end
+	if not landMark then
+		landMark = CreateFrame("Frame", nil, UIParent)
+		landMark:SetFrameStrata("TOOLTIP")
+		landMark:EnableMouse(false)
+		landMark.edges = {}
+		for i = 1, 4 do
+			local e = landMark:CreateTexture(nil, "OVERLAY")
+			e:SetColorTexture(0.35, 1, 0.5, 0.9)
+			landMark.edges[i] = e
+		end
+		local et, eb, el, er = landMark.edges[1], landMark.edges[2], landMark.edges[3], landMark.edges[4]
+		et:SetPoint("TOPLEFT") et:SetPoint("TOPRIGHT") et:SetHeight(1)
+		eb:SetPoint("BOTTOMLEFT") eb:SetPoint("BOTTOMRIGHT") eb:SetHeight(1)
+		el:SetPoint("TOPLEFT") el:SetPoint("BOTTOMLEFT") el:SetWidth(1)
+		er:SetPoint("TOPRIGHT") er:SetPoint("BOTTOMRIGHT") er:SetWidth(1)
+	end
+	landMark:ClearAllPoints()
+	landMark:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", l, t)
+	landMark:SetSize(w, h)
+	landMark:Show()
+end
+
+-- Where a tracker dropped in the open would land, lined up, or nothing if there is no lining up
+-- to be done. It is centred on the cursor before it is lined up.
+function Display:GhostLanding(cx, cy)
+	if not self:SnapActive() then return nil end
+	local gh = self.GetGhostFrame and self:GetGhostFrame()
+	local w, h = (gh and gh.boxW) or 40, (gh and gh.boxH) or 40
+	local l, t = cx - w / 2, cy + h / 2
+	local dx, dy, gx, gy = self:SnapBox({ l = l, r = l + w, t = t, b = t - h }, gh and gh.ignoreGroup, gh and gh.ignoreWidget)
+	return l + dx, t + dy, w, h, gx, gy
+end
+
 local dropMark
 local function GetDropMark()
 	if dropMark then return dropMark end
@@ -3117,6 +3402,15 @@ local function GetGhost()
 		local cellC, cellR, against, sx, sy, axis
 		if g and not overWindow then cellC, cellR, against, sx, sy, axis = Display:DropCell(f, g, cx, cy, self.dragTracker) end
 		ShowDropMark(cellC and f or nil, g, against, sx or 0, sy or 0, axis)
+		-- Over empty space while the grid is up: where it would land, lined up, and what with.
+		if not g and not overWindow then
+			local l, t, w, h, gx, gy = Display:GhostLanding(cx, cy)
+			ShowLanding(l, t, w, h)
+			ShowGuides(gx, gy)
+		else
+			ShowLanding(nil)
+			ShowGuides(nil, nil)
+		end
 		if overWindow then
 			-- Over the window, the list knows best what a drop would do.
 			local label = ns.UI and ns.UI.TreeDropLabel and ns.UI:TreeDropLabel(cy, self.dragTracker)
@@ -3141,8 +3435,20 @@ function Display:Dragging()
 	return (ghost ~= nil and ghost:IsShown()) and true or false
 end
 
+function Display:GetGhostFrame() return GetGhost() end
+
+-- What is being dragged, so a landing can be the right size and it does not line up with itself.
+function Display:SetGhostSource(w, g)
+	local gh = GetGhost()
+	local box = BoxOf(w)
+	if box then gh.boxW, gh.boxH = box.r - box.l, box.t - box.b end
+	gh.ignoreWidget = w
+	gh.ignoreGroup = (g and #g.trackers == 1) and g or nil
+end
+
 function Display:BeginGhost(icon, freeText, except, windowText, dragTracker)
 	local gh = GetGhost()
+	gh.boxW, gh.boxH, gh.ignoreWidget, gh.ignoreGroup = nil, nil, nil, nil
 	-- Whatever was being hovered when the drag started goes away with it.
 	GameTooltip:Hide()
 	gh.icon:SetTexture(icon or QUESTION)
@@ -3150,11 +3456,14 @@ function Display:BeginGhost(icon, freeText, except, windowText, dragTracker)
 	gh:Show()
 end
 
--- Ends the drag. Returns cancelled, cursorX, cursorY, targetGroup, insertIndex, cellC, cellR.
+-- Ends the drag. Returns cancelled, cursorX, cursorY, targetGroup, insertIndex, cellC, cellR, axis,
+-- and, for a drop in the open while the grid is up, the top left corner it should land at.
 function Display:EndGhost()
 	local gh = GetGhost()
 	gh:Hide()
 	ShowDropMark(nil)
+	ShowLanding(nil)
+	ShowGuides(nil, nil)
 	Highlight(nil)
 	local cx, cy = CursorUI()
 	if ns.UI and ns.UI.frame and ns.UI.frame:IsShown() and ns.UI.frame:IsMouseOver() then return true, cx, cy end
@@ -3163,24 +3472,44 @@ function Display:EndGhost()
 		local c, r, _, _, _, axis = self:DropCell(f, g, cx, cy, gh.dragTracker)
 		return false, cx, cy, g, self:InsertIndex(f, g, cx, cy), c, r, axis
 	end
-	return false, cx, cy
+	local landL, landT = self:GhostLanding(cx, cy)
+	return false, cx, cy, nil, nil, nil, nil, nil, landL, landT
 end
 
 -- ------------------------------------------------------------------
 -- Dragging groups and trackers
 -- ------------------------------------------------------------------
+-- A group is moved by hand rather than by the client's StartMoving, which gives no chance to
+-- correct the position while it is dragged, and correcting it is what lining up is.
 function Display:GroupDragStart(f)
 	local g = f.group
 	if not g or not self:IsUnlocked() then return end
 	f.moving = true
-	f:StartMoving()
+	local cx, cy = CursorUI()
+	local box = BoxOf(f)
+	f.dragFrom = { cx = cx, cy = cy, l = box and box.l or cx, t = box and box.t or cy }
+	f.dragL, f.dragT = nil, nil
+	f:SetScript("OnUpdate", function() Display:GroupDragUpdate(f) end)
+end
+
+function Display:GroupDragUpdate(f)
+	local g, from = f.group, f.dragFrom
+	if not g or not from then return end
+	local cx, cy = CursorUI()
+	local k = UIScaleOf(f)
+	local w, h = (f:GetWidth() or 0) * k, (f:GetHeight() or 0) * k
+	local l = from.l + (cx - from.cx)
+	local t = from.t + (cy - from.cy)
+	local dx, dy, gx, gy = self:SnapBox({ l = l, r = l + w, t = t, b = t - h }, g)
+	l, t = l + dx, t + dy
+	f:ClearAllPoints()
+	f:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", l / k, t / k)
+	f.dragL, f.dragT = l, t
+	ShowGuides(gx, gy)
 	if #g.trackers == 1 then
 		-- A lone tracker can be dropped onto another group to join it.
-		f:SetScript("OnUpdate", function()
-			local cx, cy = CursorUI()
-			local _, target = Display:GroupAt(cx, cy, g)
-			Highlight(target)
-		end)
+		local _, target = self:GroupAt(cx, cy, g)
+		Highlight(target)
 	end
 end
 
@@ -3188,10 +3517,12 @@ function Display:GroupDragStop(f)
 	local g = f.group
 	if not f.moving then return end
 	f.moving = false
-	f:StopMovingOrSizing()
 	f:SetScript("OnUpdate", nil)
 	if f.SetUserPlaced then f:SetUserPlaced(false) end
 	Highlight(nil)
+	ShowGuides(nil, nil)
+	local l, t = f.dragL, f.dragT
+	f.dragFrom, f.dragL, f.dragT = nil, nil, nil
 	if not g then return end
 	if #g.trackers == 1 then
 		local cx, cy = CursorUI()
@@ -3201,8 +3532,12 @@ function Display:GroupDragStop(f)
 			return
 		end
 	end
-	SavePosition(f, g)
-	ApplyPosition(f, g)
+	if l then
+		self:PlaceGroupTopLeft(g, l, t)
+	else
+		SavePosition(f, g)
+		ApplyPosition(f, g)
+	end
 end
 
 -- Dragging a tracker moves that tracker, wherever it came from. The group itself is moved by the
@@ -3210,7 +3545,7 @@ end
 -- Several at once. The one actually dragged lands where it was aimed, and the rest keep their
 -- places relative to where it came from. A place already taken when they arrive is given up rather
 -- than fought over: that tracker goes on the end of the shape instead.
-function Display:DropMarked(list, anchor, from, target, index, cellC, cellR, axis, cx, cy)
+function Display:DropMarked(list, anchor, from, target, index, cellC, cellR, axis, cx, cy, landL, landT)
 	local offsets = {}
 	local base = ns.CellOf and ns.CellOf(from, anchor)
 	if base then
@@ -3226,14 +3561,19 @@ function Display:DropMarked(list, anchor, from, target, index, cellC, cellR, axi
 	if not to then
 		if #from.trackers == #list then
 			-- The whole group is moving: it is simpler and kinder to move the group itself.
-			from.x, from.y = cx - 18, cy + 18
-			local f = active[from.uid]
-			if f then ApplyPosition(f, from) end
+			if landL then
+				self:PlaceGroupTopLeft(from, landL, landT)
+			else
+				from.x, from.y = cx - 18, cy + 18
+				local f = active[from.uid]
+				if f then ApplyPosition(f, from) end
+			end
 			ns.Changed()
 			self:ClearMarks()
 			return
 		end
 		to = ns.NewGroupLike(from, cx - 18, cy + 18)
+		to.placeAt = landL and { landL, landT } or nil
 	end
 
 	ns.DropTracker(anchor, to, index, cellC, cellR, axis)
@@ -3248,6 +3588,12 @@ function Display:DropMarked(list, anchor, from, target, index, cellC, cellR, axi
 		end
 	end
 	ns.Changed()
+	-- A new group set down in the open while the grid is up lands where the grid put it, now that
+	-- it has been laid out and its size is known.
+	if to.placeAt then
+		self:PlaceGroupTopLeft(to, to.placeAt[1], to.placeAt[2])
+		to.placeAt = nil
+	end
 	self:ClearMarks()
 end
 
@@ -3264,18 +3610,19 @@ function Display:WidgetDragStart(w)
 	local text = (#g.trackers > 1) and "Drop it in the open for a place of its own" or "Drop it where you want it"
 	if w.carrying then text = ("Moving %d together"):format(#w.carrying) end
 	self:BeginGhost(t.icon, text, nil, nil, t)
+	self:SetGhostSource(w, g)
 end
 
 function Display:WidgetDragStop(w)
 	if not w.pulling then return end
 	w.pulling = false
 	local g, t = w.group, w.tracker
-	local cancelled, cx, cy, target, index, cellC, cellR, axis = self:EndGhost()
+	local cancelled, cx, cy, target, index, cellC, cellR, axis, landL, landT = self:EndGhost()
 	local carrying = w.carrying
 	w.carrying = nil
 	if cancelled or not g or not t then return end
 	if carrying then
-		self:DropMarked(carrying, t, g, target, index, cellC, cellR, axis, cx, cy)
+		self:DropMarked(carrying, t, g, target, index, cellC, cellR, axis, cx, cy, landL, landT)
 		return
 	end
 	if target then
@@ -3283,13 +3630,18 @@ function Display:WidgetDragStop(w)
 	elseif #g.trackers == 1 then
 		-- A tracker on its own is its whole group, so dropping it somewhere just puts the group
 		-- there: making a second group to hold it and throwing the first away moves nothing.
-		g.x, g.y = cx - 18, cy + 18
-		local f = active[g.uid]
-		if f then ApplyPosition(f, g) end
+		if landL then
+			self:PlaceGroupTopLeft(g, landL, landT)
+		else
+			g.x, g.y = cx - 18, cy + 18
+			local f = active[g.uid]
+			if f then ApplyPosition(f, g) end
+		end
 		ns.Changed()
 	else
 		-- Out on its own: a new group that keeps the look of the one it came from.
 		local ng = ns.NewGroupLike(g, cx - 18, cy + 18)
 		ns.MoveTracker(t, ng)
+		if landL then self:PlaceGroupTopLeft(ng, landL, landT) end
 	end
 end

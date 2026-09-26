@@ -2807,7 +2807,7 @@ local function GetEditBar()
 	local ok, f = pcall(CreateFrame, "Frame", "AuraLedgerEditBar", UIParent, "BackdropTemplate")
 	if not ok or not f then f = CreateFrame("Frame", "AuraLedgerEditBar", UIParent) end
 	editBar = f
-	f:SetSize(430, 40)
+	f:SetSize(560, 66)
 	f:SetPoint("TOP", UIParent, "TOP", 0, -140)
 	f:SetFrameStrata("DIALOG")
 	f:EnableMouse(true)
@@ -2829,16 +2829,90 @@ local function GetEditBar()
 		bg:SetColorTexture(0.05, 0.05, 0.08, 0.9)
 	end
 	local text = f:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-	text:SetPoint("LEFT", 14, 0)
+	text:SetPoint("TOPLEFT", 14, -12)
 	text:SetText("Arranging the layout: drag trackers about, click one to change it")
 	text:SetTextColor(1, 0.82, 0)
 	local done = MakeButton(f, "Done", 70)
-	done:SetPoint("RIGHT", -10, 0)
+	done:SetPoint("TOPRIGHT", -10, -8)
 	done:SetScript("OnClick", function() UI:SetEditMode(false) end)
 	text:SetPoint("RIGHT", done, "LEFT", -10, 0)
 	text:SetJustifyH("LEFT")
+
+	-- The alignment grid: whether it is up, how fine it is, and whether things snap to it.
+	local grid = CreateCheck(f)
+	grid:SetPoint("BOTTOMLEFT", 10, 8)
+	grid.label:SetText("Grid")
+	grid.label:SetTextColor(1, 1, 1)
+	grid:SetScript("OnClick", function(self)
+		ns.db.gridOn = self:GetChecked() and true or false
+		if ns.Display and ns.Display.SyncGrid then ns.Display:SyncGrid() end
+		UI:SyncEditBar()
+	end)
+	grid:SetScript("OnEnter", function(self)
+		TextTooltip(self, "Alignment grid", "Lines over the whole screen, measured out from its middle, so a group can be put dead centre. The cross through the middle and every fourth line are drawn in their own colors, so distance can be counted.", "While it is up, trackers line up with each other's edges and middles as you drag them.")
+	end)
+	grid:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+	local smaller = MakeButton(f, "-", 24)
+	smaller:SetSize(24, 20)
+	smaller:SetPoint("LEFT", grid.label, "RIGHT", 14, 0)
+	local sizeText = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	sizeText:SetPoint("LEFT", smaller, "RIGHT", 4, 0)
+	sizeText:SetWidth(52)
+	sizeText:SetJustifyH("CENTER")
+	sizeText:SetTextColor(1, 1, 1)
+	local bigger = MakeButton(f, "+", 24)
+	bigger:SetSize(24, 20)
+	bigger:SetPoint("LEFT", sizeText, "RIGHT", 4, 0)
+	local function Step(dir)
+		if ns.Display and ns.Display.StepGridSize then ns.Display:StepGridSize(dir) end
+		UI:SyncEditBar()
+	end
+	smaller:SetScript("OnClick", function() Step(-1) end)
+	bigger:SetScript("OnClick", function() Step(1) end)
+	for _, b in ipairs({ smaller, bigger }) do
+		b:SetScript("OnEnter", function(self) TextTooltip(self, "Grid size", "How far apart the lines are.") end)
+		b:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	end
+
+	local snap = CreateCheck(f)
+	snap:SetPoint("LEFT", bigger, "RIGHT", 14, 0)
+	snap.label:SetText("Snap to grid")
+	snap.label:SetTextColor(1, 1, 1)
+	snap:SetScript("OnClick", function(self)
+		ns.db.gridSnap = self:GetChecked() and true or false
+		UI:SyncEditBar()
+	end)
+	snap:SetScript("OnEnter", function(self)
+		TextTooltip(self, "Snap to grid", "A group or a tracker you drag settles on the nearest line, by whichever of its edges or its middle is closest to one. Lining up with another tracker still happens either way.")
+	end)
+	snap:SetScript("OnLeave", function() GameTooltip:Hide() end)
+
+	local hint = f:CreateFontString(nil, "OVERLAY", "GameFontDisableSmall")
+	hint:SetPoint("LEFT", snap.label, "RIGHT", 16, 0)
+	hint:SetText("Hold Alt to place freely")
+
+	f.gridCheck, f.gridSmaller, f.gridBigger, f.gridSize, f.snapCheck, f.gridHint = grid, smaller, bigger, sizeText, snap, hint
 	f:Hide()
 	return f
+end
+
+-- The bar's controls say what is set, and the ones that only mean something with the grid up are
+-- dimmed while it is down.
+function UI:SyncEditBar()
+	local f = editBar
+	if not f or not f.gridCheck then return end
+	local on = (ns.db and ns.db.gridOn) and true or false
+	f.gridCheck:SetChecked(on)
+	f.snapCheck:SetChecked(ns.db.gridSnap ~= false)
+	local size = (ns.Display and ns.Display.GridSize) and ns.Display:GridSize() or 32
+	f.gridSize:SetText("Size " .. size)
+	for _, c in ipairs({ f.gridSmaller, f.gridBigger, f.snapCheck }) do
+		if c.SetEnabled then c:SetEnabled(on) end
+	end
+	f.gridSize:SetAlpha(on and 1 or 0.4)
+	f.snapCheck.label:SetAlpha(on and 1 or 0.4)
+	f.gridHint:SetAlpha(on and 1 or 0.4)
 end
 
 function UI:SetEditMode(on, quiet)
@@ -2847,6 +2921,8 @@ function UI:SetEditMode(on, quiet)
 	if not on and ns.Display and ns.Display.ClearMarks then ns.Display:ClearMarks() end
 	ns.db.unlocked = on
 	GetEditBar():SetShown(on)
+	UI:SyncEditBar()
+	if ns.Display and ns.Display.SyncGrid then ns.Display:SyncGrid() end
 	-- The window covers the things being arranged, so it steps aside for the duration and comes
 	-- back afterwards, but only if it was open to begin with.
 	if on then
@@ -3292,7 +3368,7 @@ local STEPS = {
 	},
 	{
 		title = "Arranging",
-		text = "|cffffd000Click Edit layout|r and the trackers on screen can be dragged about.\n\nDrag a tracker to move it, drop it on another group to join it, or in the open for a place of its own. The titled plate behind a group moves the whole group.",
+		text = "|cffffd000Click Edit layout|r and the trackers on screen can be dragged about.\n\nDrag a tracker to move it, drop it on another group to join it, or in the open for a place of its own. The titled plate behind a group moves the whole group. The bar that appears has a |cffffd000Grid|r to line things up against; hold Alt to place something freely.",
 		target = function() return UI.editButton end,
 		done = function() return ns.db and ns.db.unlocked == true end,
 	},
