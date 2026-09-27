@@ -2064,7 +2064,7 @@ local function Parse(s, pos)
 	end
 end
 
-local TRACKER_KEYS = { "name", "id", "icon", "kind", "matchId", "show", "mine", "label", "unit", "warn", "cond", "snd", "cd", "item" }
+local TRACKER_KEYS = { "name", "id", "icon", "kind", "matchId", "show", "mine", "label", "unit", "warn", "cond", "snd", "cd", "item", "glow" }
 
 local function CopyTracker(t)
 	local c = {}
@@ -2128,6 +2128,7 @@ function ns.Import(text)
 		t.warn = tonumber(src.warn) or nil
 		t.cond = type(src.cond) == "table" and src.cond or {}
 		t.snd = type(src.snd) == "table" and src.snd or nil
+		t.glow = src.glow and true or nil
 		return t
 	end
 	if data.kind == "group" and type(data.group) == "table" then

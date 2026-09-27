@@ -1720,6 +1720,10 @@ local function BuildTrackerPanel(width)
 		return (t and t.cd) and true or false
 	end
 	local function TrackerIsAura() return not TrackerIsCooldown() end
+	local function TrackerGetsSlot()
+		local t = T()
+		return (t and ns.Display and ns.Display.TrackerGetsSlot and ns.Display.TrackerGetsSlot(t)) and true or false
+	end
 	local function TrackerIsSpell() return not TrackerIsItem() end
 	b:Header("Tracker")
 	b:Cycle("Watch", { { false, "The buff on me" }, { true, "This spell's cooldown" } },
@@ -1750,11 +1754,15 @@ local function BuildTrackerPanel(width)
 		get = function() local t = T() return t and (t.warn or 0) end,
 		set = function(v) local t = T() if t then t.warn = (v > 0) and v or nil TrackerChanged() end end,
 		format = function(v) return v == 0 and "off" or (v .. "s") end })
-	b:AppliesWhen(function() return TrackerIsAddonDrawn() and not TrackerIsCooldown() end)
+	b:AppliesWhen(TrackerIsAura)
 	b:Note("With Missing: brings the tracker back on screen this long before the aura runs out, with a red border, instead of waiting for it to go. With Active or Either: it is on screen already, so the border turns red that early instead.")
-	b:AppliesWhen(function() return TrackerIsAddonDrawn() and not TrackerIsCooldown() end)
-	b:Note("|cffffd000Showing it early is not offered here:|r this group is drawn by the game, and the game decides when a tracker is on screen. To use it, set In combat, under this group's Only show this group when, to Shown, drawn by the addon.")
-	b:AppliesWhen(function() return not TrackerIsAddonDrawn() and not TrackerIsCooldown() end)
+	b:AppliesWhen(function() return TrackerIsAura() and not TrackerGetsSlot() end)
+	b:Note("This tracker is drawn by the game, which decides when it is on screen, so it cannot be brought back early. Instead its countdown turns red this long before the aura runs out, in combat too. It needs the group's timers on, and takes effect a moment after you stop changing it, out of combat.")
+	b:AppliesWhen(TrackerGetsSlot)
+	b:Check("Glow while it is up", function() local t = T() return t and t.glow end,
+		function(v) local t = T() if t then t.glow = v or nil TrackerChanged() end end,
+		"The game plays the action bar's proc glow on this tracker for as long as the aura is up, in combat too.")
+	b:AppliesWhen(TrackerGetsSlot)
 	b:Slider("Show it again before it is ready (seconds, 0 = off)", { min = 0, max = 300, step = 1,
 		get = function() local t = T() return t and (t.warn or 0) end,
 		set = function(v) local t = T() if t then t.warn = (v > 0) and v or nil TrackerChanged() end end,

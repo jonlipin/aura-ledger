@@ -69,6 +69,73 @@ function ns.FormatTime(sec)
 	return ("%.1f"):format(sec)
 end
 
+-- The same rules, for the game to apply to a countdown it draws itself: the game's own format says
+-- "45s" and keeps seconds up to 90, where the addon says "45" and turns to minutes at 60. Each rule
+-- rounds first and then divides, which is what ns.FormatTime does. Made once and never changed.
+local slotTimeFormatter, slotTimeFormatterTried
+local function SlotTimeFormatter()
+	if slotTimeFormatterTried then return slotTimeFormatter end
+	slotTimeFormatterTried = true
+	if not (C_StringUtil and C_StringUtil.CreateNumericRuleFormatter) then return nil end
+	local rounding = Enum and Enum.NumericRuleFormatRounding
+	local nearest = rounding and rounding.Nearest or 0
+	local ok, made = pcall(function()
+		local f = C_StringUtil.CreateNumericRuleFormatter()
+		f:SetBreakpoints({
+			{ threshold = 0, rounding = nearest, format = "%.1f" },
+			{ threshold = 10, step = 1, rounding = nearest, format = "%d" },
+			{ threshold = 60, step = 60, rounding = nearest, format = "%dm", components = { { div = 60, rounding = nearest } } },
+			{ threshold = 3600, step = 3600, rounding = nearest, format = "%dh", components = { { div = 3600, rounding = nearest } } },
+		})
+		return f
+	end)
+	if ok then slotTimeFormatter = made else ns.report["slot time text"] = "the game refused the format: " .. tostring(made) end
+	return slotTimeFormatter
+end
+
+-- A colour for the countdown that the game picks from the time left: the text's own colour, and red
+-- once less than the warn time is left. One per warn time and colour, shared, and never changed
+-- once handed over.
+local warnCurves = {}
+local function SlotWarnCurve(warn, r, g, b)
+	local key = warn .. ":" .. r .. ":" .. g .. ":" .. b
+	if warnCurves[key] ~= nil then return warnCurves[key] or nil end
+	local ok, curve = false, "no curves on this client"
+	if C_CurveUtil and C_CurveUtil.CreateColorCurve and Enum and Enum.LuaCurveType and CreateColor then
+		ok, curve = pcall(function()
+			local cv = C_CurveUtil.CreateColorCurve()
+			cv:SetType(Enum.LuaCurveType.Step)
+			cv:AddPoint(0, CreateColor(1, 0.1, 0.1, 1))
+			cv:AddPoint(warn, CreateColor(r, g, b, 1))
+			return cv
+		end)
+	end
+	warnCurves[key] = ok and curve or false
+	if not ok then ns.report["slot warn colour"] = "not available: " .. tostring(curve) end
+	return ok and curve or nil
+end
+
+-- Hands a slot its countdown text: our format, and the warning colour when there is a warn time.
+-- A client that refuses an option still gets the rest, and at worst the game's own text.
+local function BindSlotTime(button, fs, warn, r, g, b)
+	local fmt = SlotTimeFormatter()
+	local prop = Enum and Enum.DurationTextBindingProperty and Enum.DurationTextBindingProperty.RemainingDuration
+	local curve = (warn and warn > 0 and prop ~= nil) and SlotWarnCurve(warn, r, g, b) or nil
+	local opts = {}
+	if fmt then opts.textFormatter = fmt end
+	if curve then opts.textColor = { curve = curve, property = prop } end
+	if next(opts) and pcall(button.SetDurationText, button, fs, opts) then
+		ns.report["slot time text"] = "the addon's format" .. (curve and ", with the warning colour" or "")
+		return
+	end
+	if curve and fmt and pcall(button.SetDurationText, button, fs, { textFormatter = fmt }) then
+		ns.report["slot time text"] = "the addon's format; the game refused the warning colour"
+		return
+	end
+	pcall(button.SetDurationText, button, fs)
+	ns.report["slot time text"] = "the game's own format"
+end
+
 local DISPEL_COLORS = {
 	Magic = { 0.2, 0.6, 1 }, Curse = { 0.6, 0, 1 }, Disease = { 0.6, 0.4, 0 }, Poison = { 0, 0.6, 0 },
 	none = { 0.8, 0, 0 },
@@ -2200,7 +2267,8 @@ end
 
 -- The slot draws the aura and covers the cell. (A mask on the slot to blank the cell instead was
 -- tried: on this client a mask still applies while its frame is hidden, so it cannot invert.)
-local function InitSlotFrame(g, mode, filter, store)
+local function InitSlotFrame(g, mode, filter, store, opts)
+	opts = opts or {}
 	return function(button)
 		if not button then return end
 		local ok, err = pcall(function()
@@ -2236,6 +2304,31 @@ local function InitSlotFrame(g, mode, filter, store)
 		pcall(button.SetIcon, button, icon)
 		SquareUp()
 		if button.HookScript then pcall(button.HookScript, button, "OnShow", function() pcall(SquareUp) end) end
+		-- The action bar's proc glow, played by the game for as long as the aura is up, in combat too.
+		-- It is Blizzard's own loop: a texture left clear, lit by a one-frame step, then the flipbook.
+		-- It lives inside the slot, as the game requires, and nothing about it is read back.
+		if opts.glow then
+			local okG, why = pcall(function()
+				local holder = CreateFrame("Frame", nil, button)
+				holder:SetAllPoints(icon)
+				holder:SetFrameLevel(button:GetFrameLevel() + 8)
+				local glow = holder:CreateTexture(nil, "OVERLAY")
+				glow:SetAtlas("UI-HUD-ActionBar-Proc-Loop-Flipbook")
+				glow:SetPoint("CENTER", icon, "CENTER", 0, 0)
+				glow:SetSize(IW * 1.4, IW * 1.4)
+				glow:SetAlpha(0)
+				local ag = glow:CreateAnimationGroup()
+				ag:SetLooping("REPEAT")
+				local lit = ag:CreateAnimation("Alpha")
+				lit:SetFromAlpha(1) lit:SetToAlpha(1) lit:SetDuration(0.001) lit:SetOrder(1)
+				local flip = ag:CreateAnimation("FlipBook")
+				flip:SetDuration(1) flip:SetOrder(2)
+				flip:SetFlipBookRows(6) flip:SetFlipBookColumns(5) flip:SetFlipBookFrames(30)
+				flip:SetFlipBookFrameWidth(0) flip:SetFlipBookFrameHeight(0)
+				button:AddAuraShownAnimation(ag)
+			end)
+			ns.report["slot glow"] = okG and "played by the game" or ("refused: " .. tostring(why))
+		end
 		local count = button:CreateFontString(nil, "OVERLAY")
 		count:SetFont(FONT, max(7, floor(IS * (bars and 0.45 or 0.3))), "OUTLINE")
 		count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -1, 1)
@@ -2318,7 +2411,10 @@ local function InitSlotFrame(g, mode, filter, store)
 			dur:SetPoint("RIGHT", bar, "RIGHT", -4, 0)
 			dur:SetJustifyH("RIGHT")
 			dur:SetWordWrap(false)
-			if g.timers ~= false then pcall(button.SetDurationText, button, dur) end
+			if g.timers ~= false then
+				local col = s.durFont and s.durFont.color
+				BindSlotTime(button, dur, opts.warn, col and col[1] or 1, col and col[2] or 1, col and col[3] or 1)
+			end
 			local name = textHolder:CreateFontString(nil, "OVERLAY")
 			ApplyFont(name, s.nameFont, H, px)
 			name:SetPoint("LEFT", bar, "LEFT", 4, 0)
@@ -2330,7 +2426,7 @@ local function InitSlotFrame(g, mode, filter, store)
 			local time = button:CreateFontString(nil, "OVERLAY")
 			time:SetFont(FONT, max(8, floor(H * 0.4)), "OUTLINE")
 			time:SetPoint("CENTER", icon, "CENTER", 0, 0)
-			if g.timers ~= false then pcall(button.SetDurationText, button, time) end
+			if g.timers ~= false then BindSlotTime(button, time, opts.warn, 1, 1, 1) end
 			local okC, cd = pcall(CreateFrame, "Cooldown", nil, button, "CooldownFrameTemplate")
 			if okC and cd then
 				cd:SetAllPoints(icon)
@@ -2471,6 +2567,55 @@ local function SlotContainer(f, g, unit)
 	return nc
 end
 
+-- What a tracker's slot is built with beyond its look: the warn time its countdown turns red at,
+-- and the glow. A slot cannot be changed once built, so a new value means a new slot. That is only
+-- done out of combat (a new slot cannot be made in one), and a warn time is taken only once it has
+-- held still for a second, or dragging the slider would leave a slot behind at every step.
+local slotOpts = setmetatable({}, { __mode = "k" })
+local function WantedSlotOpts(g, t)
+	local warn = (g.timers ~= false and (t.warn or 0) > 0) and floor(t.warn) or 0
+	return warn, t.glow and true or false
+end
+local function AppliedSlotOpts(g, t)
+	local o = slotOpts[t]
+	if not o then
+		local warn, glow = WantedSlotOpts(g, t)
+		o = { warn = warn, glow = glow }
+		slotOpts[t] = o
+	end
+	return o
+end
+-- Brings the options up to date between fights. Returns true when a slot has to be made again.
+local function SyncSlotOpts(g, now)
+	local changed = false
+	for _, t in ipairs(g.trackers) do
+		local o = slotOpts[t]
+		if o then
+			local warn, glow = WantedSlotOpts(g, t)
+			if glow ~= o.glow then o.glow = glow changed = true end
+			if warn ~= o.warn then
+				if o.pendingWarn ~= warn then
+					o.pendingWarn, o.pendingAt = warn, now
+				elseif now - (o.pendingAt or now) >= 1 then
+					o.warn, o.pendingWarn = warn, nil
+					changed = true
+				end
+			else
+				o.pendingWarn = nil
+			end
+		end
+	end
+	return changed
+end
+
+-- Whether a tracker is drawn by the game (a slot) rather than by the addon, for the options panel.
+function Display.TrackerGetsSlot(t)
+	local g = t and ns.FindGroupOf(t)
+	if not (g and g.gameDrawn) then return false end
+	if t.cd or t.item or t.kind == "debuff" or t.enchant or t.swing then return false end
+	return TrackerIds(t) ~= nil
+end
+
 -- Makes sure the slots for one tracker exist and carry its spell map. Returns the slot frames.
 local function TrackerSlots(f, g, t, ids)
 	local unit = t.unit or "player"
@@ -2484,15 +2629,16 @@ local function TrackerSlots(f, g, t, ids)
 	local frames = {}
 	local idsKey = IdsKey(ids)
 	local mode = "cover"
+	local o = AppliedSlotOpts(g, t)
 	for _, filter in ipairs(kinds) do
-		local key = tostring(t.uid) .. ":" .. filter .. ":" .. mode
+		local key = tostring(t.uid) .. ":" .. filter .. ":" .. mode .. (o.warn > 0 and (":w" .. o.warn) or "") .. (o.glow and ":g" or "")
 		local filters = { includeSpellIDs = ids }
 		if t.mine then filters.isFromPlayerOrPlayerPet = true end
 		local frame = c.alSlots[key]
 		if not frame then
 			if InCombatLockdown and InCombatLockdown() then return nil end
 			local store = {}
-			local ok, fr = pcall(c.AddAuraSlot, c, key, filter, { initializeFrame = InitSlotFrame(g, mode, filter, store), candidateFilters = filters })
+			local ok, fr = pcall(c.AddAuraSlot, c, key, filter, { initializeFrame = InitSlotFrame(g, mode, filter, store, { warn = o.warn, glow = o.glow }), candidateFilters = filters })
 			if not ok then
 				ns.report["game-drawn trackers"] = "AddAuraSlot: " .. tostring(fr)
 				AdviseGameDrawn("game-drawn trackers", "the game refused a tracker's slot")
@@ -2863,11 +3009,18 @@ function Display:RefreshGroup(g)
 	for _, t in ipairs(g.trackers) do
 		local entry = ns.Find(t)
 		local show, expiring = Wants(t, entry, now, unlocked, groupPass)
-		Sounds(t, entry, show, unlocked, unlocked and ns.CondPass(g.cond) or groupPass)
+		local slots
 		if g.gameDrawn and not unlocked then
 			local passes = groupPass and ns.CondPass(t.cond)
 			local ids = TrackerIds(t)
-			local slots = ids and passes and TrackerSlots(f, g, t, ids)
+			slots = ids and passes and TrackerSlots(f, g, t, ids)
+		end
+		-- A slot tracker's warning is the colour of its countdown; it is never brought on screen early,
+		-- so its "shown" sound does not come early either.
+		local soundShow = show
+		if slots and expiring and t.show == "missing" then soundShow = (entry == nil) end
+		Sounds(t, entry, soundShow, unlocked, unlocked and ns.CondPass(g.cond) or groupPass)
+		if g.gameDrawn and not unlocked then
 			if slots then
 				visible[#visible + 1] = { t = t, entry = entry, expiring = false, slots = slots }
 			elseif show then
@@ -2909,6 +3062,9 @@ function Display:Tick(now)
 		if g then
 			-- A warn window opens with no event, and so does a cooldown starting or coming back, so
 			-- trackers that watch either are re-checked each tick.
+			if g.gameDrawn and not unlocked and not (InCombatLockdown and InCombatLockdown()) and SyncSlotOpts(g, now) then
+				self:RefreshGroup(g)
+			end
 			if not unlocked then
 				local groupPass = ns.CondPass(g.cond)
 				for _, t in ipairs(g.trackers) do
