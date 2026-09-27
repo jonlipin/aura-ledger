@@ -65,7 +65,8 @@ ns.BOOK = {
 	},
 	WARLOCK = {
 		{ "Demon Skin", 687 }, { "Demon Armor", 706 }, { "Unending Breath", 5697 },
-		{ "Detect Lesser Invisibility", 132 }, { "Detect Invisibility", 2970 }, { "Detect Greater Invisibility", 11743 },
+		-- On this client the three are ranks of one spell, Detect Invisibility.
+		{ "Detect Invisibility", 2970 },
 		{ "Soul Link", 19028 }, { "Fel Domination", 18708 }, { "Amplify Curse", 18288 }, { "Shadow Ward", 6229 },
 		{ "Shadow Trance", 17941 }, { "Soulstone Resurrection", 20707 }, { "Sacrifice", 7812 },
 		{ "Burning Wish", 18789 }, { "Fel Stamina", 18790 }, { "Touch of Shadow", 18791 }, { "Fel Energy", 18792 },
@@ -212,6 +213,10 @@ ns.BOOK.PVE = {
 -- The Dungeons and raids chapter (mob debuffs on you) is kept in the data but not offered: on this
 -- client a debuff on you cannot be tracked by spell in combat. A group with Contents "Debuffs on me"
 -- shows them all instead.
+-- Every rank id of the book's multi-rank buffs, by spell name. Checked against the client by
+-- ns.Ranks: an id that comes back under another name is dropped.
+ns.RANK_IDS = ns.RANK_IDS or {}
+
 ns.BOOK_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID", "RACIAL", "BAGS", "ITEMS" }
 
 -- ------------------------------------------------------------------

@@ -2227,6 +2227,8 @@ local function TrackerIds(t)
 			local h = ns.db.history[kind .. ":" .. string.lower(t.name)]
 			if h and h.ids then for id in pairs(h.ids) do map[id] = true any = true end end
 		end
+		local ranks = ns.RankIds and ns.RankIds(t.name)
+		if ranks then for id in pairs(ranks) do map[id] = true any = true end end
 	end
 	return any and map or nil
 end

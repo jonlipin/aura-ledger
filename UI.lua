@@ -763,7 +763,11 @@ local function BookTooltip(b)
 	elseif h.item then
 		GameTooltip:AddLine((h.note or "In your bags") .. ": its cooldown, which this client lets an addon read straight through a fight.", 0.6, 0.8, 1, true)
 	elseif h.prebuilt then
-		GameTooltip:AddLine((h.note or ClassLabel(h.class)) .. (h.kind == "debuff" and ": debuff" or ": buff") .. ", tracked by name (any rank)", 0.6, 0.8, 1, true)
+		local ranks = ns.RankIds and ns.RankIds(h.name)
+		local n = 0
+		for _ in pairs(ranks or {}) do n = n + 1 end
+		GameTooltip:AddLine((h.note or ClassLabel(h.class)) .. (h.kind == "debuff" and ": debuff" or ": buff") .. ", tracked by name (any rank)"
+			.. (n > 1 and (", " .. n .. " rank ids known") or ""), 0.6, 0.8, 1, true)
 	else
 		GameTooltip:AddLine(KIND_WORD[h.kind] or "", 0.6, 0.8, 1)
 		if h.ids and next(h.ids) then
@@ -779,14 +783,14 @@ local function BookTooltip(b)
 	end
 	GameTooltip:AddLine(" ")
 	local why = ns.CombatTrackableWhy and ns.CombatTrackableWhy(h) or "no"
-	if h.enchant ~= nil or h.swing ~= nil then
-		-- nothing to say about the game following it: the addon does
+	if why == "addon" then
+		-- nothing to say about the game following it: the addon reads it itself
 	elseif why == "yes" then
-		GameTooltip:AddLine("Marked combat: the game can follow this one by spell, so a group drawn by the game stays correct all through a fight.", 0.45, 0.75, 1, true)
-	elseif why == "off" then
-		GameTooltip:AddLine("Nothing can be marked while the game's Cooldown Manager is switched off, which it is by default on this build. Turn it on in the game's Options, under Gameplay Enhancements, and the book will say which spells it can follow.", 0.8, 0.7, 0.5, true)
+		GameTooltip:AddLine("Marked combat: in a group drawn by the game, the game follows this buff on you by its spell id all through a fight, for every rank known here.", 0.45, 0.75, 1, true)
+	elseif why == "debuff" then
+		GameTooltip:AddLine("Not marked combat: the game cannot follow a debuff on you by spell, so the addon draws it, and in a fight it shows the reading taken before the fight started.", 0.8, 0.7, 0.5, true)
 	else
-		GameTooltip:AddLine("Not marked combat: the game cannot follow this one by spell, so the addon draws it, and during a fight it shows the reading taken before the fight started.", 0.8, 0.7, 0.5, true)
+		GameTooltip:AddLine("Not marked combat yet: no spell id is known for it on this client. Once it has been on you, the ledger knows its id.", 0.8, 0.7, 0.5, true)
 	end
 	GameTooltip:AddLine(" ")
 	GameTooltip:AddLine("Drag onto the screen: track it", 0.4, 1, 0.5)

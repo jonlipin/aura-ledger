@@ -131,6 +131,92 @@ function ns.SpellInfo(idOrName)
 end
 
 -- ------------------------------------------------------------------
+-- Ranks
+--
+-- The game draws a slot only for the spell ids it is handed, and a combat sound is registered
+-- against one id at a time, so a rank nobody has told it about is invisible to it. Every rank known
+-- here is handed over: the ranks bundled in Data.lua (ns.RANK_IDS, kept only where this client
+-- agrees an id carries that name), every rank in your own spellbook, and any seen on you. Ids are
+-- only ever looked up one at a time; stepping through id ranges is what crashed another addon.
+-- A rank the client has not loaded yet is asked for and looked up again a second later, four times.
+-- ------------------------------------------------------------------
+local rankIndex, rankState = nil, {}
+ns.rankState = rankState
+-- Forgets what was worked out, for a table that has changed.
+function ns.ResetRanks()
+	rankIndex = nil
+	for k in pairs(rankState) do rankState[k] = nil end
+end
+
+function ns.Ranks(name)
+	if type(name) ~= "string" or type(ns.RANK_IDS) ~= "table" then return nil end
+	if not rankIndex then
+		rankIndex = {}
+		for spell, ids in pairs(ns.RANK_IDS) do rankIndex[strlower(spell)] = { spell = spell, ids = ids } end
+	end
+	local row = rankIndex[strlower(name)]
+	if not row then return nil end
+	local st = rankState[row.spell]
+	if not st then
+		st = { ids = {}, tries = 0, kept = 0, dropped = 0, pending = #row.ids, at = -100 }
+		rankState[row.spell] = st
+	end
+	local now = GetTime and GetTime() or 0
+	if st.pending > 0 and st.tries < 4 and now - st.at >= 1 then
+		st.tries, st.at = st.tries + 1, now
+		local before = st.kept
+		st.kept, st.dropped, st.pending = 0, 0, 0
+		local want = strlower(row.spell)
+		for _, id in ipairs(row.ids) do
+			local n = ns.SpellInfo(id)
+			if n and strlower(n) == want then
+				st.ids[id] = true
+				st.kept = st.kept + 1
+			elseif n then
+				st.dropped = st.dropped + 1
+			else
+				st.pending = st.pending + 1
+				if C_Spell and C_Spell.RequestLoadSpellData then pcall(C_Spell.RequestLoadSpellData, id) end
+			end
+		end
+		-- A rank that turned up late changes what the slots and sounds were given.
+		if st.tries > 1 and st.kept > before then ns.ranksChanged = true end
+	end
+	if st.kept == 0 then return nil end
+	return st.ids
+end
+
+-- Every rank of every spell in your spellbook, by lower-case name. The client lists each rank you
+-- know, even where its own spellbook shows only the highest.
+ns.bookRanks = {}
+function ns.LearnBookRanks()
+	if not ns.SpellBookGeneral then return end
+	local ok, spells = pcall(ns.SpellBookGeneral)
+	if not ok or type(spells) ~= "table" then return end
+	local grew = false
+	for _, s in ipairs(spells) do
+		local name, id = Clean(s.name), tonumber(Clean(s.id))
+		if type(name) == "string" and id then
+			local l = strlower(name)
+			ns.bookRanks[l] = ns.bookRanks[l] or {}
+			if not ns.bookRanks[l][id] then ns.bookRanks[l][id] = true grew = true end
+		end
+	end
+	if grew then ns.ranksChanged = true end
+end
+
+-- All the ids known for a spell by name, or nil.
+function ns.RankIds(name)
+	if type(name) ~= "string" then return nil end
+	local out, any = {}, false
+	local bundled = ns.Ranks(name)
+	if bundled then for id in pairs(bundled) do out[id] = true any = true end end
+	local own = ns.bookRanks[strlower(name)]
+	if own then for id in pairs(own) do out[id] = true any = true end end
+	return any and out or nil
+end
+
+-- ------------------------------------------------------------------
 -- Saved data
 -- ------------------------------------------------------------------
 local function CharKey()
@@ -1582,99 +1668,22 @@ local function HandleCombatLog()
 end
 
 -- ------------------------------------------------------------------
--- What the game can follow per spell in combat. The Cooldown Manager keeps its own catalog of
--- spells it knows how to track; anything in it can be handed to the game and stays right while
--- auras are hidden, anything outside it can only be drawn by the addon between fights. The book
--- marks the difference so the choice is made with that in view.
+-- What a group drawn by the game can follow all through a fight: a buff on you, by its spell id.
+-- The book marks the rows it can, so the choice between the game and the addon drawing a tracker is
+-- made with that in view. It can never follow a buff on an enemy (the game refuses spell filters
+-- there), a debuff on you, or anything with no spell id known on this client.
 -- ------------------------------------------------------------------
-local combatCat, combatCatAt = nil, -100
-
-function ns.CombatCatalogue(force)
-	local now = GetTime and GetTime() or 0
-	if combatCat and not force and now - combatCatAt < 30 then return combatCat end
-	local cat = { ids = {}, names = {}, cooldownById = {}, cooldownByName = {}, count = 0 }
-	local C, E = C_CooldownViewer, Enum and Enum.CooldownViewerCategory
-	if C and C.GetCooldownViewerCategorySet and C.GetCooldownViewerCooldownInfo and E then
-		for _, category in ipairs({ E.TrackedBuff, E.TrackedBar }) do
-			if category ~= nil then
-				local ok, set = pcall(C.GetCooldownViewerCategorySet, category, true)
-				local list = ok and PlainList(set) or nil
-				for _, cdmID in ipairs(list or {}) do
-					local okI, info = pcall(C.GetCooldownViewerCooldownInfo, cdmID)
-					if okI and type(info) == "table" then
-						-- A cooldown can stand for a different spell than the one it is filed under,
-						-- and every rank has its own entry. The manager only ever builds a frame for
-						-- one the character knows, so a known entry always wins over an unknown one.
-						local sid = Clean(info.overrideTooltipSpellID) or Clean(info.overrideSpellID) or Clean(info.spellID)
-						local known = Clean(info.isKnown) and true or false
-						if type(sid) == "number" then
-							if not cat.ids[sid] then cat.count = cat.count + 1 end
-							cat.ids[sid] = true
-							local function Claim(key, into, seen)
-								if key == nil then return end
-								if into[key] == nil or (known and not seen[key]) then
-									into[key] = cdmID
-									seen[key] = known
-								end
-							end
-							cat.knownById = cat.knownById or {}
-							cat.knownByName = cat.knownByName or {}
-							Claim(sid, cat.cooldownById, cat.knownById)
-							if C_Spell and C_Spell.GetBaseSpell then
-								local okB, base = pcall(C_Spell.GetBaseSpell, sid)
-								if okB and type(base) == "number" then
-									cat.ids[base] = true
-									Claim(base, cat.cooldownById, cat.knownById)
-								end
-							end
-							local name = ns.SpellName and ns.SpellName(sid)
-							if name then
-								local l = strlower(name)
-								cat.names[l] = true
-								Claim(l, cat.cooldownByName, cat.knownByName)
-							end
-						end
-					end
-				end
-			end
-		end
-	end
-	combatCat, combatCatAt = cat, now
-	return cat
-end
-
--- A book row or ledger row the game could follow per spell.
--- Is the game's Cooldown Manager switched on? It is off by default on this build, and with it off
--- it has no catalogue to offer, which is a different thing from a spell it cannot follow.
-function ns.CooldownManagerOn()
-	if C_CVar and C_CVar.GetCVar then
-		local ok, v = pcall(C_CVar.GetCVar, "cooldownViewerEnabled")
-		if ok and v ~= nil then return v ~= "0" and v ~= false end
-	end
-	if GetCVar then
-		local ok, v = pcall(GetCVar, "cooldownViewerEnabled")
-		if ok and v ~= nil then return v ~= "0" and v ~= false end
-	end
-	-- No way to ask: judge by whether it gave us anything.
-	return ns.CombatCatalogue().count > 0
-end
-
--- Whether the manager could follow this one, and if not, why not: "off" when the manager itself is
--- switched off, "no" when it is on and does not know this spell.
 function ns.CombatTrackableWhy(h)
-	if ns.CombatTrackable(h) then return "yes" end
-	if ns.CombatCatalogue().count == 0 and not ns.CooldownManagerOn() then return "off" end
-	return "no"
+	if not h then return "noid" end
+	if h.item or h.cd or h.enchant ~= nil or h.swing ~= nil then return "addon" end
+	if h.kind == "debuff" then return "debuff" end
+	if h.id or (h.ids and next(h.ids)) then return "yes" end
+	if h.name and ns.RankIds(h.name) then return "yes" end
+	return "noid"
 end
 
 function ns.CombatTrackable(h)
-	if not h then return false end
-	local cat = ns.CombatCatalogue()
-	if cat.count == 0 then return false end
-	if h.id and cat.ids[h.id] then return true end
-	if h.listId and cat.ids[h.listId] then return true end
-	if h.ids then for id in pairs(h.ids) do if cat.ids[id] then return true end end end
-	return h.name ~= nil and cat.names[strlower(h.name)] == true
+	return ns.CombatTrackableWhy(h) == "yes"
 end
 
 -- ------------------------------------------------------------------
@@ -1839,6 +1848,8 @@ local function TrackerSpellIds(t)
 			if h and h.ids then for id in pairs(h.ids) do ids[id] = true end end
 		end
 		if t.id then ids[t.id] = true end
+		local ranks = ns.RankIds(t.name)
+		if ranks then for id in pairs(ranks) do ids[id] = true end end
 	end
 	return ids
 end
@@ -1945,6 +1956,7 @@ local function Startup()
 	ns.ReadTalents()
 	ns.UpdateEnv()
 	ns.WantSwingEvents()
+	ns.LearnBookRanks()
 	if ns.Display and ns.Display.Init then ns.Display:Init() end
 	if ns.UI and ns.UI.Init then ns.UI:Init() end
 	ns.Settle()
@@ -2007,7 +2019,7 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 			C_Timer.After(2, function()
 				ns.ReadTalents()
 				ns.UpdateEnv()
-				ns.CombatCatalogue(true)
+				ns.LearnBookRanks()
 				if ns.ResolveAllBookItems then ns.ResolveAllBookItems() end
 			end)
 			-- A past version took the Cooldown Manager over and tainted it by doing so. Give it back.
@@ -2057,6 +2069,7 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 	elseif event == "SPELLS_CHANGED" then
 		-- A racial can arrive with a level, or late at login.
 		if ns.LearnRacials then pcall(ns.LearnRacials) end
+		ns.LearnBookRanks()
 		ns.ReadTalents()
 		ns.UpdateEnv()
 	elseif isEnvEvent[event] then
@@ -2107,6 +2120,12 @@ function ns.OnUpdate(elapsed)
 	if slowAcc >= 0.5 then
 		slowAcc = 0
 		ns.UpdateEnv()
+		-- New ranks reach the slots and the combat sounds.
+		if ns.ranksChanged then
+			ns.ranksChanged = nil
+			if ns.SyncAuraSounds then ns.SyncAuraSounds() end
+			if ns.Display and ns.Display.Refresh then ns.Display:Refresh() end
+		end
 		-- The auras you already had when you reloaded come with no event of any kind, so for a
 		-- little while after entering the world the addon simply asks again.
 		if ns.settleUntil then
@@ -2725,8 +2744,15 @@ local function Debug()
 		local total, exact, iconOnly, unknown = ns.BookStats()
 		Print(("  pre-built book: %d auras offered, %d resolved by ID, %d icon only (client name differs), %d withheld as unknown to this client"):format(total, exact, iconOnly, unknown))
 	end
-	local cat = ns.CombatCatalogue(true)
-	Print(("  spells the game can follow in combat: %d in the Cooldown Manager's catalog"):format(cat.count))
+	do
+		local bundled, kept, dropped, pending = 0, 0, 0, 0
+		for _ in pairs(ns.RANK_IDS or {}) do bundled = bundled + 1 end
+		for _, st in pairs(ns.rankState) do kept, dropped, pending = kept + st.kept, dropped + st.dropped, pending + st.pending end
+		local own = 0
+		for _, set in pairs(ns.bookRanks) do local n = 0 for _ in pairs(set) do n = n + 1 end if n > 1 then own = own + 1 end end
+		Print(("  ranks: %d spells bundled (ids checked so far: %d kept, %d dropped, %d pending), %d of your spells with more than one rank"):format(
+			bundled, kept, dropped, pending, own))
+	end
 	Print("  spellbook frame: " .. (PlayerSpellsFrame and "loaded" or "not loaded") .. ", minimize art copied: " .. tostring(ns.db.miniArt ~= nil) .. ", dump lines: " .. tostring(ns.db.psDump and #ns.db.psDump or 0))
 	if ns.blocked then
 		for fn, n in pairs(ns.blocked) do
