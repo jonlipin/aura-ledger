@@ -1510,7 +1510,16 @@ local function WidgetTooltip(w)
 	if Display.Dragging and Display:Dragging() then return end
 	GameTooltip:SetOwner(w, "ANCHOR_RIGHT")
 	local shown = false
-	if t.item and GameTooltip.SetItemByID then
+	if t.enchant ~= nil or t.swing ~= nil then
+		local slot = ns.WEAPON_INV_SLOT and ns.WEAPON_INV_SLOT[t.enchant or t.swing]
+		if slot and GameTooltip.SetInventoryItem then
+			shown = pcall(GameTooltip.SetInventoryItem, GameTooltip, "player", slot) and GameTooltip:NumLines() > 0
+		end
+		if not shown then GameTooltip:SetText(t.name or "Weapon", 1, 1, 1) shown = true end
+		GameTooltip:AddLine(t.enchant ~= nil and "Its temporary enchant, read by the addon, in a fight too."
+			or "Your next swing, from the game's swing event. The game has a swing timer of its own too, under Edit Mode.", 0.6, 0.8, 1, true)
+	end
+	if not shown and t.item and GameTooltip.SetItemByID then
 		shown = pcall(GameTooltip.SetItemByID, GameTooltip, t.item) and GameTooltip:NumLines() > 0
 	end
 	if not shown and t.id and GameTooltip.SetSpellByID then
@@ -2473,6 +2482,9 @@ local function CondMacro(cond)
 	if cond and cond.never then return nil end
 	if cond and cond.class and next(cond.class) and not (ns.env.class and cond.class[ns.env.class]) then return nil end
 	if cond and cond.place and next(cond.place) and not cond.place[ns.env.place] then return nil end
+	-- Talents do not change in a fight, so these are settled when the macro is built, out of one.
+	if cond and cond.talentSet and ns.env.talentSet and cond.talentSet ~= ns.env.talentSet then return nil end
+	if cond and cond.tree and ns.env.mainTree and cond.tree ~= ns.env.mainTree then return nil end
 	local common = {}
 	local target = cond and cond.target
 	if target == "yes" then common[#common + 1] = "@target,exists" elseif target == "no" then common[#common + 1] = "@target,noexists" end
@@ -2624,6 +2636,7 @@ local function TrackerSlots(f, g, t, ids)
 	-- A cooldown is not an aura: the game's slots know nothing about it, and the addon can read it
 	-- through a fight anyway.
 	if t.cd then return nil end
+	if t.enchant ~= nil or t.swing ~= nil then return nil end
 	if t.kind == "debuff" then return nil end
 	local kinds = { "HELPFUL" }
 	local frames = {}
@@ -3072,7 +3085,7 @@ function Display:Tick(now)
 					if not t.cd then
 						for _, w in ipairs(f.widgets) do if w.tracker == t and w.underSlot then slotted = true break end end
 					end
-					if ((t.warn or 0) > 0 or t.cd) and not slotted then
+					if ((t.warn or 0) > 0 or t.cd or t.enchant ~= nil or t.swing ~= nil) and not slotted then
 						local entry = ns.Find(t)
 						local want, expiring = Wants(t, entry, now, false, groupPass)
 						local shown, wasExpiring, was = false, false, nil
@@ -3081,7 +3094,7 @@ function Display:Tick(now)
 						end
 						-- A tracker that is on screen either way only changes by its time changing.
 						local restarted = false
-						if t.cd and shown then
+						if (t.cd or t.enchant ~= nil or t.swing ~= nil) and shown then
 							restarted = abs((was and was.expires or -1) - (entry and entry.expires or -1)) > 0.25
 						end
 						if want ~= shown or expiring ~= wasExpiring or restarted then self:RefreshGroup(g) break end

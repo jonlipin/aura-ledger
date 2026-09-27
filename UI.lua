@@ -225,6 +225,16 @@ local function CreateCheck(parent)
 end
 
 local Builder = {}
+-- The talent trees offered by the conditions, one table shared by every panel and filled in place
+-- when the game says what your trees are.
+UI.treeChoices = { { "any", "Any" } }
+function UI:RefreshTalentChoices()
+	local choices = UI.treeChoices
+	for i = #choices, 2, -1 do choices[i] = nil end
+	for _, tr in ipairs(ns.talentTrees or {}) do choices[#choices + 1] = { tr.name, tr.name } end
+	if self.groupBuilder and self.groupBuilder.Sync then pcall(self.groupBuilder.Sync, self.groupBuilder) end
+	if self.trackerBuilder and self.trackerBuilder.Sync then pcall(self.trackerBuilder.Sync, self.trackerBuilder) end
+end
 Builder.__index = Builder
 
 local function NewBuilder(panel, width)
@@ -621,6 +631,16 @@ function Builder:Conditions(getCond, onChange, draw)
 		classes[#classes + 1] = { class, (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[class]) or class, hex }
 	end
 	self:CheckGrid(classes, 3, SetGetters("class"))
+	-- Talents. The choices are the trees the game says you have, filled in once they are read.
+	self:Cycle("Main talent tree", UI.treeChoices,
+		function() return Cond().tree or "any" end,
+		function(v) Cond().tree = (v ~= "any") and v or nil onChange() end,
+		"The tree you have spent the most points in. Until talents have been read, or with none spent or a tie, this lets everything through.", 170)
+	self:Cycle("Talent set", { { "any", "Either" }, { 1, "Set 1" }, { 2, "Set 2" } },
+		function() return Cond().talentSet or "any" end,
+		function(v) Cond().talentSet = (v ~= "any") and v or nil onChange() end,
+		"For dual talent specs: show only while this set of talents is active.", 170)
+	self:AppliesWhen(function() return (tonumber(ns.env and ns.env.talentSets) or 1) > 1 end)
 end
 
 -- ------------------------------------------------------------------
@@ -738,7 +758,9 @@ local function BookTooltip(b)
 	end
 	if not shown then GameTooltip:SetText(h.name or ("Spell " .. tostring(h.id)), 1, 1, 1) end
 	GameTooltip:AddLine(" ")
-	if h.item then
+	if h.enchant ~= nil or h.swing ~= nil then
+		GameTooltip:AddLine((h.note or "Your weapon") .. ". The addon reads it itself, in a fight too.", 0.6, 0.8, 1, true)
+	elseif h.item then
 		GameTooltip:AddLine((h.note or "In your bags") .. ": its cooldown, which this client lets an addon read straight through a fight.", 0.6, 0.8, 1, true)
 	elseif h.prebuilt then
 		GameTooltip:AddLine((h.note or ClassLabel(h.class)) .. (h.kind == "debuff" and ": debuff" or ": buff") .. ", tracked by name (any rank)", 0.6, 0.8, 1, true)
@@ -757,7 +779,9 @@ local function BookTooltip(b)
 	end
 	GameTooltip:AddLine(" ")
 	local why = ns.CombatTrackableWhy and ns.CombatTrackableWhy(h) or "no"
-	if why == "yes" then
+	if h.enchant ~= nil or h.swing ~= nil then
+		-- nothing to say about the game following it: the addon does
+	elseif why == "yes" then
 		GameTooltip:AddLine("Marked combat: the game can follow this one by spell, so a group drawn by the game stays correct all through a fight.", 0.45, 0.75, 1, true)
 	elseif why == "off" then
 		GameTooltip:AddLine("Nothing can be marked while the game's Cooldown Manager is switched off, which it is by default on this build. Turn it on in the game's Options, under Gameplay Enhancements, and the book will say which spells it can follow.", 0.8, 0.7, 0.5, true)
@@ -1724,7 +1748,11 @@ local function BuildTrackerPanel(width)
 		local t = T()
 		return (t and ns.Display and ns.Display.TrackerGetsSlot and ns.Display.TrackerGetsSlot(t)) and true or false
 	end
-	local function TrackerIsSpell() return not TrackerIsItem() end
+	local function TrackerIsWeapon()
+		local t = T()
+		return (t and (t.enchant ~= nil or t.swing ~= nil)) and true or false
+	end
+	local function TrackerIsSpell() return not TrackerIsItem() and not TrackerIsWeapon() end
 	b:Header("Tracker")
 	b:Cycle("Watch", { { false, "The buff on me" }, { true, "This spell's cooldown" } },
 		function() local t = T() return (t and t.cd) and true or false end,
@@ -1740,6 +1768,10 @@ local function BuildTrackerPanel(width)
 	b:AppliesWhen(TrackerIsSpell)
 	b:Note("This tracker follows an item's cooldown. An item has no aura of its own to watch, so there is nothing to choose: to watch the buff it gives, add that buff by name from the book.")
 	b:AppliesWhen(TrackerIsItem)
+	b:Note("This tracker follows your weapon's temporary enchant: an oil, stone, poison or imbue. It is not an aura, so the addon reads it from the weapon itself, in a fight too.")
+	b:AppliesWhen(function() local t = T() return t and t.enchant ~= nil end)
+	b:Note("This tracker shows the time to your next swing, from the game's own swing event, and is empty between fights. The game also has a swing timer of its own, under Edit Mode.")
+	b:AppliesWhen(function() local t = T() return t and t.swing ~= nil end)
 	b:Cycle("Show the aura when it is", { { "active", "Active" }, { "missing", "Missing" }, { "always", "Either (red when missing)" } },
 		function() local t = T() return t and t.show or "active" end,
 		function(v) local t = T() if t then t.show = v TrackerChanged() b:Sync() end end,
@@ -1785,11 +1817,11 @@ local function BuildTrackerPanel(width)
 			TrackerChanged()
 		end,
 		"Each rank of a spell has its own ID, so matching by name is usually what you want.")
-	b:AppliesWhen(function() return TrackerIsAura() and not TrackerIsItem() end)
+	b:AppliesWhen(function() return TrackerIsAura() and not TrackerIsItem() and not TrackerIsWeapon() end)
 	b:Check("Only when it was cast by me", function() local t = T() return t and t.mine end,
 		function(v) local t = T() if t then t.mine = v TrackerChanged() end end,
 		"Ignores the same aura when it comes from someone else.")
-	b:AppliesWhen(TrackerIsAura)
+	b:AppliesWhen(function() return TrackerIsAura() and not TrackerIsWeapon() end)
 	b:Edit("Bar label (optional)", function() local t = T() return t and t.label or "" end,
 		function(text) local t = T() if t then t.label = (text ~= "" and text) or nil TrackerChanged() end end)
 

@@ -320,6 +320,22 @@ function ns.BuildBagPage()
 		end
 	end
 	table.sort(list, function(a, b) return (a.name or "") < (b.name or "") end)
+	-- Your weapons come first: their temporary enchants and their swings, which the addon reads itself.
+	local weapons = {
+		{ "Main-hand enchant", "enchant", 0, "Oil, stone, poison or imbue on your main hand" },
+		{ "Off-hand enchant", "enchant", 1, "Oil, stone, poison or imbue on your off hand" },
+		{ "Ranged enchant", "enchant", 2, "Temporary enchant on your ranged weapon" },
+		{ "Main-hand swing", "swing", 0, "Time to your next main-hand swing" },
+		{ "Off-hand swing", "swing", 1, "Time to your next off-hand swing" },
+		{ "Ranged swing", "swing", 2, "Time to your next ranged shot or wand" },
+	}
+	for i = #weapons, 1, -1 do
+		local w = weapons[i]
+		local row = { name = w[1], kind = "buff", note = w[4], prebuilt = true, class = "BAGS", resolved = true,
+			icon = ns.WeaponIcon and ns.WeaponIcon(w[3]) or nil }
+		row[w[2]] = w[3]
+		table.insert(list, 1, row)
+	end
 	ns.bagStats = stats
 	return list
 end
@@ -510,9 +526,12 @@ function ns.BookStats()
 	local total, exact, iconOnly, unknown = 0, 0, 0, 0
 	for _, list in pairs(ns.BookPages()) do
 		for _, item in ipairs(list) do
+			-- Weapon rows are not auras: nothing about them resolves.
+			if item.enchant == nil and item.swing == nil then
 			ns.ResolveBookItem(item)
 			total = total + 1
 			if item.id then exact = exact + 1 elseif item.resolved then iconOnly = iconOnly + 1 else unknown = unknown + 1 end
+			end
 		end
 	end
 	return total, exact, iconOnly, unknown

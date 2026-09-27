@@ -191,6 +191,7 @@ end
 
 -- Something about the layout changed: redraw everything that shows it.
 function ns.Changed()
+	if ns.WantSwingEvents then ns.WantSwingEvents() end
 	ns.FitAllCells()
 	if ns.Display and ns.Display.Rebuild then ns.Display:Rebuild() end
 	if ns.UI and ns.UI.RefreshLayout then ns.UI:RefreshLayout() end
@@ -551,6 +552,9 @@ function ns.NewTracker(h)
 		kind = "buff",
 		cd = h.cd or nil,
 		item = h.item or nil,
+		-- A weapon slot (0 main hand, 1 off hand, 2 ranged) for a weapon-enchant or a swing tracker.
+		enchant = h.enchant,
+		swing = h.swing,
 		matchId = (idOnly or h.byId) and true or false,
 		show = "active",
 		mine = false,
@@ -695,7 +699,70 @@ end
 
 local function EnvSignature(e)
 	return table.concat({ tostring(e.combat), tostring(e.group), tostring(e.groupSize), tostring(e.place),
-		tostring(e.resting), tostring(e.mounted), tostring(e.target), tostring(e.alive) }, "|")
+		tostring(e.resting), tostring(e.mounted), tostring(e.target), tostring(e.alive),
+		tostring(e.talentSet), tostring(e.mainTree) }, "|")
+end
+
+-- Your talent trees: each one's name, icon and points spent, read the way the game's talent frame
+-- reads them. Kept until the next talent event: nothing here changes in a fight. Your main tree is
+-- the one with the most points; with none spent, or a tie, there is no main tree and a condition
+-- on it lets everything through.
+ns.talentTrees = nil
+function ns.ReadTalents()
+	local e = ns.env
+	local function Call(fn, ...)
+		if type(fn) ~= "function" then return nil end
+		local ok, v = pcall(fn, ...)
+		return ok and Clean(v) or nil
+	end
+	local SI = C_SpecializationInfo
+	local set = SI and Call(SI.GetActiveSpecGroup)
+	e.talentSet = type(set) == "number" and set or nil
+	e.talentSets = Call(GetNumSpecGroups)
+	local T = C_Traits
+	local configID = e.talentSet and SI and Call(SI.GetCombatConfigIDForSpecGroup, e.talentSet)
+	if not configID and C_ClassTalents then configID = Call(C_ClassTalents.GetActiveConfigID) end
+	local trees
+	if configID and T and T.GetConfigInfo and T.GetGroupDisplayInfoByTreeID and T.GetGroupCurrencyInfo then
+		local ok = pcall(function()
+			local info = Clean(T.GetConfigInfo(configID))
+			local treeIDs = type(info) == "table" and Clean(info.treeIDs)
+			local treeID = type(treeIDs) == "table" and Clean(treeIDs[1]) or nil
+			if not treeID then return end
+			local displays = Clean(T.GetGroupDisplayInfoByTreeID(treeID))
+			if type(displays) ~= "table" then return end
+			local ids = {}
+			for _, di in ipairs(displays) do
+				local gid = Clean(di.groupID)
+				if gid then ids[#ids + 1] = gid end
+			end
+			local spentBy = {}
+			local currency = Clean(T.GetGroupCurrencyInfo(configID, ids))
+			for _, gi in ipairs(type(currency) == "table" and currency or {}) do
+				local gid = Clean(gi.traitNodeGroupID)
+				local infos = Clean(gi.currencyInfos)
+				local ci = type(infos) == "table" and Clean(infos[1]) or nil
+				local spent = type(ci) == "table" and tonumber(Clean(ci.spent)) or nil
+				if gid and spent then spentBy[gid] = spent end
+			end
+			trees = {}
+			for _, di in ipairs(displays) do
+				local gid, name = Clean(di.groupID), Clean(di.displayName)
+				if gid and type(name) == "string" then
+					trees[#trees + 1] = { id = gid, name = name, icon = Clean(di.icon), spent = spentBy[gid] or 0 }
+				end
+			end
+		end)
+		if not ok then trees = nil end
+	end
+	if trees and #trees > 0 then ns.talentTrees = trees end
+	local top, best, tie = nil, 0, false
+	for _, tr in ipairs(ns.talentTrees or {}) do
+		if tr.spent > best then top, best, tie = tr, tr.spent, false
+		elseif tr.spent == best and best > 0 then tie = true end
+	end
+	e.mainTree = (top and not tie) and top.name or nil
+	if ns.UI and ns.UI.RefreshTalentChoices then ns.UI:RefreshTalentChoices() end
 end
 
 function ns.UpdateEnv()
@@ -743,6 +810,9 @@ function ns.CondPass(c)
 	if c.minGroup and c.minGroup > 1 and (e.groupSize or 1) < c.minGroup then return false end
 	if c.place and next(c.place) and not c.place[e.place] then return false end
 	if c.class and next(c.class) and not (e.class and c.class[e.class]) then return false end
+	-- Talents: unknown (not read yet, nothing spent, a tie) lets everything through.
+	if c.talentSet and e.talentSet and c.talentSet ~= e.talentSet then return false end
+	if c.tree and e.mainTree and c.tree ~= e.mainTree then return false end
 	return true
 end
 
@@ -771,6 +841,8 @@ function ns.CondSummary(c)
 		end
 		parts[#parts + 1] = table.concat(names, "/")
 	end
+	if c.tree then parts[#parts + 1] = "main tree " .. c.tree end
+	if c.talentSet then parts[#parts + 1] = "talent set " .. c.talentSet end
 	return table.concat(parts, ", ")
 end
 
@@ -975,7 +1047,90 @@ function ns.ItemCooldownFor(t)
 	return { name = name, item = id, icon = icon, kind = "cooldown", duration = dur, expires = expires, mine = true }
 end
 
+-- ------------------------------------------------------------------
+-- Weapons: a temporary enchant (oil, stone, poison, imbue) is not an aura, so the aura reader and
+-- the game's slots know nothing of it; the game's enchant list is read instead, plainly, in a fight
+-- too. What was last read is kept, so a reading that comes back hidden carries on from it.
+-- ------------------------------------------------------------------
+local WEAPON_INV_SLOT = { [0] = 16, [1] = 17, [2] = 18 }
+ns.WEAPON_INV_SLOT = WEAPON_INV_SLOT
+local enchantSeen = {}
+
+local function WeaponIcon(slot)
+	if not GetInventoryItemTexture then return nil end
+	local ok, tex = pcall(GetInventoryItemTexture, "player", WEAPON_INV_SLOT[slot] or 16)
+	return ok and Clean(tex) or nil
+end
+ns.WeaponIcon = WeaponIcon
+
+function ns.EnchantFor(t)
+	local slot = tonumber(t.enchant)
+	if not slot then return nil end
+	local now = GetTime()
+	local seen = enchantSeen[slot]
+	local function Carried()
+		if seen and seen.expires > now then
+			return { name = t.name, icon = WeaponIcon(slot) or t.icon, kind = "buff", count = seen.count or 0,
+				duration = seen.duration, expires = seen.expires, mine = true, stale = true }
+		end
+	end
+	if not (C_Item and C_Item.GetWeaponEnchantInfo) then return nil end
+	local ok, list = pcall(C_Item.GetWeaponEnchantInfo, slot)
+	list = ok and Clean(list) or nil
+	if type(list) ~= "table" then return Carried() end
+	local readable = true
+	for _, raw in pairs(list) do
+		local e = Clean(raw)
+		if type(e) == "table" then
+			local has = Clean(e.hasEnchant)
+			if has == nil then readable = false end
+			if has == true then
+				local left, charges, id = Clean(e.timeLeft), Clean(e.charges), Clean(e.enchantID)
+				if type(left) ~= "number" then return Carried() end
+				if t.enchantID == nil or t.enchantID == id then
+					local secs = left / 1000
+					-- The length is the time left when this enchant was first seen, and a new one
+					-- (another enchant, or the same one put on again) starts it over.
+					if not seen or seen.id ~= id or secs > (seen.left or 0) + 1 then
+						seen = { id = id, duration = secs }
+						enchantSeen[slot] = seen
+					end
+					seen.left, seen.expires, seen.count = secs, now + secs, type(charges) == "number" and charges or 0
+					return { name = t.name, icon = WeaponIcon(slot) or t.icon, kind = "buff", count = seen.count,
+						duration = seen.duration, expires = seen.expires, mine = true }
+				end
+			end
+		end
+	end
+	if not readable then return Carried() end
+	enchantSeen[slot] = nil
+	return nil
+end
+
+-- A swing: the game says when one starts and how long it takes; nothing else is known until the next.
+ns.swing = {}
+function ns.SwingFor(t)
+	local kind = tonumber(t.swing)
+	local s = kind and ns.swing[kind]
+	if not s or GetTime() >= s.expires then return nil end
+	return { name = t.name, icon = WeaponIcon(kind) or t.icon, kind = "buff", count = 0,
+		duration = s.duration, expires = s.expires, mine = true }
+end
+
+-- The swing event is only asked for once something wants it.
+function ns.WantSwingEvents()
+	if not ns.profile or not ns.SafeRegister then return end
+	for _, g in ipairs(ns.profile.groups) do
+		for _, t in ipairs(g.trackers) do
+			if t.swing ~= nil then ns.SafeRegister("PLAYER_SWING") return end
+		end
+	end
+end
+
 function ns.Find(t)
+	-- A weapon's enchant, or its swing: read from the weapon, not the aura table.
+	if t.enchant ~= nil then return ns.EnchantFor(t) end
+	if t.swing ~= nil then return ns.SwingFor(t) end
 	-- An item is only ever its cooldown: there is no aura table to look it up in.
 	if t.item then return ns.ItemCooldownFor(t) end
 	-- A cooldown tracker asks the spell, not the aura table.
@@ -1757,6 +1912,7 @@ local function SafeRegister(event)
 	return ok
 end
 -- Only these units' events are wanted, so the client is asked for nothing else.
+ns.SafeRegister = SafeRegister
 local function SafeRegisterUnit(event, ...)
 	if events.RegisterUnitEvent then
 		local ok = pcall(events.RegisterUnitEvent, events, event, ...)
@@ -1786,7 +1942,9 @@ local function Startup()
 	ns.playerGUID = UnitGUID and UnitGUID("player")
 	ns.targetGUID = UnitGUID and Clean(UnitGUID("target")) or nil
 	ns.combatFlag = (InCombatLockdown and InCombatLockdown()) and true or false
+	ns.ReadTalents()
 	ns.UpdateEnv()
+	ns.WantSwingEvents()
 	if ns.Display and ns.Display.Init then ns.Display:Init() end
 	if ns.UI and ns.UI.Init then ns.UI:Init() end
 	ns.Settle()
@@ -1847,6 +2005,8 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		ns.playerGUID = UnitGUID and UnitGUID("player") or ns.playerGUID
 		if C_Timer and C_Timer.After then
 			C_Timer.After(2, function()
+				ns.ReadTalents()
+				ns.UpdateEnv()
 				ns.CombatCatalogue(true)
 				if ns.ResolveAllBookItems then ns.ResolveAllBookItems() end
 			end)
@@ -1881,9 +2041,24 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 	elseif event == "BAG_UPDATE_DELAYED" or event == "PLAYER_EQUIPMENT_CHANGED" then
 		-- What you are carrying has changed, so the page of it is out of date.
 		if ns.RefreshBagPage then ns.RefreshBagPage() end
+		if event == "PLAYER_EQUIPMENT_CHANGED" and ns.Display and ns.Display.Refresh then ns.Display:Refresh() end
+	elseif event == "WEAPON_ENCHANT_CHANGED" or event == "WEAPON_SLOT_CHANGED" or event == "UNIT_INVENTORY_CHANGED" then
+		if ns.Display and ns.Display.Refresh then ns.Display:Refresh() end
+	elseif event == "PLAYER_SWING" then
+		local length, kind = Clean(a1), Clean(a2)
+		if type(length) == "number" and length > 0 and length <= 10 and type(kind) == "number" then
+			ns.swing[kind] = { duration = length, expires = GetTime() + length }
+			if ns.Display and ns.Display.Refresh then ns.Display:Refresh() end
+		end
+	elseif event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED"
+		or event == "ACTIVE_TALENT_GROUP_CHANGED" then
+		ns.ReadTalents()
+		ns.UpdateEnv()
 	elseif event == "SPELLS_CHANGED" then
 		-- A racial can arrive with a level, or late at login.
 		if ns.LearnRacials then pcall(ns.LearnRacials) end
+		ns.ReadTalents()
+		ns.UpdateEnv()
 	elseif isEnvEvent[event] then
 		ns.UpdateEnv()
 	end
@@ -1899,6 +2074,11 @@ SafeRegister("ADDON_ACTION_FORBIDDEN")
 -- ns.db.combatLog, which is off by default.
 SafeRegisterUnit("UNIT_AURA", "player")
 SafeRegisterUnit("UNIT_SPELLCAST_SUCCEEDED", "player", "pet")
+SafeRegisterUnit("UNIT_INVENTORY_CHANGED", "player")
+for _, ev in ipairs({ "WEAPON_ENCHANT_CHANGED", "WEAPON_SLOT_CHANGED", "PLAYER_TALENT_UPDATE", "TRAIT_CONFIG_UPDATED",
+	"TRAIT_CONFIG_LIST_UPDATED", "ACTIVE_TALENT_GROUP_CHANGED" }) do
+	SafeRegister(ev)
+end
 for _, ev in ipairs({ "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD",
 	"ADDON_RESTRICTION_STATE_CHANGED", "BAG_UPDATE_DELAYED", "PLAYER_EQUIPMENT_CHANGED", "SPELLS_CHANGED" }) do
 	SafeRegister(ev)
@@ -2064,7 +2244,7 @@ local function Parse(s, pos)
 	end
 end
 
-local TRACKER_KEYS = { "name", "id", "icon", "kind", "matchId", "show", "mine", "label", "unit", "warn", "cond", "snd", "cd", "item", "glow" }
+local TRACKER_KEYS = { "name", "id", "icon", "kind", "matchId", "show", "mine", "label", "unit", "warn", "cond", "snd", "cd", "item", "glow", "enchant", "swing" }
 
 local function CopyTracker(t)
 	local c = {}
@@ -2118,6 +2298,7 @@ function ns.Import(text)
 	local y = (UIParent:GetHeight() or 768) / 2 + 100 - (n % 6) * 12
 	local function CleanTracker(src)
 		if type(src) ~= "table" or (not src.name and not src.id and not tonumber(src.item)) then return nil end
+		if (src.enchant ~= nil or src.swing ~= nil) and not src.name then return nil end
 		local t = ns.NewTracker({ name = src.name, id = src.id, icon = src.icon, kind = src.kind or "any",
 			item = tonumber(src.item), cd = (src.cd or tonumber(src.item)) and true or nil })
 		t.matchId = src.matchId and true or false
@@ -2129,6 +2310,8 @@ function ns.Import(text)
 		t.cond = type(src.cond) == "table" and src.cond or {}
 		t.snd = type(src.snd) == "table" and src.snd or nil
 		t.glow = src.glow and true or nil
+		local function WeaponSlot(v) v = tonumber(v) return (v == 0 or v == 1 or v == 2) and v or nil end
+		t.enchant, t.swing = WeaponSlot(src.enchant), WeaponSlot(src.swing)
 		return t
 	end
 	if data.kind == "group" and type(data.group) == "table" then
@@ -2528,6 +2711,16 @@ local function Debug()
 	local e = ns.env
 	Print(("  state: combat %s, group %s, place %s, class %s, resting %s, mounted %s"):format(
 		tostring(e.combat), tostring(e.group), tostring(e.place), tostring(e.class), tostring(e.resting), tostring(e.mounted)))
+	do
+		local trees = {}
+		for _, tr in ipairs(ns.talentTrees or {}) do trees[#trees + 1] = tr.name .. " " .. tr.spent end
+		Print(("  talents: set %s of %s, trees %s, main tree %s"):format(tostring(e.talentSet), tostring(e.talentSets),
+			#trees > 0 and table.concat(trees, " / ") or "not read", tostring(e.mainTree)))
+		local swings = {}
+		for k, s in pairs(ns.swing) do swings[#swings + 1] = ("%s %.2fs"):format(tostring(k), s.duration) end
+		Print(("  weapons: enchant API %s, swing event %s, last swings %s"):format(YesNo(C_Item and C_Item.GetWeaponEnchantInfo),
+			registered.PLAYER_SWING and "registered" or "not asked for", #swings > 0 and table.concat(swings, ", ") or "none"))
+	end
 	if ns.BookStats then
 		local total, exact, iconOnly, unknown = ns.BookStats()
 		Print(("  pre-built book: %d auras offered, %d resolved by ID, %d icon only (client name differs), %d withheld as unknown to this client"):format(total, exact, iconOnly, unknown))
