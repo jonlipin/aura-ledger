@@ -215,7 +215,9 @@ ns.BOOK.PVE = {
 -- shows them all instead.
 -- Every rank id of the book's multi-rank buffs, by spell name. Checked against the client by
 -- ns.Ranks: an id that comes back under another name is dropped.
-ns.RANK_IDS = ns.RANK_IDS or {}
+ns.RANK_IDS = ns.RANK_IDS or {
+	["Detect Invisibility"] = { 132, 2970, 11743 },
+}
 
 ns.BOOK_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID", "RACIAL", "BAGS", "ITEMS" }
 

@@ -1,5 +1,29 @@
 # Changelog
 
+## 1.73.0
+
+- New: weapon enchant trackers for your main hand, off hand and ranged weapon. Oils, stones, poisons and imbues show with their time left and charges, read by the addon itself, in a fight too. They are at the top of the book's Bags page.
+- New: swing timer trackers for your main hand, off hand and ranged weapon (a wand counts), showing the time to your next swing from the game's own swing event. Also on the Bags page. The game has a swing timer of its own too, under Edit Mode.
+- New: talent conditions, for groups and trackers alike. "Main talent tree" is the tree you have spent the most points in (until talents are read, or with none spent or a tie, it lets everything through), and "Talent set" picks set 1 or 2 when you have dual talents. Both work for groups drawn by the game too, and a group shared from a character of another class or with one talent set is not ruled out by them.
+- New: trackers drawn by the game show their countdown the way the addon's own trackers do: tenths of a second under 10 seconds, whole seconds up to a minute, then minutes and hours.
+- New: "Show it again before it runs out" now works on trackers drawn by the game. The game decides when those are on screen, so instead of coming back early, the countdown turns red that long before the aura runs out, in combat too. It needs the group's timers on, and takes effect a moment after you stop changing it.
+- New: "Glow while it is up" for trackers drawn by the game: the game plays the action bar's proc glow on the tracker for as long as the aura is up, in combat too.
+- New: a cooldown tracker for Nature's Swiftness, Presence of Mind, Stealth and the like reads as used while the effect is up, instead of Ready. Their cooldown only starts when the effect ends.
+- New: every rank of your own spells is handed to groups drawn by the game and to combat sounds, straight from your spellbook, so a rank the ledger has not seen on you yet is still followed in a fight.
+- Changed: the book's "combat" mark now says what a group drawn by the game can follow all through a fight: a buff on you with a spell id known on this client. It no longer depends on the game's Cooldown Manager being switched on.
+- Fixed: a spell cooldown the game hides during a fight (the client can do this in some restricted fights) no longer shows as Ready. It carries on from the last reading, or from when you cast it, or shows as on cooldown with the time unknown.
+- Fixed: a cooldown tracker for a spell the character cannot cast right now (a pet ability with another pet out, for example) no longer shows as Ready.
+- Fixed: exported cooldown and item trackers came back as buff trackers when imported.
+- Fixed: a combat sound picked during a fight is registered with the game when the fight ends, since the game can refuse it during one. The sound registered before keeps playing meanwhile.
+- Fixed: several places could test a value the game hides during a fight, which the client punishes by blocking the addon for the rest of the session: reading the Cooldown Manager's art, the cooldown readers and parts of /auraledger debug. They all check first now, and the Cooldown Manager's art is only read out of combat.
+- Fixed: deleting or merging a group drawn by the game during a fight left it half removed. It now goes when the fight ends.
+- Fixed: a tracker drawn by the game with a warn time set made its whole group redraw ten times a second.
+- Fixed: trying /auraledger combatlog once kept it on across logins, and this client answers the combat log with a "blocked" dialog. It now lasts one session only.
+- Fixed: the book listed Detect Lesser Invisibility, Detect Invisibility and Detect Greater Invisibility separately, but this client has them as ranks of one spell. It is one row now, and all three ranks are followed.
+- Removed: the dispel border on trackers drawn by the game. The game never shows it on buffs, so it never appeared.
+- Removed: /auraledger debug cdmapply, a diagnostic that wrote the Cooldown Manager's layout. A profile that still carries that layout is handed back as before, and the manager is now left switched on or off as it was.
+- /auraledger debug now also reports cooldown secrecy, talents, weapons and ranks, and /auraledger debug cdread prints everything the game says about each cooldown tracker.
+
 ## 1.72.1
 
 - Fixed: dragging something toward the red centre line of the grid settled it on a magenta guide just left or right of the line instead of on it. The centre line is no longer an ordinary grid line. Bring a group's or a tracker's middle within half a grid step of the middle of the screen, at most 12, and it goes there, with a guide drawn over the red line to say so. That holds at every grid size, including for wide groups that used to land a few units off centre with no guide at all.

@@ -132,6 +132,10 @@ local function BindSlotTime(button, fs, warn, r, g, b)
 		ns.report["slot time text"] = "the addon's format; the game refused the warning colour"
 		return
 	end
+	if curve and fmt and pcall(button.SetDurationText, button, fs, { textColor = opts.textColor }) then
+		ns.report["slot time text"] = "the game's own format, with the warning colour; the game refused the addon's format"
+		return
+	end
 	pcall(button.SetDurationText, button, fs)
 	ns.report["slot time text"] = "the game's own format"
 end
@@ -1545,6 +1549,14 @@ local function WidgetTooltip(w)
 		else
 			GameTooltip:AddLine("This client will not say what its cooldown is", 1, 0.4, 0.4)
 		end
+	elseif t.enchant ~= nil or t.swing ~= nil then
+		if entry and left and left > 0 then
+			GameTooltip:AddLine(("%s left"):format(ns.FormatTime(left)), 0.4, 1, 0.4)
+		elseif entry then
+			GameTooltip:AddLine("On", 0.4, 1, 0.4)
+		else
+			GameTooltip:AddLine(t.enchant ~= nil and "No temporary enchant" or "No swing under way", 1, 0.4, 0.4)
+		end
 	elseif entry then
 		if left and left > 0 then
 			GameTooltip:AddLine(("On you, %s left"):format(ns.FormatTime(left)), 0.4, 1, 0.4)
@@ -2485,8 +2497,7 @@ local function CondMacro(cond)
 	if cond and cond.class and next(cond.class) and not (ns.env.class and cond.class[ns.env.class]) then return nil end
 	if cond and cond.place and next(cond.place) and not cond.place[ns.env.place] then return nil end
 	-- Talents do not change in a fight, so these are settled when the macro is built, out of one.
-	if cond and cond.talentSet and ns.env.talentSet and cond.talentSet ~= ns.env.talentSet then return nil end
-	if cond and cond.tree and ns.env.mainTree and cond.tree ~= ns.env.mainTree then return nil end
+	if ns.TalentConditionFails(cond) then return nil end
 	local common = {}
 	local target = cond and cond.target
 	if target == "yes" then common[#common + 1] = "@target,exists" elseif target == "no" then common[#common + 1] = "@target,noexists" end
@@ -2582,44 +2593,19 @@ local function SlotContainer(f, g, unit)
 end
 
 -- What a tracker's slot is built with beyond its look: the warn time its countdown turns red at,
--- and the glow. A slot cannot be changed once built, so a new value means a new slot. That is only
--- done out of combat (a new slot cannot be made in one), and a warn time is taken only once it has
--- held still for a second, or dragging the slider would leave a slot behind at every step.
+-- and the glow. A slot cannot be changed once built, so a new value means a new slot. The values
+-- are taken when the slot is looked up out of combat, which is also when a new one can be made; in
+-- a fight the slot already made is kept. (Slots are never made while the options window is open,
+-- so moving the slider does not leave one behind at every step.)
 local slotOpts = setmetatable({}, { __mode = "k" })
-local function WantedSlotOpts(g, t)
-	local warn = (g.timers ~= false and (t.warn or 0) > 0) and floor(t.warn) or 0
-	return warn, t.glow and true or false
-end
 local function AppliedSlotOpts(g, t)
 	local o = slotOpts[t]
-	if not o then
-		local warn, glow = WantedSlotOpts(g, t)
-		o = { warn = warn, glow = glow }
-		slotOpts[t] = o
+	if not o then o = {} slotOpts[t] = o end
+	if o.warn == nil or not (InCombatLockdown and InCombatLockdown()) then
+		o.warn = (g.timers ~= false and (t.warn or 0) > 0) and floor(t.warn) or 0
+		o.glow = t.glow and true or false
 	end
 	return o
-end
--- Brings the options up to date between fights. Returns true when a slot has to be made again.
-local function SyncSlotOpts(g, now)
-	local changed = false
-	for _, t in ipairs(g.trackers) do
-		local o = slotOpts[t]
-		if o then
-			local warn, glow = WantedSlotOpts(g, t)
-			if glow ~= o.glow then o.glow = glow changed = true end
-			if warn ~= o.warn then
-				if o.pendingWarn ~= warn then
-					o.pendingWarn, o.pendingAt = warn, now
-				elseif now - (o.pendingAt or now) >= 1 then
-					o.warn, o.pendingWarn = warn, nil
-					changed = true
-				end
-			else
-				o.pendingWarn = nil
-			end
-		end
-	end
-	return changed
 end
 
 -- Whether a tracker is drawn by the game (a slot) rather than by the addon, for the options panel.
@@ -2950,6 +2936,15 @@ local function Expiring(t, entry, now)
 end
 Display.Expiring = Expiring
 
+-- Which state a cooldown or weapon entry is in, for noticing a change that moves no time.
+local function EntryState(e)
+	if e == nil then return 0 end
+	if e.held then return 1 end
+	if e.secret then return 2 end
+	if e.ready then return 3 end
+	return 4
+end
+
 -- Whether a tracker shows right now, and whether it is showing because the aura is about to run out.
 local function Wants(t, entry, now, unlocked, groupPass)
 	if unlocked then return true, false end
@@ -3077,9 +3072,6 @@ function Display:Tick(now)
 		if g then
 			-- A warn window opens with no event, and so does a cooldown starting or coming back, so
 			-- trackers that watch either are re-checked each tick.
-			if g.gameDrawn and not unlocked and not (InCombatLockdown and InCombatLockdown()) and SyncSlotOpts(g, now) then
-				self:RefreshGroup(g)
-			end
 			if not unlocked then
 				local groupPass = ns.CondPass(g.cond)
 				for _, t in ipairs(g.trackers) do
@@ -3098,6 +3090,7 @@ function Display:Tick(now)
 						local restarted = false
 						if (t.cd or t.enchant ~= nil or t.swing ~= nil) and shown then
 							restarted = abs((was and was.expires or -1) - (entry and entry.expires or -1)) > 0.25
+								or EntryState(was) ~= EntryState(entry)
 						end
 						if want ~= shown or expiring ~= wasExpiring or restarted then self:RefreshGroup(g) break end
 					end
@@ -3127,6 +3120,8 @@ function Display:Rebuild()
 			active[uid] = nil
 			Display.dropAfterCombat = Display.dropAfterCombat or {}
 			Display.dropAfterCombat[f] = true
+			-- Out of sight until then; alpha is not a show or a hide, so the game's containers are left alone.
+			f:SetAlpha(0)
 		elseif not wanted[uid] then
 			f:Hide()
 			-- A group taken away mid-drag must not carry the drag into the group this frame is used

@@ -1,22 +1,23 @@
-## 1.72.1
+## 1.73.0
 
-- Fixed: dragging something toward the red centre line of the grid settled it on a magenta guide just left or right of the line instead of on it. The centre line is no longer an ordinary grid line. Bring a group's or a tracker's middle within half a grid step of the middle of the screen, at most 12, and it goes there, with a guide drawn over the red line to say so. That holds at every grid size, including for wide groups that used to land a few units off centre with no guide at all.
-- Lining up with other trackers is more deliberate. It is like with like: an edge with an edge, a middle with a middle, never a middle with an edge, which is what put a group's middle on another group's side. A group's outline can be lined up with from anywhere on the screen, but the trackers inside a group only offer their middles, and only when they are near what you are dragging, so a row of icons is no longer a solid band of magnets. A line that sits within 12 of the centre is left out at every grid size, so no guide ever appears a few units beside the red one. Lining something up in a way that would leave its middle just off the centre puts it on the centre instead.
-- The grid never carries something back across a line it could have lined up with, so nothing jumps backwards as you drag forwards.
-- A bar can still be lined up top to top or bottom to bottom with a neighbour that is itself centred. Between that and the centre, whichever is nearer wins, so a narrow bar no longer flickers between the two as you drag steadily.
-- Fixed: tooltips came up over other trackers while a group was being dragged by its plate.
-- Fixed: locking or unlocking from the minimap button left the grid drawn, or turned snapping on with no grid and no edit bar. It now does exactly what Edit layout does.
-- Fixed: dragging every tracker of a group at once, marked with shift-click, by one of its icons put the group where that one icon was aimed rather than where the group was, and lined it up with its own old outline.
-- Fixed: a group whose drag was cut short, by arranging being turned off mid-drag, went on following the cursor.
-- Fixed: a group held by its plate when arranging ended, and hidden because its tracker only shows while its buff is up, never had its drag ended. Tooltips stayed off for the rest of the session, and the stale drag could later drop that tracker into another group. The drag is now let go where the group was when arranging ends, however it ends (Done, the minimap button, the slash command, or closing the window), and it is not treated as a drop.
-- Fixed: a spell dragged from the book against a free side of a cluster icon could shift icons already in the cluster. It now goes on the end first and then moves into the cell it was held against, so the others stay where they were.
-- A tracker dragged into the open from the book or from the Groups and trackers list now lands where the grid shows it will, at its own size.
-
-## 1.72.0
-
-- New: an alignment grid while arranging. The bar that appears in edit mode has a **Grid** checkbox that lays lines over the whole screen, measured out from its middle so a group can be put dead centre. The cross through the middle, every fourth line, and the rest are each drawn in their own color, so distance can be counted off it.
-- **-** and **+** beside it change how far apart the lines are, from 8 to 128.
-- **Snap to grid** settles a group or a tracker on the nearest line as you drag it, by whichever of its edges or its middle is closest to one. A group follows the grid as it moves, and a tracker dropped in the open shows where it will land before you let go.
-- While the grid is up, trackers also line up with each other: bring an edge or the middle close to another tracker's edge or middle and it lines up exactly, with a guide line drawn across the screen while it does. Lining up with another tracker takes priority over the grid, since it is usually what you are aiming for, and it still works with Snap to grid turned off.
-- Hold **Alt** while dragging to place something freely, with no snapping or lining up at all.
-- The grid is only there while arranging, and it remembers whether you left it on.
+- New: weapon enchant trackers for your main hand, off hand and ranged weapon. Oils, stones, poisons and imbues show with their time left and charges, read by the addon itself, in a fight too. They are at the top of the book's Bags page.
+- New: swing timer trackers for your main hand, off hand and ranged weapon (a wand counts), showing the time to your next swing from the game's own swing event. Also on the Bags page. The game has a swing timer of its own too, under Edit Mode.
+- New: talent conditions, for groups and trackers alike. "Main talent tree" is the tree you have spent the most points in (until talents are read, or with none spent or a tie, it lets everything through), and "Talent set" picks set 1 or 2 when you have dual talents. Both work for groups drawn by the game too, and a group shared from a character of another class or with one talent set is not ruled out by them.
+- New: trackers drawn by the game show their countdown the way the addon's own trackers do: tenths of a second under 10 seconds, whole seconds up to a minute, then minutes and hours.
+- New: "Show it again before it runs out" now works on trackers drawn by the game. The game decides when those are on screen, so instead of coming back early, the countdown turns red that long before the aura runs out, in combat too. It needs the group's timers on, and takes effect a moment after you stop changing it.
+- New: "Glow while it is up" for trackers drawn by the game: the game plays the action bar's proc glow on the tracker for as long as the aura is up, in combat too.
+- New: a cooldown tracker for Nature's Swiftness, Presence of Mind, Stealth and the like reads as used while the effect is up, instead of Ready. Their cooldown only starts when the effect ends.
+- New: every rank of your own spells is handed to groups drawn by the game and to combat sounds, straight from your spellbook, so a rank the ledger has not seen on you yet is still followed in a fight.
+- Changed: the book's "combat" mark now says what a group drawn by the game can follow all through a fight: a buff on you with a spell id known on this client. It no longer depends on the game's Cooldown Manager being switched on.
+- Fixed: a spell cooldown the game hides during a fight (the client can do this in some restricted fights) no longer shows as Ready. It carries on from the last reading, or from when you cast it, or shows as on cooldown with the time unknown.
+- Fixed: a cooldown tracker for a spell the character cannot cast right now (a pet ability with another pet out, for example) no longer shows as Ready.
+- Fixed: exported cooldown and item trackers came back as buff trackers when imported.
+- Fixed: a combat sound picked during a fight is registered with the game when the fight ends, since the game can refuse it during one. The sound registered before keeps playing meanwhile.
+- Fixed: several places could test a value the game hides during a fight, which the client punishes by blocking the addon for the rest of the session: reading the Cooldown Manager's art, the cooldown readers and parts of /auraledger debug. They all check first now, and the Cooldown Manager's art is only read out of combat.
+- Fixed: deleting or merging a group drawn by the game during a fight left it half removed. It now goes when the fight ends.
+- Fixed: a tracker drawn by the game with a warn time set made its whole group redraw ten times a second.
+- Fixed: trying /auraledger combatlog once kept it on across logins, and this client answers the combat log with a "blocked" dialog. It now lasts one session only.
+- Fixed: the book listed Detect Lesser Invisibility, Detect Invisibility and Detect Greater Invisibility separately, but this client has them as ranks of one spell. It is one row now, and all three ranks are followed.
+- Removed: the dispel border on trackers drawn by the game. The game never shows it on buffs, so it never appeared.
+- Removed: /auraledger debug cdmapply, a diagnostic that wrote the Cooldown Manager's layout. A profile that still carries that layout is handed back as before, and the manager is now left switched on or off as it was.
+- /auraledger debug now also reports cooldown secrecy, talents, weapons and ranks, and /auraledger debug cdread prints everything the game says about each cooldown tracker.

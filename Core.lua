@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.72.1"
+ns.VERSION = "1.73.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -181,6 +181,10 @@ function ns.Ranks(name)
 		end
 		-- A rank that turned up late changes what the slots and sounds were given.
 		if st.tries > 1 and st.kept > before then ns.ranksChanged = true end
+		if st.pending > 0 and st.tries < 4 and C_Timer and C_Timer.After then
+			local spell = row.spell
+			C_Timer.After(1.05, function() ns.Ranks(spell) end)
+		end
 	end
 	if st.kept == 0 then return nil end
 	return st.ids
@@ -794,6 +798,22 @@ end
 -- the one with the most points; with none spent, or a tie, there is no main tree and a condition
 -- on it lets everything through.
 ns.talentTrees = nil
+
+-- Whether a talent condition rules this character out. A tree that is not one of yours (a group
+-- shared by another class) and a talent set on a character with only one say nothing, and let
+-- everything through, as does anything not read yet.
+function ns.TalentConditionFails(c)
+	local e = ns.env
+	if not c then return false end
+	if c.talentSet and e.talentSet and (tonumber(e.talentSets) or 1) > 1 and c.talentSet ~= e.talentSet then return true end
+	if c.tree and e.mainTree and c.tree ~= e.mainTree then
+		for _, tr in ipairs(ns.talentTrees or {}) do
+			if tr.name == c.tree then return true end
+		end
+	end
+	return false
+end
+
 function ns.ReadTalents()
 	local e = ns.env
 	local function Call(fn, ...)
@@ -851,9 +871,11 @@ function ns.ReadTalents()
 	if ns.UI and ns.UI.RefreshTalentChoices then ns.UI:RefreshTalentChoices() end
 end
 
+-- The last state the display was drawn for. Compared with the state after each update, so a change
+-- written by something else in between (talents are read on their own events) still redraws.
+local lastEnvSig
 function ns.UpdateEnv()
 	local e = ns.env
-	local before = EnvSignature(e)
 	e.combat = ns.combatFlag and true or false
 	e.group = Bool(IsInRaid) and "raid" or (Bool(IsInGroup) and "party" or "solo")
 	local size = 1
@@ -881,7 +903,11 @@ function ns.UpdateEnv()
 		local ok, _, token = pcall(UnitClass, "player")
 		if ok then e.class = Clean(token) end
 	end
-	if before ~= EnvSignature(e) and ns.Display and ns.Display.Refresh then ns.Display:Refresh() end
+	local sig = EnvSignature(e)
+	if sig ~= lastEnvSig then
+		lastEnvSig = sig
+		if ns.Display and ns.Display.Refresh then ns.Display:Refresh() end
+	end
 end
 
 function ns.CondPass(c)
@@ -897,8 +923,7 @@ function ns.CondPass(c)
 	if c.place and next(c.place) and not c.place[e.place] then return false end
 	if c.class and next(c.class) and not (e.class and c.class[e.class]) then return false end
 	-- Talents: unknown (not read yet, nothing spent, a tie) lets everything through.
-	if c.talentSet and e.talentSet and c.talentSet ~= e.talentSet then return false end
-	if c.tree and e.mainTree and c.tree ~= e.mainTree then return false end
+	if ns.TalentConditionFails(c) then return false end
 	return true
 end
 
@@ -985,6 +1010,17 @@ local cdSeen = {}
 -- are hidden.
 local cdIdle = {}
 ns.lastCast = {}
+-- When the global cooldown last started from one of your casts: at the cast for an instant, at the
+-- start of the cast for one with a cast time. Something on cooldown outside that window is a real
+-- cooldown, whatever started it.
+ns.lastGcdAt = nil
+local GCD_WINDOW = GCD_MAX + 0.2
+
+-- The length a spell's cooldown had when it was last read plainly, per character (talents change it).
+local function RememberedLength(lname)
+	local mem = ns.profile and ns.profile.cdLen
+	return mem and tonumber(mem[lname]) or nil
+end
 
 -- The real cooldown behind a reading: its length and when it ends, or nothing if there is none.
 -- "held" is a cooldown that has been used but has not started yet: Nature's Swiftness, Stealth and
@@ -1054,33 +1090,59 @@ local function HiddenCooldown(t, key, icon, enabled, active)
 	local base = { name = t.name, id = t.id, icon = icon, kind = "cooldown", mine = true, duration = 0, expires = 0 }
 	ns.stats.secretCd = (ns.stats.secretCd or 0) + 1
 	ns.stats.secretCdLast = t.name or tostring(key)
-	if enabled == false then base.held = true return base end
 	local lname = CooldownName(t, key)
+	if enabled == false then
+		-- Used, and its cooldown starts when the effect ends: a carried countdown counts from then.
+		ns.lastCast[lname] = now
+		base.held = true
+		return base
+	end
 	if active == false then
 		cdSeen["s:" .. tostring(key)] = nil
 		cdIdle[lname] = now
 		base.ready = true
 		return base
 	end
+	if active ~= true then return nil end
+	local cast = ns.lastCast[lname]
+	local castSinceReady = cast ~= nil and cast >= (cdIdle[lname] or 0)
+	-- The last plain reading carries on, unless the spell was cast again after that cooldown began
+	-- (it was reset and used again).
 	local seen = cdSeen["s:" .. tostring(key)]
-	if seen and now < seen.expires then
+	if seen and now < seen.expires and not (cast and cast > seen.expires - seen.duration + GCD_MAX) then
 		base.duration, base.expires, base.stale = seen.duration, seen.expires, true
 		return base
 	end
-	if active ~= true then return nil end
-	local cast = ns.lastCast[lname]
-	if cast and cast > (cdIdle[lname] or 0) then
-		local len = ns.db and ns.db.cdLen and tonumber(ns.db.cdLen[lname])
-		if len and cast + len > now then
-			base.duration, base.expires, base.stale = len, cast + len, true
-		else
-			base.secret = true
-		end
+	local len = RememberedLength(lname)
+	if castSinceReady and len and cast + len > now then
+		base.duration, base.expires, base.stale = len, cast + len, true
 		return base
 	end
-	-- On cooldown and not cast since it was last ready: that is the global cooldown.
-	base.ready = true
+	-- Inside the global cooldown: the spell is ready unless its own cooldown may still be running,
+	-- which is so when it was cast since it was last ready and its length is not known.
+	local inGcd = ns.lastGcdAt ~= nil and now - ns.lastGcdAt <= GCD_WINDOW
+	if inGcd and (not castSinceReady or (len and cast + len <= now)) then
+		if castSinceReady then cdIdle[lname] = cast + len end
+		base.ready = true
+		return base
+	end
+	-- On cooldown outside the global one, or cast with no length known: a real cooldown, how long
+	-- the game is not saying.
+	base.secret = true
 	return base
+end
+
+-- What is remembered about a cooldown tracker, for /auraledger debug cdread.
+function ns.CooldownMemory(t)
+	local key = t.id or t.name
+	if not key then return nil end
+	local lname = CooldownName(t, key)
+	local now = GetTime()
+	local seen = cdSeen["s:" .. tostring(key)]
+	local function Ago(v) return v and ("%.1fs ago"):format(now - v) or "never" end
+	return ("last read on cooldown %s, ready %s, cast %s, length %s"):format(
+		seen and ("until %.1fs from now"):format(seen.expires - now) or "none", Ago(cdIdle[lname]), Ago(ns.lastCast[lname]),
+		tostring(RememberedLength(lname)))
 end
 
 function ns.CooldownFor(t)
@@ -1103,17 +1165,21 @@ function ns.CooldownFor(t)
 	if not start or not duration then return nil end
 	local dur, expires, held = RealCooldown("s:" .. tostring(key), start, duration, enabled, true)
 	if held then
+		ns.lastCast[CooldownName(t, key)] = GetTime()
 		return { name = t.name, id = t.id, icon = icon, kind = "cooldown", held = true, duration = 0, expires = 0, mine = true }
 	end
 	if not dur then
-		cdIdle[CooldownName(t, key)] = GetTime()
+		-- Ready. A short reading just after a cast may be the global cooldown standing in for the
+		-- spell's own, so that is not taken as the moment it was last ready.
+		local lname = CooldownName(t, key)
+		if start == 0 or duration == 0 or GetTime() - (ns.lastCast[lname] or -100) > GCD_WINDOW then cdIdle[lname] = GetTime() end
 		-- Ready: an entry with nothing left on it, so "show when ready" has something to show.
 		return { name = t.name, id = t.id, icon = icon, kind = "cooldown", ready = true, duration = 0, expires = 0, mine = true }
 	end
 	-- Remembered by name for a fight where the numbers are hidden: its length the last time it was read.
-	if dur > GCD_MAX and ns.db then
-		ns.db.cdLen = ns.db.cdLen or {}
-		ns.db.cdLen[CooldownName(t, key)] = dur
+	if dur > GCD_MAX and ns.profile then
+		ns.profile.cdLen = ns.profile.cdLen or {}
+		ns.profile.cdLen[CooldownName(t, key)] = dur
 	end
 	return { name = t.name, id = t.id, icon = icon, kind = "cooldown", duration = dur, expires = expires, mine = true }
 end
@@ -1204,13 +1270,18 @@ function ns.SwingFor(t)
 end
 
 -- The swing event is only asked for once something wants it.
+-- Also notes whether anything follows a weapon enchant, so the inventory events redraw only then.
 function ns.WantSwingEvents()
 	if not ns.profile or not ns.SafeRegister then return end
+	local swing, enchant = false, false
 	for _, g in ipairs(ns.profile.groups) do
 		for _, t in ipairs(g.trackers) do
-			if t.swing ~= nil then ns.SafeRegister("PLAYER_SWING") return end
+			if t.swing ~= nil then swing = true end
+			if t.enchant ~= nil then enchant = true end
 		end
 	end
+	ns.hasEnchantTrackers = enchant
+	if swing then ns.SafeRegister("PLAYER_SWING") elseif ns.SafeUnregister then ns.SafeUnregister("PLAYER_SWING") end
 end
 
 function ns.Find(t)
@@ -1554,11 +1625,17 @@ local function SpellName(spellId)
 	return name
 end
 
-local function HandleCast(unit, spellId)
+local function HandleCast(unit, spellId, castGUID)
 	if unit ~= "player" and unit ~= "pet" then return end
 	spellId = Clean(spellId)
 	if type(spellId) ~= "number" then return end
 	ns.stats.casts = ns.stats.casts + 1
+	if unit == "player" then
+		-- A spell with a cast time started the global cooldown when the cast began.
+		local guid = Clean(castGUID)
+		if guid == nil or guid ~= ns.lastCastStart then ns.lastGcdAt = GetTime() end
+		ns.lastCastStart = nil
+	end
 	do
 		local cname = SpellName(spellId)
 		if cname then ns.lastCast[strlower(cname)] = GetTime() end
@@ -1679,6 +1756,7 @@ function ns.CombatTrackableWhy(h)
 	if h.kind == "debuff" then return "debuff" end
 	if h.id or (h.ids and next(h.ids)) then return "yes" end
 	if h.name and ns.RankIds(h.name) then return "yes" end
+	if h.clientName then return "renamed" end
 	return "noid"
 end
 
@@ -1816,6 +1894,10 @@ ns.auraSoundStats = { registered = 0, failed = 0, lastError = nil, cleared = 0 }
 function ns.ClearStaleAuraSounds()
 	local C = C_UnitAuras
 	if not (C and C.RemoveAuraSound) or not ns.db then return end
+	-- In a fight or a restricted place new ones may be refused, so the old ones keep playing until
+	-- they can be replaced.
+	if (InCombatLockdown and InCombatLockdown()) or AurasSecret() then ns.staleSoundsPending = true return end
+	ns.staleSoundsPending = nil
 	local old = ns.db.auraSoundIds
 	ns.db.auraSoundIds = {}
 	if type(old) ~= "table" then return end
@@ -1864,6 +1946,7 @@ function ns.SyncAuraSounds()
 		return
 	end
 	ns.soundSyncPending = nil
+	if ns.staleSoundsPending then ns.ClearStaleAuraSounds() end
 	local trig = Enum and Enum.UnitAuraSoundTrigger or {}
 	local triggers = { applied = trig.Added or 0, removed = trig.Removed or 2 }
 	local wanted = {}
@@ -1924,6 +2007,11 @@ local function SafeRegister(event)
 end
 -- Only these units' events are wanted, so the client is asked for nothing else.
 ns.SafeRegister = SafeRegister
+function ns.SafeUnregister(event)
+	if not registered[event] then return end
+	pcall(events.UnregisterEvent, events, event)
+	registered[event] = nil
+end
 local function SafeRegisterUnit(event, ...)
 	if events.RegisterUnitEvent then
 		local ok = pcall(events.RegisterUnitEvent, events, event, ...)
@@ -1997,7 +2085,12 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		Reindex()
 		ns.dirty = true
 	elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
-		HandleCast(a1, a3)
+		HandleCast(a1, a3, a2)
+	elseif event == "UNIT_SPELLCAST_START" then
+		if a1 == "player" then
+			ns.lastCastStart = Clean(a2)
+			ns.lastGcdAt = GetTime()
+		end
 	elseif event == "PLAYER_TARGET_CHANGED" then
 		ns.targetGUID = UnitGUID and Clean(UnitGUID("target")) or nil
 		ns.UpdateEnv()
@@ -2049,18 +2142,19 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 			ns.LogLine(("restriction %s -> %s: auras hidden %s, cooldowns hidden %s, combat %s"):format(tostring(rType), tostring(rState),
 				tostring(AurasSecret()), cdHidden, tostring(InCombatLockdown and InCombatLockdown())))
 			if ns.soundSyncPending and ns.SyncAuraSounds then ns.SyncAuraSounds() end
+			if ns.Display and ns.Display.AfterCombat and not (InCombatLockdown and InCombatLockdown()) then ns.Display:AfterCombat() end
 		end) end
 	elseif event == "BAG_UPDATE_DELAYED" or event == "PLAYER_EQUIPMENT_CHANGED" then
 		-- What you are carrying has changed, so the page of it is out of date.
 		if ns.RefreshBagPage then ns.RefreshBagPage() end
 		if event == "PLAYER_EQUIPMENT_CHANGED" and ns.Display and ns.Display.Refresh then ns.Display:Refresh() end
 	elseif event == "WEAPON_ENCHANT_CHANGED" or event == "WEAPON_SLOT_CHANGED" or event == "UNIT_INVENTORY_CHANGED" then
-		if ns.Display and ns.Display.Refresh then ns.Display:Refresh() end
+		if ns.hasEnchantTrackers and ns.Display and ns.Display.Refresh then ns.Display:Refresh() end
 	elseif event == "PLAYER_SWING" then
+		-- Recorded only: the display's tick picks a new swing up within a tenth of a second.
 		local length, kind = Clean(a1), Clean(a2)
 		if type(length) == "number" and length > 0 and length <= 10 and type(kind) == "number" then
 			ns.swing[kind] = { duration = length, expires = GetTime() + length }
-			if ns.Display and ns.Display.Refresh then ns.Display:Refresh() end
 		end
 	elseif event == "PLAYER_TALENT_UPDATE" or event == "TRAIT_CONFIG_UPDATED" or event == "TRAIT_CONFIG_LIST_UPDATED"
 		or event == "ACTIVE_TALENT_GROUP_CHANGED" then
@@ -2087,6 +2181,7 @@ SafeRegister("ADDON_ACTION_FORBIDDEN")
 -- ns.db.combatLog, which is off by default.
 SafeRegisterUnit("UNIT_AURA", "player")
 SafeRegisterUnit("UNIT_SPELLCAST_SUCCEEDED", "player", "pet")
+SafeRegisterUnit("UNIT_SPELLCAST_START", "player")
 SafeRegisterUnit("UNIT_INVENTORY_CHANGED", "player")
 for _, ev in ipairs({ "WEAPON_ENCHANT_CHANGED", "WEAPON_SLOT_CHANGED", "PLAYER_TALENT_UPDATE", "TRAIT_CONFIG_UPDATED",
 	"TRAIT_CONFIG_LIST_UPDATED", "ACTIVE_TALENT_GROUP_CHANGED" }) do
@@ -2810,11 +2905,11 @@ SlashCmdList.AURALEDGER = function(msg)
 		end
 		local want, found = strlower(rest), nil
 		for _, row in ipairs(ns.BookPages().BAGS or {}) do
-			if strlower(row.name or "") == want then found = row break end
+			if row.item and strlower(row.name or "") == want then found = row break end
 		end
 		if not found then
 			for _, row in ipairs(ns.BookPages().BAGS or {}) do
-				if strlower(row.name or ""):find(want, 1, true) then found = row break end
+				if row.item and strlower(row.name or ""):find(want, 1, true) then found = row break end
 			end
 		end
 		if not found then
@@ -2830,11 +2925,15 @@ SlashCmdList.AURALEDGER = function(msg)
 		local st = ns.bagStats or {}
 		Print(("what you are carrying: %d bag slots and %d worn pieces read, %d with a use, %d of those unnamed so far"):format(
 			st.bags or 0, st.gear or 0, st.withUse or 0, st.unnamed or 0))
-		if #page == 0 then
-			Print("  nothing with a use was found. If that is wrong, this client may not be answering one of the bag calls; please report it.")
-		end
+		local items = 0
 		for _, row in ipairs(page) do
-			Print(("  %s |cff808080(item %d, %s)|r"):format(row.name, row.item, row.note or ""))
+			if row.item then
+				items = items + 1
+				Print(("  %s |cff808080(item %d, %s)|r"):format(row.name, row.item, row.note or ""))
+			end
+		end
+		if items == 0 then
+			Print("  nothing with a use was found. If that is wrong, this client may not be answering one of the bag calls; please report it.")
 		end
 	elseif cmd == "racials" then
 		if ns.LearnRacials then pcall(ns.LearnRacials) end
@@ -3032,6 +3131,48 @@ SlashCmdList.AURALEDGER = function(msg)
 	elseif cmd == "plainbook" then
 		ns.db.plainBook = not ns.db.plainBook
 		Print("Book background: " .. (ns.db.plainBook and "plain" or "parchment when the client has it") .. ". Type /reload to apply.")
+	elseif cmd == "cdread" then
+		-- Everything the client says about each cooldown tracker, printed and never tested, and what
+		-- the addon remembers about it for a fight where the numbers are hidden.
+		local function S(v) if issecretvalue and issecretvalue(v) then return "secret" end return tostring(v) end
+		local function Call(fn, ...)
+			if not fn then return "n/a" end
+			local ok, v = pcall(fn, ...)
+			if not ok then return "error" end
+			return S(v)
+		end
+		Print(("cooldowns hidden right now: %s, combat %s, auras hidden %s, last global cooldown %s"):format(
+			Call(C_Secrets and C_Secrets.ShouldCooldownsBeSecret), tostring(InCombatLockdown and InCombatLockdown()), tostring(AurasSecret()),
+			ns.lastGcdAt and ("%.1fs ago"):format(GetTime() - ns.lastGcdAt) or "none"))
+		local any = false
+		for _, g in ipairs(ns.profile.groups) do
+			for _, t in ipairs(g.trackers) do
+				if t.cd and not t.item then
+					any = true
+					local key = t.id or t.name
+					Print(("%s [%s]: secrecy %s, hidden %s, cast secrecy %s"):format(tostring(t.name), tostring(key),
+						Call(C_Secrets and C_Secrets.GetSpellCooldownSecrecy, key), Call(C_Secrets and C_Secrets.ShouldSpellCooldownBeSecret, key),
+						Call(C_Secrets and C_Secrets.GetSpellCastSecrecy, key)))
+					if C_Spell and C_Spell.GetSpellCooldown then
+						local ok, info = pcall(C_Spell.GetSpellCooldown, key)
+						info = ok and Clean(info) or nil
+						if type(info) == "table" then
+							Print(("    start %s, length %s, enabled %s, active %s, on GCD %s"):format(S(info.startTime), S(info.duration),
+								S(info.isEnabled), S(info.isActive), S(info.isOnGCD)))
+						else
+							Print("    no reading" .. (ok and "" or " (error)"))
+						end
+					end
+					local m = ns.CooldownMemory and ns.CooldownMemory(t)
+					if m then Print("    remembered: " .. m) end
+				elseif t.item then
+					any = true
+					local s1, d1, e1 = ns.ItemCooldownRead(t.item)
+					Print(("%s [item %s]: start %s, length %s, enabled %s"):format(tostring(t.name), tostring(t.item), S(s1), S(d1), S(e1)))
+				end
+			end
+		end
+		if not any then Print("no cooldown or item trackers") end
 	elseif cmd == "cdmrestore" then
 		local ok, err = ns.CDM.Restore()
 		Print(ok and "The Cooldown Manager is back to what it was before." or ("Not restored: " .. tostring(err)))

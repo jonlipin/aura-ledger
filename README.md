@@ -11,8 +11,9 @@ Aura Ledger writes down every buff that ever lands on you, so you can find it ag
 - **A buff on you.** The thing it was built for.
 - **A spell's cooldown.** Under **Watch** in a tracker's settings, or `/auraledger cooldown <spell>`.
 - **Something you are carrying.** The **What you are carrying** chapter of the book lists everything in your bags or worn that has a use on it. Drag one out and you get its cooldown, trinkets included.
+- **Your weapons.** The same chapter starts with your main hand, off hand and ranged weapon: the temporary enchant on each (oils, stones, poisons, imbues), with its time left and charges, and the time to your next swing.
 
-Cooldowns are not hidden from addons on this client, so a cooldown tracker keeps counting straight through a fight.
+Cooldowns have so far read the same in a fight as out of one on this client, so a cooldown tracker keeps counting straight through a fight. If the game ever hides one (it may in some restricted fights), the tracker carries on from what it last read and from when you cast the spell, and never claims it is ready when it cannot say.
 
 ## Getting started
 
@@ -28,12 +29,12 @@ The left side is laid out like the spellbook and borrows its art when the client
 - **Ledger**: everything that has ever been on you, with how often and how recently.
 - **A chapter for every class**: the buffs that class can cast, so you can track Fortitude or Mark of the Wild before anyone has cast it on you.
 - **Racials**: including the ones read straight out of this client's own spellbook, so a racial the written list never heard of is there anyway.
-- **What you are carrying**: everything in your bags or worn that has a use on it.
+- **What you are carrying**: your weapons' enchants and swings, then everything in your bags or worn that has a use on it.
 - **Items and food**: food, drink, bandages, flasks, elixirs, potions, scrolls, world buffs and trinkets, listed under the name of the buff rather than the item.
 - **Search** looks through every chapter at once, by name, spell ID or source ("naxx", "flask", "world buff").
 - **Add by spell name or ID** takes a name, an ID or a shift-clicked spell link, for anything not in the book.
 
-Rows the game can follow by spell carry a small **combat** mark. That matters: see below.
+Rows a group drawn by the game can follow all through a fight carry a small **combat** mark: a buff on you with a spell id known on this client. Every rank you know is handed to the game, straight from your spellbook. That matters: see below.
 
 ## Arranging
 
@@ -52,18 +53,18 @@ In the **Groups and trackers** list, drag a row onto a group to move it there, o
 
 **Per group**: name, icons or bars, growth direction, icon size, bar width and height, icon scale on bars, spacing, icons per row, scale, opacity, time text, names on bars, and whether to draw the bar border, the bar background and the icon frame.
 
-**Per tracker**: what it watches (the buff, or the spell's cooldown); when it shows (Active, Missing, or Either); how long before it runs out or comes back to put it on screen again; match by name or exact spell ID; only when cast by you; a bar label; and a sound when it lands, when it goes, and when the tracker appears.
+**Per tracker**: what it watches (the buff, or the spell's cooldown); when it shows (Active, Missing, or Either); how long before it runs out or comes back to put it on screen again; match by name or exact spell ID; only when cast by you; a glow while it is up (in a group drawn by the game); a bar label; and a sound when it lands, when it goes, and when the tracker appears.
 
-**Conditions**, on groups and on trackers, so a tracker can be set to appear only in a raid, only in a battleground, only on a particular class, and so on. A tracker must pass its own and its group's.
+**Conditions**, on groups and on trackers, so a tracker can be set to appear only in a raid, only in a battleground, only on a particular class, only with a particular main talent tree or talent set, and so on. A tracker must pass its own and its group's.
 
 ## What a fight does to this
 
 On this client an addon cannot read your auras during a fight. Nothing gets around that, so each group chooses how to handle it, under **In combat**:
 
 - **Drawn by the addon**: the group shows the reading taken before the fight started and keeps counting it down. It is not frozen: it still takes a buff dropping when the game names which one, and a buff you cast yourself, and marks anything it worked out rather than read with a `~`. Anything else it will not know about until the fight ends.
-- **Drawn by the game**: each tracker is handed to the game as an aura slot for the game to fill, so it is correct the whole way through. The cost is that the game draws these in its own look, and it fills a slot whenever the aura is on you, so they are on screen the whole time the aura is up whatever else you set.
+- **Drawn by the game**: each tracker is handed to the game as an aura slot for the game to fill, so it is correct the whole way through. Its countdown reads the way the addon's own does, turns red inside the tracker's warn time, and it can glow while the aura is up. The cost is that the game draws these in its own look, and it fills a slot whenever the aura is on you, so they are on screen the whole time the aura is up whatever else you set.
 
-Cooldowns and carried items are never affected by any of this. The game will always say what a cooldown is doing.
+Cooldowns, carried items and your weapons are read by the addon itself, in a fight too.
 
 ## Commands
 
@@ -79,6 +80,7 @@ Cooldowns and carried items are never affected by any of this. The game will alw
 | `/auraledger import <string>` | import a tracker or group |
 | `/auraledger minimap` | show or hide the minimap button |
 | `/auraledger debug` | what this client let the addon read |
+| `/auraledger debug cdread` | everything the game says about each cooldown tracker |
 
 Aura Ledger also has a page in the game's own Options, under AddOns, with a button that opens it.
 

@@ -230,6 +230,11 @@ local Builder = {}
 UI.treeChoices = { { "any", "Any" } }
 function UI:RefreshTalentChoices()
 	local choices = UI.treeChoices
+	local same = #choices == #(ns.talentTrees or {}) + 1
+	for i, tr in ipairs(ns.talentTrees or {}) do
+		if not choices[i + 1] or choices[i + 1][1] ~= tr.name then same = false end
+	end
+	if same then return end
 	for i = #choices, 2, -1 do choices[i] = nil end
 	for _, tr in ipairs(ns.talentTrees or {}) do choices[#choices + 1] = { tr.name, tr.name } end
 	if self.groupBuilder and self.groupBuilder.Sync then pcall(self.groupBuilder.Sync, self.groupBuilder) end
@@ -580,7 +585,7 @@ function Builder:Conditions(getCond, onChange, draw)
 		"On this client an addon cannot read your auras during a fight. That is the whole reason this setting exists."
 		.. "\n\n|cffffd000Drawn by the addon:|r the group shows the reading taken before the fight started and keeps counting it down. It is not frozen: it still takes a buff dropping when the game names which one, and a buff you cast yourself, and anything it has had to work out rather than read wears a ~. Anything else that changes mid-fight it will not know about until the fight ends."
 		.. "\n\n|cffffd000Drawn by the game:|r each tracker is handed over as an aura slot for the game to fill, so it is correct the whole way through, and whether the slot is filled is what tells the addon the aura has gone."
-		.. "\n\n|cffffd000What that costs:|r the game draws these in its own look rather than this group's, and it fills a slot whenever the aura is on you, in a fight or out of it. So a tracker here is on screen the whole time its aura is up, whatever you set Show to, which is why Missing behaves like Either and why the warn window does not apply.",
+		.. "\n\n|cffffd000What that costs:|r the game draws these in its own look rather than this group's, and it fills a slot whenever the aura is on you, in a fight or out of it. So a tracker here is on screen the whole time its aura is up, whatever you set Show to, which is why Missing behaves like Either. A warn time cannot bring it back early; it turns the game's countdown red instead.",
 		210)
 	self:Cycle("Out of combat", { { "show", "Shown" }, { "hide", "Hidden" } },
 		function() return Cond().combat == "yes" and "hide" or "show" end,
@@ -640,7 +645,7 @@ function Builder:Conditions(getCond, onChange, draw)
 		function() return Cond().talentSet or "any" end,
 		function(v) Cond().talentSet = (v ~= "any") and v or nil onChange() end,
 		"For dual talent specs: show only while this set of talents is active.", 170)
-	self:AppliesWhen(function() return (tonumber(ns.env and ns.env.talentSets) or 1) > 1 end)
+	self:AppliesWhen(function() return (tonumber(ns.env and ns.env.talentSets) or 1) > 1 or Cond().talentSet ~= nil end)
 end
 
 -- ------------------------------------------------------------------
@@ -789,6 +794,8 @@ local function BookTooltip(b)
 		GameTooltip:AddLine("Marked combat: in a group drawn by the game, the game follows this buff on you by its spell id all through a fight, for every rank known here.", 0.45, 0.75, 1, true)
 	elseif why == "debuff" then
 		GameTooltip:AddLine("Not marked combat: the game cannot follow a debuff on you by spell, so the addon draws it, and in a fight it shows the reading taken before the fight started.", 0.8, 0.7, 0.5, true)
+	elseif why == "renamed" then
+		GameTooltip:AddLine("Not marked combat: this client knows this spell as " .. tostring(h.clientName) .. ". Once it has been on you, track it from the ledger row of that name.", 0.8, 0.7, 0.5, true)
 	else
 		GameTooltip:AddLine("Not marked combat yet: no spell id is known for it on this client. Once it has been on you, the ledger knows its id.", 0.8, 0.7, 0.5, true)
 	end
@@ -1514,7 +1521,8 @@ local function SyncOptions()
 		trackerTitle.icon:SetTexture(t.icon or ns.QUESTION)
 		trackerTitle.name:SetText(t.name or ("Spell " .. tostring(t.id)))
 		local _, dimC = InkCodes()
-		local what = t.item and ("Item ID " .. t.item) or (t.id and ("Spell ID " .. t.id) or "No spell ID known yet")
+		local what = (t.enchant ~= nil or t.swing ~= nil) and "Your weapon"
+			or t.item and ("Item ID " .. t.item) or (t.id and ("Spell ID " .. t.id) or "No spell ID known yet")
 		trackerTitle.sub:SetText(what .. "  " .. dimC .. "in " .. ns.GroupName(g) .. "|r")
 		trackerBuilder:Sync()
 		optionsChild:SetHeight(trackerPanel.height)
@@ -1852,7 +1860,7 @@ local function BuildTrackerPanel(width)
 	b:Note("Choices marked (combat) are played by the game itself, so they also fire while the aura is hidden in combat.")
 	SoundCycle("When applied", "applied", "Plays when the aura lands.")
 	SoundCycle("When it runs out", "removed", "Plays when the aura wears off or is removed.")
-	SoundCycle("When the tracker appears", "shown", "Plays when this tracker comes on screen, for whatever reason: the aura landing, going missing, or entering its warn window.")
+	SoundCycle("When the tracker appears", "shown", "Plays when this tracker comes on screen, for whatever reason: the aura landing, going missing, or entering its warn window. In a group drawn by the game the warn time only colours the countdown, so there it plays when the aura goes, not at the warn time.")
 
 	b:Header("Only show this tracker when")
 	b:Note("These add to the group's own conditions.")
