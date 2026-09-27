@@ -1,3 +1,8 @@
+## 1.73.1
+
+- "Glow while it is up" is now offered on every tracker, not only on buffs in a group drawn by the game. On the trackers the addon draws, the addon plays the same action bar proc glow itself, going by what the tracker shows (in a fight, the reading it is carrying); on buffs the game draws, the game still plays it, in combat too.
+- Cooldown trackers get "Glow while it is ready", offered when the tracker is set to show Ready or Either, since with Running it is only on screen while not ready.
+
 ## 1.73.0
 
 - New: weapon enchant trackers for your main hand, off hand and ranged weapon. Oils, stones, poisons and imbues show with their time left and charges, read by the addon itself, in a fight too. They are at the top of the book's Bags page.

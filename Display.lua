@@ -2079,6 +2079,57 @@ local function BarArtShown(w, on)
 	end
 end
 
+-- The action bar's proc glow on a tracker the addon draws: Blizzard's own loop, a clear texture lit
+-- by a one-frame step and then the flipbook, played while the tracker says it is up. It sits between
+-- the art and the text, so the time and the stack count stay on top.
+local function WidgetGlow(w, g, want)
+	if not want then
+		if w.glowOn then
+			w.glowOn = false
+			if w.glowAnim then pcall(w.glowAnim.Stop, w.glowAnim) end
+			if w.glowHolder then w.glowHolder:Hide() end
+		end
+		return
+	end
+	if not w.glowHolder then
+		local ok, holder, tex, ag = pcall(function()
+			local hf = CreateFrame("Frame", nil, w)
+			hf:SetAllPoints(w)
+			hf:EnableMouse(false)
+			local tx = hf:CreateTexture(nil, "OVERLAY")
+			tx:SetAtlas("UI-HUD-ActionBar-Proc-Loop-Flipbook")
+			tx:SetAlpha(0)
+			local group = tx:CreateAnimationGroup()
+			group:SetLooping("REPEAT")
+			local lit = group:CreateAnimation("Alpha")
+			lit:SetFromAlpha(1) lit:SetToAlpha(1) lit:SetDuration(0.001) lit:SetOrder(1)
+			local flip = group:CreateAnimation("FlipBook")
+			flip:SetDuration(1) flip:SetOrder(2)
+			flip:SetFlipBookRows(6) flip:SetFlipBookColumns(5) flip:SetFlipBookFrames(30)
+			flip:SetFlipBookFrameWidth(0) flip:SetFlipBookFrameHeight(0)
+			return hf, tx, group
+		end)
+		if not ok then
+			ns.report["tracker glow"] = "could not be made: " .. tostring(holder)
+			return
+		end
+		w.glowHolder, w.glowTex, w.glowAnim = holder, tex, ag
+		holder:SetScript("OnShow", function() if w.glowOn then pcall(ag.Play, ag) end end)
+		holder:SetScript("OnHide", function() pcall(ag.Stop, ag) end)
+	end
+	local size = (g.style == "bars") and ns.BarIconSize(g) or (w.cellSize or g.size or 40)
+	w.glowHolder:SetFrameLevel((w.alLevel or w.alBaseLevel or 1) + 4)
+	w.glowTex:ClearAllPoints()
+	w.glowTex:SetPoint("CENTER", w.icon, "CENTER", 0, 0)
+	w.glowTex:SetSize(size * 1.4, size * 1.4)
+	w.glowHolder:Show()
+	local okP, playing = pcall(w.glowAnim.IsPlaying, w.glowAnim)
+	if not w.glowOn or not (okP and playing) then
+		w.glowOn = true
+		pcall(w.glowAnim.Play, w.glowAnim)
+	end
+end
+
 local function PaintWidget(w, g, t, entry, preview, expiring)
 	w.tracker, w.group, w.entry, w.expiring = t, g, entry, expiring
 	ConfigureWidget(w, g)
@@ -2173,6 +2224,13 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 		w.time:SetText("")
 	end
 	w.timed = timed
+	-- Up: the aura (or enchant, or swing) is there; for a cooldown, the spell or item is ready. A cell
+	-- under a game slot is painted as missing and leaves the glow to the game.
+	local up = false
+	if t.glow and not w.underSlot and entry ~= nil then
+		if t.cd then up = entry.ready == true else up = true end
+	end
+	WidgetGlow(w, g, up)
 end
 
 local function TickWidget(w, g, now)
@@ -2891,6 +2949,7 @@ local function LayoutGroup(f, g, visible, unlocked)
 	for k = n + 1, #f.widgets do
 		local widget = f.widgets[k]
 		widget:Hide()
+		WidgetGlow(widget, g, false)
 		widget.tracker, widget.entry, widget.timed = nil, nil, false
 	end
 

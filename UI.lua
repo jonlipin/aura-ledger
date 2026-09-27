@@ -1805,8 +1805,12 @@ local function BuildTrackerPanel(width)
 	b:AppliesWhen(TrackerGetsSlot)
 	b:Check("Glow while it is up", function() local t = T() return t and t.glow end,
 		function(v) local t = T() if t then t.glow = v or nil TrackerChanged() end end,
-		"The game plays the action bar's proc glow on this tracker for as long as the aura is up, in combat too.")
-	b:AppliesWhen(TrackerGetsSlot)
+		"Plays the action bar's proc glow on this tracker while it is up and on screen. On a buff the game draws for this group, the game plays it, in combat too. Everywhere else (weapons, debuffs, and every group the addon draws) the addon plays it, going by what it shows: in a fight, the reading it is carrying.")
+	b:AppliesWhen(TrackerIsAura)
+	b:Check("Glow while it is ready", function() local t = T() return t and t.glow end,
+		function(v) local t = T() if t then t.glow = v or nil TrackerChanged() end end,
+		"Plays the action bar's proc glow on this tracker while the spell or item is ready to use. It is offered with Ready or Either above: with Running the tracker is only on screen while it is not ready.")
+	b:AppliesWhen(function() local t = T() return TrackerIsCooldown() and t and (t.show == "missing" or t.show == "always") end)
 	b:Slider("Show it again before it is ready (seconds, 0 = off)", { min = 0, max = 300, step = 1,
 		get = function() local t = T() return t and (t.warn or 0) end,
 		set = function(v) local t = T() if t then t.warn = (v > 0) and v or nil TrackerChanged() end end,
