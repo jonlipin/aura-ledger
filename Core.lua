@@ -808,9 +808,11 @@ end
 
 -- The live aura a tracker is about, or nil. With several matches the longest-lasting one wins.
 -- A spell's cooldown, as an entry of the same shape an aura makes, so everything that draws a
--- tracker works on it unchanged. Cooldowns are not secret on this client: this reads the same in a
--- fight as out of one, which is why a cooldown tracker is never handed to the game.
--- The global cooldown is not a cooldown worth showing, so anything under two seconds long is
+-- tracker works on it unchanged. A cooldown has so far read the same in a fight as out of one, but
+-- the client's own documentation says a spell's start and length can be hidden while cooldowns are
+-- restricted (a boss, an arena), so nothing here is tested before it is known to be plain. Whether
+-- the spell is on cooldown at all, and whether its cooldown is waiting to start, are never hidden.
+-- The global cooldown is not a cooldown worth showing, so anything 1.5 seconds long or shorter is
 -- treated as ready.
 -- Every use starts a short cooldown that everything shares, and the client reports that one in
 -- place of the real cooldown for as long as it runs. Read plainly, a spell or item on a five minute
@@ -820,10 +822,21 @@ end
 -- something, which is how a reset is told apart from the shared one.
 local GCD_MAX = 1.5
 local cdSeen = {}
+-- When each tracked spell was last seen ready, and when you last cast it, by lower-case name. A
+-- cast since it was last ready is what tells its own cooldown from the global one when the numbers
+-- are hidden.
+local cdIdle = {}
+ns.lastCast = {}
 
 -- The real cooldown behind a reading: its length and when it ends, or nothing if there is none.
-local function RealCooldown(key, start, duration, enabled)
+-- "held" is a cooldown that has been used but has not started yet: Nature's Swiftness, Stealth and
+-- the like start theirs only when the effect ends, and until then the game says it is not enabled.
+local function RealCooldown(key, start, duration, enabled, allowHeld)
 	local now = GetTime()
+	if allowHeld and (enabled == false or enabled == 0) and start and start > 0 then
+		cdSeen[key] = nil
+		return nil, nil, true
+	end
 	if not start or not duration or start <= 0 or duration <= 0 or enabled == false or enabled == 0 then
 		cdSeen[key] = nil
 		return nil
@@ -845,43 +858,104 @@ function ns.ItemCooldownRead(id)
 	local start, duration, enabled
 	if C_Item and C_Item.GetItemCooldown then
 		local ok, a, b, c = pcall(C_Item.GetItemCooldown, id)
-		if ok then start, duration, enabled = a, b, c end
+		if ok then start, duration, enabled = Clean(a), Clean(b), Clean(c) end
 	end
 	if start == nil and C_Container and C_Container.GetItemCooldown then
 		local ok, a, b, c = pcall(C_Container.GetItemCooldown, id)
-		if ok then start, duration, enabled = a, b, c end
+		if ok then start, duration, enabled = Clean(a), Clean(b), Clean(c) end
 	end
 	if start == nil and GetItemCooldown then
 		local ok, a, b, c = pcall(GetItemCooldown, id)
-		if ok then start, duration, enabled = a, b, c end
+		if ok then start, duration, enabled = Clean(a), Clean(b), Clean(c) end
 	end
-	return Clean(start), Clean(duration), Clean(enabled)
+	return start, duration, enabled
+end
+
+-- The raw reading. The start and length come back as they are, possibly hidden, and are not looked
+-- at here; whether it is on cooldown and whether it is enabled are never hidden, so they are cleaned.
+local function ReadSpellCooldown(key)
+	local info = Clean(C_Spell.GetSpellCooldown(key))
+	if type(info) ~= "table" then return false end
+	return true, info.startTime, info.duration, Clean(info.isEnabled), Clean(info.isActive)
+end
+
+local function IsHidden(v) return issecretvalue ~= nil and issecretvalue(v) == true end
+
+-- The name a spell's cooldown memory and last cast are kept under.
+local function CooldownName(t, key)
+	local name = t.name or (ns.SpellName and ns.SpellName(t.id or key))
+	return name and strlower(name) or ("id:" .. tostring(key))
+end
+
+-- A cooldown whose start and length the game is hiding. What is still known: whether it is on
+-- cooldown at all, whether it is waiting to start, what was last read plainly, and whether you have
+-- cast it since it was last ready. That is enough to tell its own cooldown from the global one, and
+-- a cooldown you started is carried on from the length it had last time, marked with a ~.
+local function HiddenCooldown(t, key, icon, enabled, active)
+	local now = GetTime()
+	local base = { name = t.name, id = t.id, icon = icon, kind = "cooldown", mine = true, duration = 0, expires = 0 }
+	ns.stats.secretCd = (ns.stats.secretCd or 0) + 1
+	ns.stats.secretCdLast = t.name or tostring(key)
+	if enabled == false then base.held = true return base end
+	local lname = CooldownName(t, key)
+	if active == false then
+		cdSeen["s:" .. tostring(key)] = nil
+		cdIdle[lname] = now
+		base.ready = true
+		return base
+	end
+	local seen = cdSeen["s:" .. tostring(key)]
+	if seen and now < seen.expires then
+		base.duration, base.expires, base.stale = seen.duration, seen.expires, true
+		return base
+	end
+	if active ~= true then return nil end
+	local cast = ns.lastCast[lname]
+	if cast and cast > (cdIdle[lname] or 0) then
+		local len = ns.db and ns.db.cdLen and tonumber(ns.db.cdLen[lname])
+		if len and cast + len > now then
+			base.duration, base.expires, base.stale = len, cast + len, true
+		else
+			base.secret = true
+		end
+		return base
+	end
+	-- On cooldown and not cast since it was last ready: that is the global cooldown.
+	base.ready = true
+	return base
 end
 
 function ns.CooldownFor(t)
 	if t.item then return ns.ItemCooldownFor(t) end
 	local key = t.id or t.name
 	if not key then return nil end
-	local start, duration, enabled
+	local found, start, duration, enabled, active = false
 	if C_Spell and C_Spell.GetSpellCooldown then
-		local ok, info = pcall(C_Spell.GetSpellCooldown, key)
-		if ok and type(info) == "table" then
-			start, duration, enabled = info.startTime, info.duration, info.isEnabled
-		end
+		local ok, f, s, dd, e, a = pcall(ReadSpellCooldown, key)
+		if ok and f then found, start, duration, enabled, active = true, s, dd, e, a end
 	end
-	if start == nil and GetSpellCooldown then
-		local ok, a, b, c = pcall(GetSpellCooldown, key)
-		if ok then start, duration, enabled = a, b, c end
+	if not found and GetSpellCooldown then
+		local ok, a, b, cc = pcall(GetSpellCooldown, key)
+		if ok then start, duration, enabled = a, b, Clean(cc) end
 	end
-	start, duration, enabled = Clean(start), Clean(duration), Clean(enabled)
-	start, duration = tonumber(start), tonumber(duration)
-	if not start or not duration then return nil end
 	local icon = t.icon
 	if not icon then local _, i = ns.SpellInfo(key) icon = i end
-	local dur, expires = RealCooldown("s:" .. tostring(key), start, duration, enabled)
+	if IsHidden(start) or IsHidden(duration) then return HiddenCooldown(t, key, icon, enabled, active) end
+	start, duration = tonumber(start), tonumber(duration)
+	if not start or not duration then return nil end
+	local dur, expires, held = RealCooldown("s:" .. tostring(key), start, duration, enabled, true)
+	if held then
+		return { name = t.name, id = t.id, icon = icon, kind = "cooldown", held = true, duration = 0, expires = 0, mine = true }
+	end
 	if not dur then
+		cdIdle[CooldownName(t, key)] = GetTime()
 		-- Ready: an entry with nothing left on it, so "show when ready" has something to show.
 		return { name = t.name, id = t.id, icon = icon, kind = "cooldown", ready = true, duration = 0, expires = 0, mine = true }
+	end
+	-- Remembered by name for a fight where the numbers are hidden: its length the last time it was read.
+	if dur > GCD_MAX and ns.db then
+		ns.db.cdLen = ns.db.cdLen or {}
+		ns.db.cdLen[CooldownName(t, key)] = dur
 	end
 	return { name = t.name, id = t.id, icon = icon, kind = "cooldown", duration = dur, expires = expires, mine = true }
 end
@@ -1060,15 +1134,26 @@ end
 -- UNIT_AURA payload: removals and refreshes arrive by instance id even while contents are secret.
 -- The lists inside the payload can themselves be secret in combat: they look like tables to
 -- type() but ipairs refuses them. Returns a plain array or nil.
+-- A table the client flags as secret is left alone before anything is asked of it: whatever it
+-- holds would only come back secret. The second return is how many ids were secret and dropped.
 local function PlainList(v)
 	v = Clean(v)
 	if type(v) ~= "table" then return nil end
+	if issecrettable then
+		local okT, secretTable = pcall(issecrettable, v)
+		if okT and secretTable == true then return nil end
+	end
+	local dropped = 0
 	local ok, out = pcall(function()
 		local list = {}
-		for _, id in ipairs(v) do list[#list + 1] = Clean(id) end
+		for _, id in ipairs(v) do
+			local plain = Clean(id)
+			if plain == nil then dropped = dropped + 1 else list[#list + 1] = plain end
+		end
 		return list
 	end)
-	return ok and out or nil
+	if not ok then return nil end
+	return out, dropped
 end
 
 local function ScanUnit(unit, old, quiet)
@@ -1122,12 +1207,12 @@ end
 
 
 -- Shape of the UNIT_AURA payloads seen while restricted, for the debug report.
-local payloadStats = { events = 0, plainRemoved = 0, secretRemoved = 0, plainUpdated = 0, secretUpdated = 0, plainAdded = 0, secretAdded = 0, full = 0, sample = nil }
+local payloadStats = { events = 0, plainRemoved = 0, secretRemoved = 0, plainUpdated = 0, secretUpdated = 0, plainAdded = 0, secretAdded = 0, full = 0, secretIds = 0, sample = nil }
 ns.payloadStats = payloadStats
 
 local function Describe(v)
-	if v == nil then return "nil" end
 	if issecretvalue and issecretvalue(v) then return "secret" end
+	if v == nil then return "nil" end
 	if type(v) == "table" then
 		local ok, n = pcall(function() return #v end)
 		return "table" .. (ok and ("[" .. tostring(n) .. "]") or "[?]")
@@ -1139,14 +1224,17 @@ local function NotePayload(unit, info)
 	if not ns.restricted or unit ~= "player" then return end
 	payloadStats.events = payloadStats.events + 1
 	local function tally(v, plainKey, secretKey)
-		if v == nil then return end
-		if PlainList(v) then payloadStats[plainKey] = payloadStats[plainKey] + 1 else payloadStats[secretKey] = payloadStats[secretKey] + 1 end
+		if Clean(v) == nil and not (issecretvalue and issecretvalue(v)) then return end
+		local list, dropped = PlainList(v)
+		if list then payloadStats[plainKey] = payloadStats[plainKey] + 1 else payloadStats[secretKey] = payloadStats[secretKey] + 1 end
+		if dropped and dropped > 0 then payloadStats.secretIds = payloadStats.secretIds + dropped end
 	end
 	tally(info.removedAuraInstanceIDs, "plainRemoved", "secretRemoved")
 	tally(info.updatedAuraInstanceIDs, "plainUpdated", "secretUpdated")
 	tally(info.addedAuras, "plainAdded", "secretAdded")
 	if Clean(info.isFullUpdate) then payloadStats.full = payloadStats.full + 1 end
-	if not payloadStats.sample or info.removedAuraInstanceIDs ~= nil then
+	local removed = info.removedAuraInstanceIDs
+	if not payloadStats.sample or (issecretvalue and issecretvalue(removed)) or Clean(removed) ~= nil then
 		local parts = {}
 		local ok = pcall(function()
 			for k, v in pairs(info) do parts[#parts + 1] = tostring(k) .. "=" .. Describe(v) end
@@ -1230,6 +1318,10 @@ local function HandleCast(unit, spellId)
 	spellId = Clean(spellId)
 	if type(spellId) ~= "number" then return end
 	ns.stats.casts = ns.stats.casts + 1
+	do
+		local cname = SpellName(spellId)
+		if cname then ns.lastCast[strlower(cname)] = GetTime() end
+	end
 	if not (ns.restricted or AurasSecret()) then return end -- the real aura event is on its way
 	local name = SpellName(spellId)
 	if not name then return end
@@ -1268,144 +1360,6 @@ end
 ns.HandleCast = HandleCast
 ns.SpellName = SpellName
 
--- ------------------------------------------------------------------
--- Blizzard's AuraContainer widget: the sanctioned way to show auras while they are secret.
--- Blizzard writes icon, name and countdown into regions we hand it and shows or hides each
--- button itself. /auraledger container builds one with several group shapes and reports what
--- the container and its buttons expose, so the real API can be read off the client.
--- ------------------------------------------------------------------
-local probeContainer
-local probeButtons = {}
-local probeGroupResults = {}
-
-local function MethodNames(obj, pattern)
-	local names = {}
-	local ok = pcall(function()
-		local mt = getmetatable(obj)
-		local idx = mt and mt.__index
-		if type(idx) == "table" then
-			for k in pairs(idx) do
-				if type(k) == "string" and (not pattern or k:find(pattern)) then names[#names + 1] = k end
-			end
-		end
-	end)
-	table.sort(names)
-	return names, ok
-end
-
-local function InitProbeButton(groupId)
-	return function(button)
-		if not button then return end
-		probeButtons[#probeButtons + 1] = { group = groupId, button = button }
-		pcall(button.SetSize, button, 32, 32)
-		local icon = button:CreateTexture(nil, "ARTWORK")
-		icon:SetAllPoints(button)
-		if button.SetIcon then pcall(button.SetIcon, button, icon) end
-		local name = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-		name:SetPoint("TOP", button, "BOTTOM", 0, -1)
-		if button.SetNameText then pcall(button.SetNameText, button, name) elseif button.SetSpellName then pcall(button.SetSpellName, button, name) end
-		local dur = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-		dur:SetPoint("TOP", name, "BOTTOM", 0, -1)
-		if button.SetDurationText then pcall(button.SetDurationText, button, dur) end
-		button.alIcon, button.alName, button.alDur = icon, name, dur
-	end
-end
-
-local function BuildProbeContainer()
-	local ok, c = pcall(CreateFrame, "AuraContainer", "AuraLedgerProbeContainer", UIParent, "CustomAuraContainerTemplate")
-	if not ok or not c then
-		Print("AuraContainer: cannot create (" .. tostring(c) .. ")")
-		return nil
-	end
-	c:SetSize(600, 200)
-	c:SetPoint("TOP", UIParent, "TOP", 0, -200)
-	c:SetFrameStrata("HIGH")
-	local firstId
-	for _, g in ipairs(ns.profile.groups) do
-		for _, t in ipairs(g.trackers) do
-			if t.id and not firstId then firstId = t.id end
-		end
-	end
-	firstId = firstId or 687
-	local layout = { elementWidth = 32, elementHeight = 56, elementSpacing = 4, lineSpacing = 4 }
-	local shapes = {
-		{ "help", "HELPFUL", { maxFrameCount = 24, initializeFrame = InitProbeButton("help"), layout = layout } },
-		{ "harm", "HARMFUL", { maxFrameCount = 24, initializeFrame = InitProbeButton("harm"), layout = layout } },
-		{ "mine", "HELPFUL|PLAYER", { maxFrameCount = 24, initializeFrame = InitProbeButton("mine"), layout = layout } },
-		{ "spellA", "HELPFUL", { maxFrameCount = 4, initializeFrame = InitProbeButton("spellA"), layout = layout, candidateFilters = { { spellID = firstId } } } },
-		{ "spellB", "HELPFUL", { maxFrameCount = 4, initializeFrame = InitProbeButton("spellB"), layout = layout, spellIDs = { firstId } } },
-		{ "spellC", "HELPFUL", { maxFrameCount = 4, initializeFrame = InitProbeButton("spellC"), layout = layout, spellID = firstId } },
-		{ "spellD", "HELPFUL", { maxFrameCount = 4, initializeFrame = InitProbeButton("spellD"), layout = layout, candidateFilters = { firstId } } },
-	}
-	for _, sh in ipairs(shapes) do
-		local id, filter, settings = sh[1], sh[2], sh[3]
-		local okG, err
-		if c.AddAuraGroup then
-			okG, err = pcall(c.AddAuraGroup, c, "al_" .. id, filter, settings)
-		elseif c.AddAuraFilter then
-			okG, err = pcall(c.AddAuraFilter, c, filter, settings)
-		else
-			okG, err = false, "no AddAuraGroup/AddAuraFilter"
-		end
-		probeGroupResults[#probeGroupResults + 1] = ("%s (%s): %s"):format(id, filter, okG and ("ok " .. tostring(err)) or ("error " .. tostring(err)))
-	end
-	if c.SetUnit then
-		local okU, err = pcall(c.SetUnit, c, "player")
-		probeGroupResults[#probeGroupResults + 1] = "SetUnit(player): " .. (okU and "ok" or ("error " .. tostring(err)))
-	end
-	c:Show()
-	return c
-end
-
-function ns.ProbeContainer()
-	Print("AuraContainer probe (secret: " .. YesNo(AurasSecret()) .. ", spell id used: first tracker's):")
-	if not probeContainer then
-		probeContainer = BuildProbeContainer()
-		if not probeContainer then return end
-		Print("  container methods: " .. table.concat((MethodNames(probeContainer, "Aura") ), ", "))
-		Print("  container methods (Unit/Group/Filter): " .. table.concat((MethodNames(probeContainer, "Unit") ), ", ") .. " | " .. table.concat((MethodNames(probeContainer, "Group") ), ", ") .. " | " .. table.concat((MethodNames(probeContainer, "Filter") ), ", "))
-		for _, line in ipairs(probeGroupResults) do Print("  group " .. line) end
-	end
-	local function D(v) if issecretvalue and issecretvalue(v) then return "secret" end return tostring(v) end
-	local perGroup = {}
-	for _, pb in ipairs(probeButtons) do
-		local b = pb.button
-		local okS, shown = pcall(b.IsShown, b)
-		local okV, vis = pcall(b.IsVisible, b)
-		local okT, tex = pcall(function() return b.alIcon and b.alIcon:GetTexture() end)
-		local okN, txt = pcall(function() return b.alName and b.alName:GetText() end)
-		local g = perGroup[pb.group] or { total = 0, shown = 0, lines = {} }
-		perGroup[pb.group] = g
-		g.total = g.total + 1
-		if okS and shown == true then g.shown = g.shown + 1 end
-		if #g.lines < 3 then
-			g.lines[#g.lines + 1] = ("shown %s, visible %s, icon %s, name %s"):format(okS and D(shown) or "error", okV and D(vis) or "error", okT and D(tex) or "error", okN and D(txt) or "error")
-		end
-	end
-	for id, g in pairs(perGroup) do
-		Print(("  %s: %d buttons made, %d plainly shown; %s"):format(id, g.total, g.shown, table.concat(g.lines, " / ")))
-	end
-	if #probeButtons > 0 then
-		local b = probeButtons[1].button
-		Print("  button methods: " .. table.concat((MethodNames(b, "Aura") ), ", ") .. " | " .. table.concat((MethodNames(b, "Spell") ), ", ") .. " | " .. table.concat((MethodNames(b, "Set") ), ", "))
-	else
-		Print("  no buttons were initialised yet (nothing matched, or the groups failed)")
-	end
-	local children = { probeContainer:GetChildren() }
-	Print(("  container children: %d, shown: %s"):format(#children, D(select(2, pcall(probeContainer.IsShown, probeContainer)))))
-	-- sounds: the enum and the registration call
-	local trig = Enum and Enum.UnitAuraSoundTrigger
-	if trig then
-		local keys = {}
-		for k, v in pairs(trig) do keys[#keys + 1] = tostring(k) .. "=" .. tostring(v) end
-		table.sort(keys)
-		Print("  Enum.UnitAuraSoundTrigger: " .. table.concat(keys, ", "))
-	else
-		Print("  Enum.UnitAuraSoundTrigger: missing")
-	end
-	Print("  C_UnitAuras.AddAuraSound " .. YesNo(C_UnitAuras and C_UnitAuras.AddAuraSound) .. ", RemoveAuraSound " .. YesNo(C_UnitAuras and C_UnitAuras.RemoveAuraSound))
-	probeContainer:Hide()
-end
 
 -- Combat log: only consulted while auras are unreadable, to catch applications and removals on
 -- you or on your target.
@@ -1569,11 +1523,11 @@ function ns.CombatTrackable(h)
 end
 
 -- ------------------------------------------------------------------
--- Blizzard's Cooldown Manager as a drawing engine. The manager can read auras during a fight
--- because it is the game's own code, so the way to keep a tracker right in combat is to put its
--- spell into the manager's layout and use the frame the manager makes for it. The layout is a
--- CBOR table, deflated and base64 encoded, in the shape the Coolinator addon documents; the
--- fields below are its numbered keys.
+-- Blizzard's Cooldown Manager, handed back. An old version wrote its own layout into the manager
+-- to use it as a drawing engine, and writing it marked the manager with this addon until a
+-- reload. Nothing writes it now; this only takes that layout out again for a profile that still
+-- has it. The layout is a CBOR table, deflated and base64 encoded; the fields below are its
+-- numbered keys.
 -- ------------------------------------------------------------------
 ns.CDM = {}
 local CDM_ACTIVE_NAMES, CDM_LAYOUTS, CDM_LAYOUT_IDS = 2, 3, 4
@@ -1609,172 +1563,6 @@ function ns.CDM.Read()
 	return data
 end
 
--- The cooldown entry for a tracker, by its spell id, any rank the ledger has seen, or its name.
-function ns.CDM.CooldownFor(t, cat)
-	cat = cat or ns.CombatCatalogue()
-	if t.id and cat.cooldownById[t.id] then return cat.cooldownById[t.id] end
-	if t.name then
-		local l = strlower(t.name)
-		if cat.cooldownByName[l] then return cat.cooldownByName[l] end
-		for _, kind in ipairs({ "buff", "debuff" }) do
-			local h = ns.db.history[kind .. ":" .. l]
-			if h and h.ids then
-				for id in pairs(h.ids) do if cat.cooldownById[id] then return cat.cooldownById[id] end end
-			end
-		end
-	end
-end
-
--- What the trackers want from the manager: the cooldowns they name, and which of those should be
--- drawn as bars rather than icons. The manager's own tracked set is left whole, so this is only
--- about which row each one sits in.
-function ns.CDM.Wanted()
-	local cat = ns.CombatCatalogue()
-	local icons, bars, missing, seen = {}, {}, {}, {}
-	for _, g in ipairs(ns.profile.groups) do
-		if g.gameDrawn then
-			for _, t in ipairs(g.trackers) do
-				local cd = ns.CDM.CooldownFor(t, cat)
-				if cd and not seen[cd] then
-					seen[cd] = true
-					local into = (g.style == "bars") and bars or icons
-					into[#into + 1] = cd
-				elseif not cd then
-					missing[#missing + 1] = t.name or ("spell " .. tostring(t.id))
-				end
-			end
-		end
-	end
-	return icons, bars, missing
-end
-
--- Every cooldown the manager currently tracks, in its own order, icons and bars together.
-function ns.CDM.TrackedSet()
-	local all = {}
-	local C, E = C_CooldownViewer, Enum and Enum.CooldownViewerCategory
-	if not (C and C.GetCooldownViewerCategorySet and E) then return all end
-	for _, category in ipairs({ E.TrackedBuff, E.TrackedBar }) do
-		if category ~= nil then
-			local ok, set = pcall(C.GetCooldownViewerCategorySet, category, true)
-			for _, id in ipairs((ok and PlainList(set)) or {}) do all[#all + 1] = id end
-		end
-	end
-	return all
-end
-
--- Writes our layout: the manager's whole tracked set, with the cooldowns we want as bars moved
--- into the bar row. Returns true, or false and why.
-function ns.CDM.Apply(bars)
-	if not ns.CDM.Available() then return false, "this client does not offer the layout data" end
-	if InCombatLockdown and InCombatLockdown() then return false, "not during a fight" end
-	local tag = CDMTag()
-	local data = ns.CDM.Read() or { [1] = 5, [CDM_ACTIVE_NAMES] = {}, [CDM_LAYOUTS] = {}, [CDM_LAYOUT_IDS] = {} }
-	local version = data[1]
-	if version ~= 4 and version ~= 5 then
-		return false, "the layout format is version " .. tostring(version) .. ", which this addon does not know"
-	end
-	data[CDM_ACTIVE_NAMES] = data[CDM_ACTIVE_NAMES] or {}
-	data[CDM_LAYOUTS] = data[CDM_LAYOUTS] or {}
-	data[CDM_LAYOUT_IDS] = data[CDM_LAYOUT_IDS] or {}
-
-	local name = ns.CDM.LayoutName()
-	local id
-	for lid, lname in pairs(data[CDM_LAYOUT_IDS]) do if lname == name then id = lid end end
-	if not id then
-		id = 1
-		while data[CDM_LAYOUT_IDS][id] do id = id + 1 end
-	end
-
-	-- The manager's lists are its tracked set in display order, not a filter: an id left out is not
-	-- hidden, it is only reordered. So the set is kept whole and the bars are moved across.
-	local wantBar = {}
-	for _, id in ipairs(bars or {}) do wantBar[id] = true end
-	local iconRow, barRow = {}, {}
-	for _, id in ipairs(ns.CDM.TrackedSet()) do
-		if wantBar[id] then barRow[#barRow + 1] = id else iconRow[#iconRow + 1] = id end
-	end
-	local E = Enum.CooldownViewerCategory
-	local overrides = {}
-	overrides[E.TrackedBuff] = iconRow
-	overrides[E.TrackedBar] = barRow
-	data[CDM_LAYOUTS][tag] = data[CDM_LAYOUTS][tag] or {}
-	data[CDM_LAYOUTS][tag][id] = { [CDM_OVERRIDES] = overrides }
-	data[CDM_LAYOUT_IDS][id] = name
-
-	-- Whatever was in charge before is remembered once, so it can be handed back.
-	if ns.db.cdmPrevious == nil then
-		ns.db.cdmPrevious = { tag = tag, id = data[CDM_ACTIVE_NAMES][tag] or false }
-	end
-	data[CDM_ACTIVE_NAMES][tag] = id
-
-	local okS, encoded = pcall(function()
-		return C_EncodingUtil.EncodeBase64(C_EncodingUtil.CompressString(C_EncodingUtil.SerializeCBOR(data), Enum.CompressionMethod.Deflate))
-	end)
-	if not okS then return false, "the layout could not be packed: " .. tostring(encoded) end
-
-	-- The manager caches the layout it decoded, so the caches go before the new one is set, and it
-	-- is switched off and on around the write so it reads everything again.
-	if C_CVar and C_CVar.SetCVar then pcall(C_CVar.SetCVar, "cooldownViewerEnabled", "0") end
-	for holder, key in pairs({ dataSerialization = "cachedSerializedData", dataProvider = "displayData", layoutManager = "activeLayoutID" }) do
-		local t = CooldownViewerSettings and CooldownViewerSettings[holder]
-		if type(t) == "table" then pcall(function() t[key] = nil end) end
-	end
-	local okW, err = pcall(C_CooldownViewer.SetLayoutData, "1|" .. encoded)
-	if C_Timer and C_Timer.After then
-		C_Timer.After(0, function() if C_CVar and C_CVar.SetCVar then pcall(C_CVar.SetCVar, "cooldownViewerEnabled", "1") end end)
-	end
-	if not okW then return false, "the game refused the layout: " .. tostring(err) end
-	ns.db.cdmLayout = name
-	return true
-end
-
--- Reads the layout back and says what is actually in it, which category each cooldown belongs to,
--- and what the enum values are. A write that lands somewhere unexpected shows up here.
-function ns.CDM.Verify(emit, icons, bars)
-	local E = Enum and Enum.CooldownViewerCategory
-	if E then
-		local parts = {}
-		for k, v in pairs(E) do parts[#parts + 1] = tostring(k) .. "=" .. tostring(v) end
-		table.sort(parts)
-		emit("  categories: " .. table.concat(parts, ", "))
-	end
-	-- Where each cooldown we asked for actually lives, according to the game.
-	local C = C_CooldownViewer
-	if C and C.GetCooldownViewerCategorySet and E then
-		local where = {}
-		for name, value in pairs(E) do
-			if type(value) == "number" then
-				for _, flag in ipairs({ true, false }) do
-					local ok, set = pcall(C.GetCooldownViewerCategorySet, value, flag)
-					for _, id in ipairs((ok and PlainList(set)) or {}) do
-						where[id] = where[id] or (tostring(name) .. (flag and "" or " (all)"))
-					end
-				end
-			end
-		end
-		local asked = {}
-		for _, id in ipairs(icons or {}) do asked[#asked + 1] = "icon " .. id .. " is in " .. tostring(where[id]) end
-		for _, id in ipairs(bars or {}) do asked[#asked + 1] = "bar " .. id .. " is in " .. tostring(where[id]) end
-		if #asked > 0 then emit("  " .. table.concat(asked, "; ")) end
-	end
-	local data = ns.CDM.Read()
-	if not data then emit("  the layout could not be read back") return end
-	local tag = CDMTag()
-	local id
-	for lid, lname in pairs(data[CDM_LAYOUT_IDS] or {}) do if lname == ns.CDM.LayoutName() then id = lid end end
-	emit(("  read back: format %s, our layout id %s, active id %s"):format(tostring(data[1]), tostring(id),
-		tostring((data[CDM_ACTIVE_NAMES] or {})[tag])))
-	local layout = id and data[CDM_LAYOUTS] and data[CDM_LAYOUTS][tag] and data[CDM_LAYOUTS][tag][id]
-	if not layout then emit("  our layout is not in the file under tag " .. tostring(tag)) return end
-	local overrides = layout[CDM_OVERRIDES]
-	if type(overrides) ~= "table" then emit("  it holds no category overrides") return end
-	for cat, list in pairs(overrides) do
-		local ids = {}
-		for _, v in ipairs(type(list) == "table" and list or {}) do ids[#ids + 1] = tostring(v) end
-		emit(("    category %s holds %d: %s"):format(tostring(cat), #ids, table.concat(ids, ", ")))
-	end
-end
-
 -- Hands the manager back to whatever was in charge before the addon took it over.
 function ns.CDM.Restore()
 	if not ns.CDM.Available() then return false, "this client does not offer the layout data" end
@@ -1796,6 +1584,13 @@ function ns.CDM.Restore()
 		return C_EncodingUtil.EncodeBase64(C_EncodingUtil.CompressString(C_EncodingUtil.SerializeCBOR(data), Enum.CompressionMethod.Deflate))
 	end)
 	if not okS then return false, "the layout could not be packed" end
+	-- Switched off and on again around the write, and left as it was found.
+	local was = "1"
+	if C_CVar and C_CVar.GetCVar then
+		local okG, v = pcall(C_CVar.GetCVar, "cooldownViewerEnabled")
+		v = okG and Clean(v) or nil
+		if v == "0" or v == "1" then was = v end
+	end
 	if C_CVar and C_CVar.SetCVar then pcall(C_CVar.SetCVar, "cooldownViewerEnabled", "0") end
 	for holder, key in pairs({ dataSerialization = "cachedSerializedData", dataProvider = "displayData", layoutManager = "activeLayoutID" }) do
 		local t = CooldownViewerSettings and CooldownViewerSettings[holder]
@@ -1803,7 +1598,7 @@ function ns.CDM.Restore()
 	end
 	local okW = pcall(C_CooldownViewer.SetLayoutData, "1|" .. encoded)
 	if C_Timer and C_Timer.After then
-		C_Timer.After(0, function() if C_CVar and C_CVar.SetCVar then pcall(C_CVar.SetCVar, "cooldownViewerEnabled", "1") end end)
+		C_Timer.After(0, function() if C_CVar and C_CVar.SetCVar then pcall(C_CVar.SetCVar, "cooldownViewerEnabled", was) end end)
 	end
 	ns.db.cdmPrevious, ns.db.cdmLayout = nil, nil
 	return okW and true or false, (not okW) and "the game refused the layout" or nil
@@ -1896,6 +1691,13 @@ end
 function ns.SyncAuraSounds()
 	local C = C_UnitAuras
 	if not (C and C.AddAuraSound and C.RemoveAuraSound) or not ns.profile then return end
+	-- Registering with the game is refused in some restricted states, so a change made in a fight
+	-- takes effect when it ends; what was registered before keeps playing meanwhile.
+	if (InCombatLockdown and InCombatLockdown()) or AurasSecret() then
+		ns.soundSyncPending = true
+		return
+	end
+	ns.soundSyncPending = nil
 	local trig = Enum and Enum.UnitAuraSoundTrigger or {}
 	local triggers = { applied = trig.Added or 0, removed = trig.Removed or 2 }
 	local wanted = {}
@@ -1921,8 +1723,8 @@ function ns.SyncAuraSounds()
 		end
 	end
 	for key, regId in pairs(auraSoundRegs) do
-		if not wanted[key] then
-			pcall(C.RemoveAuraSound, regId)
+		-- Forgotten only once the game has let go of it; otherwise it is tried again next time.
+		if not wanted[key] and pcall(C.RemoveAuraSound, regId) then
 			auraSoundRegs[key] = nil
 			if ns.db.auraSoundIds then ns.db.auraSoundIds[key] = nil end
 			ns.auraSoundStats.registered = ns.auraSoundStats.registered - 1
@@ -1954,6 +1756,14 @@ local function SafeRegister(event)
 	registered[event] = ok
 	return ok
 end
+-- Only these units' events are wanted, so the client is asked for nothing else.
+local function SafeRegisterUnit(event, ...)
+	if events.RegisterUnitEvent then
+		local ok = pcall(events.RegisterUnitEvent, events, event, ...)
+		if ok then registered[event] = true return true end
+	end
+	return SafeRegister(event)
+end
 
 local ENV_EVENTS = {
 	"GROUP_ROSTER_UPDATE", "ZONE_CHANGED_NEW_AREA", "PLAYER_UPDATE_RESTING", "PLAYER_TARGET_CHANGED",
@@ -1980,7 +1790,9 @@ local function Startup()
 	if ns.Display and ns.Display.Init then ns.Display:Init() end
 	if ns.UI and ns.UI.Init then ns.UI:Init() end
 	ns.Settle()
-	if ns.db.combatLog and not registered.COMBAT_LOG_EVENT_UNFILTERED then SafeRegister("COMBAT_LOG_EVENT_UNFILTERED") end
+	-- An old saved "combat log on" brought the client's blocked-action dialog back at every login.
+	-- The switch now lasts one session and is never saved.
+	ns.db.combatLog = nil
 end
 
 events:SetScript("OnEvent", function(_, event, a1, a2, a3)
@@ -2028,6 +1840,8 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		ns.combatFlag = false
 		ns.UpdateEnv()
 		ns.dirty = true
+		if ns.soundSyncPending and ns.SyncAuraSounds then ns.SyncAuraSounds() end
+		if ns.Display and ns.Display.AfterCombat then ns.Display:AfterCombat() end
 		if C_Timer and C_Timer.After then C_Timer.After(1, ns.FlushAdvice) end
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		ns.playerGUID = UnitGUID and UnitGUID("player") or ns.playerGUID
@@ -2052,7 +1866,18 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		ns.Settle()
 	elseif event == "ADDON_RESTRICTION_STATE_CHANGED" then
 		ns.dirty = true
-		if C_Timer and C_Timer.After then C_Timer.After(0.5, function() ns.dirty = true end) end
+		local rType, rState = Clean(a1), Clean(a2)
+		if C_Timer and C_Timer.After then C_Timer.After(0.5, function()
+			ns.dirty = true
+			local cdHidden = "n/a"
+			if C_Secrets and C_Secrets.ShouldCooldownsBeSecret then
+				local ok, v = pcall(C_Secrets.ShouldCooldownsBeSecret)
+				cdHidden = not ok and "error" or (issecretvalue and issecretvalue(v)) and "secret" or tostring(v)
+			end
+			ns.LogLine(("restriction %s -> %s: auras hidden %s, cooldowns hidden %s, combat %s"):format(tostring(rType), tostring(rState),
+				tostring(AurasSecret()), cdHidden, tostring(InCombatLockdown and InCombatLockdown())))
+			if ns.soundSyncPending and ns.SyncAuraSounds then ns.SyncAuraSounds() end
+		end) end
 	elseif event == "BAG_UPDATE_DELAYED" or event == "PLAYER_EQUIPMENT_CHANGED" then
 		-- What you are carrying has changed, so the page of it is out of date.
 		if ns.RefreshBagPage then ns.RefreshBagPage() end
@@ -2072,7 +1897,9 @@ SafeRegister("ADDON_ACTION_FORBIDDEN")
 -- a forbidden action (the "blocked from an action only available to the Blizzard UI" dialog at
 -- login, which pcall cannot stop). The combat log handler stays for clients that allow it, behind
 -- ns.db.combatLog, which is off by default.
-for _, ev in ipairs({ "UNIT_AURA", "UNIT_SPELLCAST_SUCCEEDED", "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD",
+SafeRegisterUnit("UNIT_AURA", "player")
+SafeRegisterUnit("UNIT_SPELLCAST_SUCCEEDED", "player", "pet")
+for _, ev in ipairs({ "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD",
 	"ADDON_RESTRICTION_STATE_CHANGED", "BAG_UPDATE_DELAYED", "PLAYER_EQUIPMENT_CHANGED", "SPELLS_CHANGED" }) do
 	SafeRegister(ev)
 end
@@ -2237,7 +2064,7 @@ local function Parse(s, pos)
 	end
 end
 
-local TRACKER_KEYS = { "name", "id", "icon", "kind", "matchId", "show", "mine", "label", "unit", "warn", "cond", "snd" }
+local TRACKER_KEYS = { "name", "id", "icon", "kind", "matchId", "show", "mine", "label", "unit", "warn", "cond", "snd", "cd", "item" }
 
 local function CopyTracker(t)
 	local c = {}
@@ -2290,8 +2117,9 @@ function ns.Import(text)
 	local x = (UIParent:GetWidth() or 1024) / 2 - 40 + (n % 6) * 12
 	local y = (UIParent:GetHeight() or 768) / 2 + 100 - (n % 6) * 12
 	local function CleanTracker(src)
-		if type(src) ~= "table" or (not src.name and not src.id) then return nil end
-		local t = ns.NewTracker({ name = src.name, id = src.id, icon = src.icon, kind = src.kind or "any" })
+		if type(src) ~= "table" or (not src.name and not src.id and not tonumber(src.item)) then return nil end
+		local t = ns.NewTracker({ name = src.name, id = src.id, icon = src.icon, kind = src.kind or "any",
+			item = tonumber(src.item), cd = (src.cd or tonumber(src.item)) and true or nil })
 		t.matchId = src.matchId and true or false
 		t.show = (src.show == "missing" or src.show == "always") and src.show or "active"
 		t.mine = src.mine and true or false
@@ -2495,7 +2323,7 @@ function ns.ClearMaskDiagnostics()
 	end
 end
 
-ns.DIAG_ORDER = { "log", "api", "gd", "cdm2", "cdmapply", "cdmrestore", "probe", "atlases", "icon", "item", "combatlog" }
+ns.DIAG_ORDER = { "log", "api", "gd", "cdm2", "cdmrestore", "probe", "atlases", "icon", "item", "cdread" }
 ns.DIAG = {}
 for _, k in ipairs(ns.DIAG_ORDER) do ns.DIAG[k] = true end
 ns.DIAG.soundtest, ns.DIAG.soundclear = true, true
@@ -2660,7 +2488,17 @@ local function Debug()
 	Print(("  scans %d (partial %d, blocked %d), removals by id %d, estimated refreshes %d"):format(
 		s.scans, s.partial, s.blocked, s.removedById, s.estimated))
 	Print(("  combat log: %s, aura events %d, used while restricted %d"):format(
-		registered.COMBAT_LOG_EVENT_UNFILTERED and "registered" or "not registered (forbidden on this client; /auraledger combatlog to try)", s.cleu, s.cleuUsed))
+		registered.COMBAT_LOG_EVENT_UNFILTERED and (ns.combatLogTried and "tried this session" or "registered") or "not registered (this client refuses it to addons)", s.cleu, s.cleuUsed))
+	local function CS(fn, ...)
+		if not fn then return "n/a" end
+		local ok, v = pcall(fn, ...)
+		if not ok then return "error" end
+		if issecretvalue and issecretvalue(v) then return "secret" end
+		return tostring(v)
+	end
+	Print(("  cooldowns: hidden right now %s; hidden readings so far %d%s"):format(
+		CS(C_Secrets and C_Secrets.ShouldCooldownsBeSecret), s.secretCd or 0,
+		s.secretCdLast and (", last " .. tostring(s.secretCdLast)) or ""))
 	Print(("  your casts: %d seen, %d turned into auras while restricted (spell cast events %s)"):format(
 		s.casts, s.castsUsed, registered.UNIT_SPELLCAST_SUCCEEDED and "registered" or "not registered"))
 	local as = ns.auraSoundStats
@@ -2673,8 +2511,8 @@ local function Debug()
 			trigger == "2" and "removed" or trigger == "1" and "stacks" or "added", tostring(spell), ns.SpellName and ns.SpellName(tonumber(spell)) or "?", tostring(unit), cname or "?", tostring(file), tostring(id)))
 	end
 	local p = ns.payloadStats
-	Print(("  aura events while restricted: %d; removed lists plain %d / secret %d, updated plain %d / secret %d, added plain %d / secret %d, full updates %d"):format(
-		p.events, p.plainRemoved, p.secretRemoved, p.plainUpdated, p.secretUpdated, p.plainAdded, p.secretAdded, p.full))
+	Print(("  aura events while restricted: %d; removed lists plain %d / secret %d, updated plain %d / secret %d, added plain %d / secret %d, full updates %d, secret ids dropped %d"):format(
+		p.events, p.plainRemoved, p.secretRemoved, p.plainUpdated, p.secretUpdated, p.plainAdded, p.secretAdded, p.full, p.secretIds or 0))
 	if p.sample then Print("    last payload: " .. p.sample) end
 	local live, carried = 0, 0
 	for _, e in pairs(ns.auras) do live = live + 1 if e.stale or e.estimated then carried = carried + 1 end end
@@ -2818,9 +2656,15 @@ SlashCmdList.AURALEDGER = function(msg)
 		local g, err = ns.Import(rest)
 		if g then Print("Imported " .. ns.GroupName(g) .. ".") else Print(err) end
 	elseif cmd == "combatlog" then
-		ns.db.combatLog = not ns.db.combatLog
-		if ns.db.combatLog and not registered.COMBAT_LOG_EVENT_UNFILTERED then SafeRegister("COMBAT_LOG_EVENT_UNFILTERED") end
-		Print("Combat log source " .. (ns.db.combatLog and "on (if the client shows the blocked dialog, turn it off again)." or "off. Type /reload to finish turning it off."))
+		-- For this session only: this client refuses the combat log to addons, and a saved switch
+		-- brought the refusal dialog back at every login.
+		if registered.COMBAT_LOG_EVENT_UNFILTERED then
+			Print("The combat log is already being tried this session. Type /reload to stop.")
+		else
+			SafeRegister("COMBAT_LOG_EVENT_UNFILTERED")
+			ns.combatLogTried = true
+			Print("Trying the combat log for this session only. This client normally refuses it to addons with a 'blocked' dialog; /reload puts it back.")
+		end
 	elseif cmd == "tune" then
 		if not (ns.UI and ns.UI.ShowTuner) then
 			Print("The tuning panel is not there: this is " .. tostring(ns.VERSION) .. ", and it was added in 1.54.0.")
@@ -2968,41 +2812,6 @@ SlashCmdList.AURALEDGER = function(msg)
 	elseif cmd == "plainbook" then
 		ns.db.plainBook = not ns.db.plainBook
 		Print("Book background: " .. (ns.db.plainBook and "plain" or "parchment when the client has it") .. ". Type /reload to apply.")
-	elseif cmd == "cdmapply" then
-		Print("|cffff5050Careful:|r writing the manager's layout marks it with this addon, and the game then refuses its own aura reads until you reload. This is a diagnostic, not a feature. /auraledger debug cdmrestore and a reload puts it right.")
-		local icons, bars, missing = ns.CDM.Wanted()
-		Print(("Cooldown Manager: %d spell%s for icons, %d for bars, out of %d it tracks%s"):format(#icons, #icons == 1 and "" or "s", #bars,
-			#ns.CDM.TrackedSet(),
-			#missing > 0 and ("; %d with no entry (" .. table.concat(missing, ", ") .. ")"):format(#missing) or ""))
-		for _, g in ipairs(ns.profile.groups) do
-			if g.gameDrawn then
-				for _, t in ipairs(g.trackers) do
-					local cd = ns.CDM.CooldownFor(t)
-					local belongs
-					if cd and C_CooldownViewer and C_CooldownViewer.GetCooldownViewerCooldownInfo then
-						local okI, info = pcall(C_CooldownViewer.GetCooldownViewerCooldownInfo, cd)
-						if okI and type(info) == "table" then
-							local sid = Clean(info.overrideTooltipSpellID) or Clean(info.overrideSpellID) or Clean(info.spellID)
-							belongs = sid and ((ns.SpellName and ns.SpellName(sid) or "?") .. " (" .. sid .. ")") or "?"
-							belongs = belongs .. (Clean(info.isKnown) and ", known" or ", NOT known so the manager will not draw it")
-						end
-					end
-					Print(("  %s [id %s] -> cooldown %s = %s"):format(t.name or "?", tostring(t.id), tostring(cd), tostring(belongs)))
-				end
-			end
-		end
-		if #icons == 0 and #bars == 0 then
-			Print("  Nothing to write. Set a group's 'In combat' to 'the game keeps it right' first.")
-		else
-			local ok, err = ns.CDM.Apply(bars)
-			if ok then
-				Print("  Written as " .. ns.CDM.LayoutName() .. ".")
-				ns.CDM.Verify(Print, icons, bars)
-				Print("  Now run /auraledger debug cdm2: the frames should carry the ids above.")
-			else
-				Print("  Not written: " .. tostring(err))
-			end
-		end
 	elseif cmd == "cdmrestore" then
 		local ok, err = ns.CDM.Restore()
 		Print(ok and "The Cooldown Manager is back to what it was before." or ("Not restored: " .. tostring(err)))

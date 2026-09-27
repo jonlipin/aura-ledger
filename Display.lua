@@ -94,28 +94,50 @@ local function IsA(obj, kind)
 	return obj and obj.GetObjectType and obj:GetObjectType() == kind
 end
 
+-- True when none of the values is hidden. A hidden value cannot even be tested, so every reading
+-- of the game's frames goes through this before anything is done with it.
+local function Plain(...)
+	if not issecretvalue then return true end
+	for i = 1, select("#", ...) do
+		if issecretvalue((select(i, ...))) then return false end
+	end
+	return true
+end
+
+-- The Cooldown Manager's frames follow your auras, so while the game is hiding auras (and in a
+-- fight) their sizes, places and colours can come back hidden. They are only measured outside that.
+local function ManagerUnsafe()
+	if InCombatLockdown and InCombatLockdown() then return true end
+	return (ns.AurasSecret and ns.AurasSecret()) and true or false
+end
+Display.ManagerUnsafe = ManagerUnsafe
+
 -- What a texture is drawn with: atlas or file, coords, blend, tint, layer.
 local function DescribeTexture(tex)
 	local d = {}
 	local ok, atlas = pcall(tex.GetAtlas, tex)
+	if ok and not Plain(atlas) then return nil end
 	if ok and atlas and atlas ~= "" then
 		d.atlas = atlas
 	else
 		local okt, file = pcall(tex.GetTexture, tex)
-		if not okt or file == nil or file == "" then return nil end
+		if not okt or not Plain(file) or file == nil or file == "" then return nil end
 		d.file = file
 		local okc, ulx, uly, llx, lly, urx = pcall(tex.GetTexCoord, tex)
-		if okc and ulx and urx and lly then d.coords = { ulx, urx, uly, lly } end
+		if okc and Plain(ulx, uly, lly, urx) and ulx and urx and lly then d.coords = { ulx, urx, uly, lly } end
 	end
 	local okb, blend = pcall(tex.GetBlendMode, tex)
-	if okb and blend then d.blend = blend end
+	if okb and Plain(blend) and blend then d.blend = blend end
 	local okv, r, g, b, a = pcall(tex.GetVertexColor, tex)
-	if okv and r then d.color = { r, g, b, a or 1 } end
+	if okv and Plain(r, g, b, a) and r then d.color = { r, g, b, a or 1 } end
 	local okl, layer, sub = pcall(tex.GetDrawLayer, tex)
-	if okl and layer then d.layer, d.sub = layer, sub or 0 end
+	if okl and Plain(layer, sub) and layer then d.layer, d.sub = layer, sub or 0 end
 	local oka, alpha = pcall(tex.GetAlpha, tex)
-	if oka and alpha then d.alpha = alpha end
-	if tex.IsShown and not tex:IsShown() then d.hidden = true end
+	if oka and Plain(alpha) and alpha then d.alpha = alpha end
+	if tex.IsShown then
+		local okS, shown = pcall(tex.IsShown, tex)
+		if okS and Plain(shown) and not shown then d.hidden = true end
+	end
 	return d
 end
 
@@ -137,14 +159,18 @@ end
 -- "box" may also name the region the art hangs off (the icon), so art anchored to the icon rather
 -- than to the frame around it is kept, measured against the icon's own rectangle.
 local function RectOf(region, ref, rw, rh, box)
-	local n = region:GetNumPoints() or 0
+	local okN, n = pcall(region.GetNumPoints, region)
+	if not okN or not Plain(n) then return end
+	n = n or 0
 	if n == 0 then return end
-	local w, h = region:GetSize()
+	local okS, w, h = pcall(region.GetSize, region)
+	if not okS or not Plain(w, h) then return end
 	w, h = w or 0, h or 0
 	local l, r, t, b
 	local single
 	for i = 1, n do
-		local p, rel, rp, x, y = region:GetPoint(i)
+		local okP, p, rel, rp, x, y = pcall(region.GetPoint, region, i)
+		if not okP or not Plain(p, rel, rp, x, y) then return end
 		if not p then return end
 		-- The rectangle this point hangs off, in the reference frame's own terms.
 		local x0, y0, bw, bh = 0, 0, rw, rh
@@ -177,7 +203,8 @@ end
 -- measured around that would be stretched when it is redrawn around a square icon. Stretched
 -- regions get overhangs past each edge; small regions anchored by one point keep their size and side.
 local function Geometry(region, ref, box)
-	local rw, rh = ref:GetSize()
+	local okS, rw, rh = pcall(ref.GetSize, ref)
+	if not okS or not Plain(rw, rh) then return end
 	if not rw or rw <= 0 or not rh or rh <= 0 then return end
 	local l, r, t, b, single, w, h = RectOf(region, ref, rw, rh, box)
 	if not l then return end
@@ -197,7 +224,8 @@ end
 
 -- The icon's own rectangle inside the frame it hangs on, for use as that box.
 local function IconBox(iconTex, iconFrame)
-	local rw, rh = iconFrame:GetSize()
+	local okS, rw, rh = pcall(iconFrame.GetSize, iconFrame)
+	if not okS or not Plain(rw, rh) then return end
 	if not rw or rw <= 0 or not rh or rh <= 0 then return end
 	local l, r, t, b = RectOf(iconTex, iconFrame, rw, rh, nil)
 	if not l or (r - l) <= 0 or (t - b) <= 0 then return end
@@ -247,15 +275,16 @@ end
 local function DescribeFont(fs, ref)
 	if not IsA(fs, "FontString") then return end
 	local ok, file, size, flags = pcall(fs.GetFont, fs)
-	if not ok or not file or not size or size <= 0 then return end
-	local _, rh = ref:GetSize()
-	if not rh or rh <= 0 then return end
+	if not ok or not Plain(file, size, flags) or not file or not size or size <= 0 then return end
+	local okR, _, rh = pcall(ref.GetSize, ref)
+	if not okR or not Plain(rh) or not rh or rh <= 0 then return end
 	local d = { file = file, size = size / rh, flags = flags }
 	local okc, r, g, b = pcall(fs.GetTextColor, fs)
-	if okc and r then d.color = { r, g, b } end
-	if (fs:GetNumPoints() or 0) >= 1 then
-		local p, rel, rp, x, y = fs:GetPoint(1)
-		if p and (rel == nil or rel == ref) then d.p, d.rp, d.x, d.y = p, rp or p, (x or 0) / rh, (y or 0) / rh end
+	if okc and Plain(r, g, b) and r then d.color = { r, g, b } end
+	local okN, n = pcall(fs.GetNumPoints, fs)
+	if okN and Plain(n) and (n or 0) >= 1 then
+		local okP, p, rel, rp, x, y = pcall(fs.GetPoint, fs, 1)
+		if okP and Plain(p, rel, rp, x, y) and p and (rel == nil or rel == ref) then d.p, d.rp, d.x, d.y = p, rp or p, (x or 0) / rh, (y or 0) / rh end
 	end
 	return d
 end
@@ -338,7 +367,8 @@ Display.IconBox = IconBox
 local function RelRect(region, ref)
 	local ok, l1, r1, t1, b1 = pcall(function() return region:GetLeft(), region:GetRight(), region:GetTop(), region:GetBottom() end)
 	local ok2, l2, r2, t2, b2 = pcall(function() return ref:GetLeft(), ref:GetRight(), ref:GetTop(), ref:GetBottom() end)
-	if not (ok and ok2 and l1 and r1 and t1 and b1 and l2 and r2 and t2 and b2) then return end
+	if not (ok and ok2) or not Plain(l1, r1, t1, b1, l2, r2, t2, b2) then return end
+	if not (l1 and r1 and t1 and b1 and l2 and r2 and t2 and b2) then return end
 	local w, h = r2 - l2, t2 - b2
 	if w <= 0 or h <= 0 then return end
 	return { l = (l2 - l1) / w, r = (r1 - r2) / w, t = (t1 - t2) / h, b = (b2 - b1) / h }
@@ -348,14 +378,15 @@ end
 local function ArtOf(tex)
 	local d = {}
 	local okA, atlas = pcall(tex.GetAtlas, tex)
+	if okA and not Plain(atlas) then return end
 	if okA and atlas then
 		d.atlas = atlas
 	else
 		local okF, file = pcall(tex.GetTexture, tex)
-		if not okF or not file then return end
+		if not okF or not Plain(file) or not file then return end
 		d.file = file
 		local okC, ulx, uly, llx, lly, urx = pcall(tex.GetTexCoord, tex)
-		if okC and ulx and urx and lly then d.coords = { ulx, urx, uly, lly } end
+		if okC and Plain(ulx, uly, lly, urx) and ulx and urx and lly then d.coords = { ulx, urx, uly, lly } end
 	end
 	return d
 end
@@ -507,6 +538,7 @@ end
 -- available to the Blizzard UI".
 local function ViewerDonor(viewer)
 	if not viewer or not viewer.GetChildren then return end
+	if ManagerUnsafe() then return end
 	local okC, kids = pcall(function() return { viewer:GetChildren() } end)
 	if not okC then return end
 	local fallback
@@ -515,7 +547,7 @@ local function ViewerDonor(viewer)
 			-- A hidden item has no place on screen, and its art cannot be measured. Most of a
 			-- display's pool is hidden, so the one that is showing is the one worth reading.
 			local okS, shown = pcall(function() return child:IsShown() end)
-			if okS and shown then return child end
+			if okS and Plain(shown) and shown then return child end
 			fallback = fallback or child
 		end
 	end
@@ -991,6 +1023,7 @@ end
 
 local function BuildSkin()
 	if skin then return skin end
+	local withoutManager = ManagerUnsafe()
 	local s
 	local donor = ViewerDonor(BuffBarCooldownViewer)
 	if donor then s = SkinFromDonor(donor, "Cooldown Manager bar (live)") end
@@ -1013,6 +1046,7 @@ local function BuildSkin()
 		s = { source = "plain (tooltip border)", fill = { file = BAR_TEXTURE, coords = { 0, 1, 0, 1 } }, decor = {}, iconDecor = {}, tint = true, backdrop = true }
 	end
 	-- Icon art: the Cooldown Manager's icon items have their own overlay; borrow it for icon style.
+	s.withoutManager = withoutManager or nil
 	local iconDonor = ViewerDonor(EssentialCooldownViewer) or ViewerDonor(UtilityCooldownViewer) or ViewerDonor(BuffIconCooldownViewer)
 	if iconDonor then
 		local iconTex, iconFrame = FindIcon(iconDonor)
@@ -1097,11 +1131,26 @@ Display.IconInset = IconInset
 -- pinned. Two strings landing on each other shows up here and nowhere else.
 local function TextLine(label, fs)
 	if not fs then return label .. ": none" end
-	local shown = (fs.IsShown and fs:IsShown()) and "shown" or "hidden"
-	local text = (fs.GetText and fs:GetText()) or ""
+	local shown = "hidden"
+	if fs.IsShown then
+		local okS, v = pcall(fs.IsShown, fs)
+		if okS and not Plain(v) then shown = "(hidden value)" elseif okS and v then shown = "shown" end
+	end
+	local text = ""
+	if fs.GetText then
+		local okT, v = pcall(fs.GetText, fs)
+		if okT and not Plain(v) then text = "(hidden value)" elseif okT and v then text = v end
+	end
 	local w, h = 0, 0
-	if fs.GetSize then w, h = fs:GetSize() end
-	local strw = (fs.GetStringWidth and fs:GetStringWidth()) or 0
+	if fs.GetSize then
+		local okZ, a, b = pcall(fs.GetSize, fs)
+		if okZ and Plain(a, b) then w, h = a or 0, b or 0 end
+	end
+	local strw = 0
+	if fs.GetStringWidth then
+		local okW, v = pcall(fs.GetStringWidth, fs)
+		if okW and Plain(v) then strw = v or 0 end
+	end
 	local pts = ""
 	if fs.GetNumPoints and fs.GetPoint then
 		for i = 1, (fs:GetNumPoints() or 0) do
@@ -1138,6 +1187,10 @@ end
 -- Every frame and texture on one of the manager's items, with what it wears and where it sits
 -- against the icon. This is how the shadow, or anything else that is wanted, gets named.
 function Display:ProbeItem(emit)
+	if ManagerUnsafe() then
+		emit("not now: in a fight, or while the game is hiding auras, the manager's items can answer with hidden values")
+		return
+	end
 	local donor
 	for _, v in ipairs({ { "tracked buffs", BuffIconCooldownViewer }, { "essential", EssentialCooldownViewer },
 		{ "utility", UtilityCooldownViewer }, { "tracked bars", BuffBarCooldownViewer } }) do
@@ -1304,7 +1357,7 @@ function Display:IconReport(emit)
 					-- or not at all.
 					local function Num(get)
 						local ok, v = pcall(get)
-						if ok and type(v) == "number" then return ("%.0f"):format(v) end
+						if ok and Plain(v) and type(v) == "number" then return ("%.0f"):format(v) end
 						return "?"
 					end
 					emit(("      the game's own bar: %s wide, %s tall"):format(
@@ -1403,8 +1456,14 @@ local function WidgetTooltip(w)
 	local cooldown = t.cd or t.item
 	local left = entry and entry.expires and entry.expires > 0 and (entry.expires - GetTime()) or nil
 	if cooldown then
-		if entry and left and left > 0 then
-			GameTooltip:AddLine(("On cooldown, %s left"):format(ns.FormatTime(left or 0)), 1, 0.7, 0.3)
+		if entry and entry.held then
+			GameTooltip:AddLine("Used; its cooldown starts when the effect ends", 1, 0.7, 0.3)
+		elseif entry and entry.secret then
+			GameTooltip:AddLine("On cooldown; the game is not saying how long right now", 1, 0.7, 0.3)
+		elseif entry and left and left > 0 then
+			GameTooltip:AddLine(("On cooldown, %s%s left"):format(entry.stale and "about " or "", ns.FormatTime(left or 0)), 1, 0.7, 0.3)
+		elseif entry and not entry.ready then
+			GameTooltip:AddLine("On cooldown", 1, 0.7, 0.3)
 		elseif entry then
 			GameTooltip:AddLine("Ready", 0.4, 1, 0.4)
 		else
@@ -1527,6 +1586,7 @@ end
 -- the frame the moment the manager is drawing a bar of its own.
 local lastSkinTry = 0
 function Display:TrySkinAgain()
+	if ManagerUnsafe() then return false end
 	if HaveBarFrame() then return false end
 	local now = GetTime and GetTime() or 0
 	if now - lastSkinTry < 5 then return false end
@@ -2175,17 +2235,13 @@ local function InitSlotFrame(g, mode, filter, store)
 		button.alIcon = icon
 		pcall(button.SetIcon, button, icon)
 		SquareUp()
-		if button.HookScript then pcall(button.HookScript, button, "OnShow", SquareUp) end
+		if button.HookScript then pcall(button.HookScript, button, "OnShow", function() pcall(SquareUp) end) end
 		local count = button:CreateFontString(nil, "OVERLAY")
 		count:SetFont(FONT, max(7, floor(IS * (bars and 0.45 or 0.3))), "OUTLINE")
 		count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -1, 1)
 		pcall(button.SetApplicationCount, button, count)
-		local border = button:CreateTexture(nil, "OVERLAY")
-		border:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
-		border:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
-		border:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
-		border:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 1, -1)
-		pcall(button.AddDispelTypeTexture, button, border)
+		-- No dispel-type border: the game hides it on helpful auras, and these slots only ever hold
+		-- buffs, so it never showed.
 		if bars then
 			local bar = CreateFrame("StatusBar", nil, button)
 			-- The group's own bar height, held in the middle of the cell: a cell is as tall as the
@@ -2285,7 +2341,7 @@ local function InitSlotFrame(g, mode, filter, store)
 				pcall(button.SetDurationCooldown, button, cd)
 				button.alCd, button.alW, button.alCdSize = cd, w, IW
 				ShapeCooldown(w, cd, IW, g.iconFrame ~= false)
-				if cd.HookScript then pcall(cd.HookScript, cd, "OnShow", function() ShapeCooldown(w, cd, IW, g.iconFrame ~= false) end) end
+				if cd.HookScript then pcall(cd.HookScript, cd, "OnShow", function() pcall(ShapeCooldown, w, cd, IW, g.iconFrame ~= false) end) end
 			end
 			if g.iconFrame ~= false then
 				local e1 = PlaceCleanEdge(w, icon, H, true)
@@ -2636,7 +2692,8 @@ local function LayoutGroup(f, g, visible, unlocked)
 				-- The game's icon has to cover the cell underneath, edge and all. The button is the
 				-- game's own and may refuse to be read at all, so nothing is asked of it unguarded.
 				local okL, lvl = pcall(function() return sl.frame:GetFrameLevel() end)
-				if okL and type(lvl) == "number" then
+				lvl = okL and ns.Clean(lvl) or nil
+				if type(lvl) == "number" then
 					SetCellLevel(widget, lvl - 6)
 				else
 					-- In combat the game refuses to say where its own frame sits. The gate the slots
@@ -2739,7 +2796,10 @@ local function Wants(t, entry, now, unlocked, groupPass)
 	-- A spell is always there, so for a cooldown tracker it is the cooldown that is on or off:
 	-- "active" means on cooldown, "missing" means ready to cast.
 	if t.cd then
-		local onCd = entry ~= nil and not entry.ready
+		-- No reading at all (a spell the character cannot cast right now, or a cooldown the game is
+		-- hiding with nothing to go on) is not "ready": it is unknown, and only "either" shows it.
+		if entry == nil then return t.show == "always", false end
+		local onCd = not entry.ready
 		-- The warn window works the same way round as it does for an aura: it brings the tracker
 		-- back before the thing you are waiting for happens, which for a cooldown is being ready.
 		local nearly = onCd and Expiring(t, entry, now) or false
@@ -2852,7 +2912,11 @@ function Display:Tick(now)
 			if not unlocked then
 				local groupPass = ns.CondPass(g.cond)
 				for _, t in ipairs(g.trackers) do
-					if (t.warn or 0) > 0 or t.cd then
+					local slotted = false
+					if not t.cd then
+						for _, w in ipairs(f.widgets) do if w.tracker == t and w.underSlot then slotted = true break end end
+					end
+					if ((t.warn or 0) > 0 or t.cd) and not slotted then
 						local entry = ns.Find(t)
 						local want, expiring = Wants(t, entry, now, false, groupPass)
 						local shown, wasExpiring, was = false, false, nil
@@ -2887,7 +2951,12 @@ function Display:Rebuild()
 	local wanted = {}
 	for _, g in ipairs(ns.profile.groups) do wanted[g.uid] = g end
 	for uid, f in pairs(active) do
-		if not wanted[uid] then
+		if not wanted[uid] and f.slotC and next(f.slotC) and InCombatLockdown and InCombatLockdown() then
+			-- The game's containers inside it may not be hidden from here in a fight: it goes after it.
+			active[uid] = nil
+			Display.dropAfterCombat = Display.dropAfterCombat or {}
+			Display.dropAfterCombat[f] = true
+		elseif not wanted[uid] then
 			f:Hide()
 			-- A group taken away mid-drag must not carry the drag into the group this frame is used
 			-- for next.
@@ -3704,6 +3773,31 @@ function Display:EndGroupDrags()
 	if ended then
 		Highlight(nil)
 		ShowGuides(nil, nil)
+	end
+end
+
+-- Things that had to wait for a fight to end: a skin made without the manager is made again, and a
+-- group removed in the fight gives up its containers.
+function Display:AfterCombat()
+	if skin and skin.withoutManager and not ManagerUnsafe() then
+		skin = nil
+		if pcall(BuildSkin) and skin then ns.MASK_EPOCH = (ns.MASK_EPOCH or 0) + 1 end
+		self:Rebuild()
+	end
+	if self.dropAfterCombat then
+		for f in pairs(self.dropAfterCombat) do
+			f:Hide()
+			f.group = nil
+			for _, c in pairs(f.slotC or {}) do
+				if UnregisterAttributeDriver and c.alDriven then pcall(UnregisterAttributeDriver, c, "state-visibility") end
+				c:Hide()
+			end
+			f.slotC = nil
+			DropGate(f)
+			f.chrome.hl:Hide()
+			pool[#pool + 1] = f
+		end
+		self.dropAfterCombat = nil
 	end
 end
 
