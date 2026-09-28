@@ -2298,25 +2298,94 @@ end
 -- aura is on the unit the game shows the slot and covers the cell, when it is not the slot hides
 -- and the cell shows the addon's "missing" art (or nothing, for "show when active").
 -- ------------------------------------------------------------------
-local function TrackerIds(t)
+-- Every id known for a spell by name: the ledger's, the bundled ranks and your own spellbook's.
+local function KnownIds(name, map)
+	local any = false
+	for _, kind in ipairs({ "buff", "debuff" }) do
+		local h = ns.db.history[kind .. ":" .. string.lower(name)]
+		if h and h.ids then for id in pairs(h.ids) do map[id] = true any = true end end
+	end
+	local ranks = ns.RankIds and ns.RankIds(name)
+	if ranks then for id in pairs(ranks) do map[id] = true any = true end end
+	return any
+end
+
+-- The ids a tracker's slot follows. With family, a buff's group version counts too (Prayer of
+-- Fortitude for Power Word: Fortitude): asked for by groups that watch your party. Nil when there
+-- are none, so no slot is ever given an empty map, which the game would read as "match nothing".
+local function TrackerIds(t, family)
 	local map, any = {}, false
 	if t.id then map[t.id] = true any = true end
 	if t.name and not t.matchId then
-		for _, kind in ipairs({ "buff", "debuff" }) do
-			local h = ns.db.history[kind .. ":" .. string.lower(t.name)]
-			if h and h.ids then for id in pairs(h.ids) do map[id] = true any = true end end
+		local names = family and ns.FamilyOf and ns.FamilyOf(t.name) or { t.name }
+		for _, n in ipairs(names) do
+			if KnownIds(n, map) then any = true end
 		end
-		local ranks = ns.RankIds and ns.RankIds(t.name)
-		if ranks then for id in pairs(ranks) do map[id] = true any = true end end
 	end
 	return any and map or nil
 end
+Display.TrackerIds = TrackerIds
 
 local function IdsKey(map)
 	local l = {}
 	for id in pairs(map) do l[#l + 1] = id end
 	table.sort(l)
 	return table.concat(l, ",")
+end
+
+-- A debuff can be handed to the game only when every id the tracker follows is one the game never
+-- hides: for anything else the game refuses to filter a debuff by spell, and the slot would show
+-- nothing. Asked out of combat, when slots are made.
+local function AllNeverSecret(ids)
+	local S = C_Secrets
+	if not (S and S.GetSpellAuraSecrecy) then return false end
+	local never = Enum and Enum.SecrecyLevel and Enum.SecrecyLevel.NeverSecret or 0
+	local any = false
+	for id in pairs(ids or {}) do
+		local ok, level = pcall(S.GetSpellAuraSecrecy, id)
+		level = ok and ns.Clean(level) or nil
+		if level ~= never then return false end
+		any = true
+	end
+	return any
+end
+Display.AllNeverSecret = AllNeverSecret
+
+-- What a tracker's slot is: the game's filter, the candidate filters, and a key that changes when
+-- they do. Nil for anything the game cannot follow (a cooldown, an item, a weapon, a debuff it
+-- hides, a spell with no id known). A dispel tracker never carries a spell map: on a unit the game
+-- will not filter by spell, a map (even an empty one) matches nothing.
+local function SlotSpec(t, g)
+	if not t or t.cd or t.item or t.enchant ~= nil or t.swing ~= nil then return nil end
+	if t.dispel == "any" then
+		-- RAID on harmful auras is the game's own "a debuff you can remove".
+		return { filter = "HARMFUL|RAID", key = "dispel:any" }
+	elseif t.dispel then
+		if not (ns.DISPEL_TYPES and ns.DISPEL_TYPES[t.dispel]) then return nil end
+		return { filter = "HARMFUL", filters = { includeDispelTypes = { [t.dispel] = true } }, key = "dispel:" .. t.dispel }
+	end
+	local ids = TrackerIds(t, ns.GroupUnits(g) ~= nil)
+	if not ids then return nil end
+	local filters = { includeSpellIDs = ids, isFromPlayerOrPlayerPet = t.mine and true or nil }
+	local key = IdsKey(ids) .. ":" .. tostring(t.mine and true or false)
+	if t.kind == "debuff" then
+		if not AllNeverSecret(ids) then return nil end
+		return { filter = "HARMFUL", filters = filters, key = key }
+	end
+	return { filter = "HELPFUL", filters = filters, key = key }
+end
+Display.SlotSpec = SlotSpec
+
+-- Whether a tracker can go in a group that watches your party: an aura the game follows. A cooldown,
+-- an item or a weapon is yours alone, and so is a debuff the game hides.
+function Display.MemberCanHold(t)
+	if not t or t.cd or t.item or t.enchant ~= nil or t.swing ~= nil then return false end
+	if t.dispel then return true end
+	if t.kind == "debuff" then
+		local ids = TrackerIds(t, true)
+		return ids ~= nil and AllNeverSecret(ids)
+	end
+	return true
 end
 
 -- What a slot is built from. A container whose key has changed is thrown away and made again, which
@@ -2423,16 +2492,17 @@ local function InitSlotFrame(g, mode, filter, store, opts)
 		count:SetFont(FONT, max(7, floor(IS * (bars and 0.45 or 0.3))), "OUTLINE")
 		count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -1, 1)
 		pcall(button.SetApplicationCount, button, count)
-		-- The border by dispel type, when the group asks for it. The game hides it on buffs unless told
-		-- to show it there, which the old border never was, so it never showed. The game draws its own
-		-- border in the type's colour and nothing about it is read back.
-		if g.dispelColors then
+		-- The border by dispel type, when the group asks for it, and always on a dispel tracker. The
+		-- game hides it on buffs unless told to show it there, which the old border never was, so it
+		-- never showed. The game draws its own border in the type's colour and nothing about it is
+		-- read back.
+		if g.dispelColors or opts.dispelRing then
 			local okB, why = pcall(function()
 				local ring = button:CreateTexture(nil, "OVERLAY", nil, 7)
 				ring:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
 				ring:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 1, -1)
 				local styles = Enum and Enum.CustomAuraButtonDispelTypeTextureStyle
-				button:AddDispelTypeTexture(ring, { showWhenHelpful = true, showWhenHarmful = true,
+				button:AddDispelTypeTexture(ring, { showWhenHelpful = g.dispelColors and true or false, showWhenHarmful = true,
 					style = styles and styles.Border or nil })
 			end)
 			ns.report["slot dispel border"] = okB and "drawn by the game" or ("refused: " .. tostring(why))
@@ -2470,7 +2540,7 @@ local function InitSlotFrame(g, mode, filter, store, opts)
 			-- As the addon tints its own: art copied from the client keeps the color it came with,
 			-- and only a stand-in fill is tinted, or the two look nothing like each other.
 			if s.tint then
-				if filter == "HARMFUL" then bar:SetStatusBarColor(0.85, 0.22, 0.2) else bar:SetStatusBarColor(0.25, 0.6, 1) end
+				if filter:find("HARMFUL", 1, true) then bar:SetStatusBarColor(0.85, 0.22, 0.2) else bar:SetStatusBarColor(0.25, 0.6, 1) end
 			elseif s.fillColor then
 				bar:SetStatusBarColor(s.fillColor[1], s.fillColor[2], s.fillColor[3])
 			else
@@ -2613,7 +2683,7 @@ local function EnsureGate(f, g)
 	end
 	local macro = CondMacro(g.cond)
 	if macro == nil then macro = "hide" end
-	if f.gate.alMacro ~= macro and not (InCombatLockdown and InCombatLockdown()) then
+	if f.gate.alMacro ~= macro and not ManagerUnsafe() then
 		if RegisterAttributeDriver then
 			if UnregisterAttributeDriver and f.gate.alMacro then pcall(UnregisterAttributeDriver, f.gate, "state-visibility") end
 			if pcall(RegisterAttributeDriver, f.gate, "state-visibility", macro) then f.gate.alMacro = macro end
@@ -2628,27 +2698,50 @@ end
 
 local function DropGate(f)
 	if not f.gate then return end
-	if InCombatLockdown and InCombatLockdown() then return end
+	if ManagerUnsafe() then return end
 	if UnregisterAttributeDriver and f.gate.alMacro then pcall(UnregisterAttributeDriver, f.gate, "state-visibility") end
 	f.gate.alMacro = nil
 	f.gate:Hide()
 	f.gate.alDropped = true
 end
 
--- The container for one unit of a group; rebuilt when the look changes. Nil in combat when it
--- would have to be rebuilt.
-local function SlotContainer(f, g, unit)
+-- A container's own driver, taken off. c.alMacro is the driver it has: "" for none (shown by the
+-- addon), "parked" for one put away.
+local function DriverOff(c)
+	if UnregisterAttributeDriver and c.alMacro and c.alMacro ~= "" and c.alMacro ~= "parked" then
+		pcall(UnregisterAttributeDriver, c, "state-visibility")
+	end
+end
+
+-- The container for one unit of a group. A group that watches only you rebuilds it when the look
+-- changes; one that watches members keeps it and puts the look in its slots instead, so a new look
+-- does not throw away a container per member. A driver, when given, is the game's to run: it shows
+-- and hides the container as the unit comes and goes, which is also what makes it read the unit
+-- afresh. Nothing is made or changed in a fight or while auras are hidden; the one there is returned.
+local function SlotContainer(f, g, unit, driver, member)
 	f.slotC = f.slotC or {}
-	local key = SlotKey(g)
+	local key = member and "member" or SlotKey(g)
 	local c = f.slotC[unit]
-	if c and c.alKey == key then return c end
-	if InCombatLockdown and InCombatLockdown() then return c end
+	if ManagerUnsafe() then return c end
+	if c and c.alKey == key then
+		local want = driver or ""
+		if c.alMacro ~= want then
+			DriverOff(c)
+			if driver and RegisterAttributeDriver and pcall(RegisterAttributeDriver, c, "state-visibility", driver) then
+				c.alMacro = driver
+			else
+				c:Show()
+				c.alMacro = ""
+			end
+		end
+		return c
+	end
 	if c then
-		if UnregisterAttributeDriver and c.alDriven then pcall(UnregisterAttributeDriver, c, "state-visibility") end
+		DriverOff(c)
 		c:Hide() c:ClearAllPoints() f.slotC[unit] = nil
 	end
 	local gate = EnsureGate(f, g)
-	if gate.alDropped and not (InCombatLockdown and InCombatLockdown()) then gate:Show() gate.alDropped = nil end
+	if gate.alDropped then gate:Show() gate.alDropped = nil end
 	local ok, nc = pcall(CreateFrame, "AuraContainer", nil, gate, "CustomAuraContainerTemplate")
 	if not (ok and nc) then
 		ns.report["game-drawn trackers"] = "AuraContainer not available: " .. tostring(nc)
@@ -2659,21 +2752,37 @@ local function SlotContainer(f, g, unit)
 	-- of our spells, so every tracker would read as missing until it closed.
 	if nc.SetEditModePreviewEnabled then
 		local okE = pcall(nc.SetEditModePreviewEnabled, nc, false)
-		ns.report["edit mode preview"] = okE and "off" or "the game refused to turn it off"
+		-- Read back: a call that went through is not the same as the game having honoured it.
+		local okR, on = pcall(function() return nc:IsEditModePreviewEnabled() end)
+		on = okR and ns.Clean(on)
+		if not okE then ns.report["edit mode preview"] = "the game refused to turn it off"
+		elseif on == false then ns.report["edit mode preview"] = "off"
+		elseif on == true then ns.report["edit mode preview"] = "asked off, but the game kept it on"
+		else ns.report["edit mode preview"] = "asked off, not confirmed" end
 	end
 	nc:SetAllPoints(f)
 	nc:SetFrameLevel(gate:GetFrameLevel() + 3)
 	if nc.SetUnit then pcall(nc.SetUnit, nc, unit) end
-	nc.alKey, nc.alSlots, nc.alIds, nc.alStore = key, {}, {}, {}
-	if unit ~= "player" and RegisterAttributeDriver then
-		-- Shown and hidden by the game as the target comes and goes, which is also what makes it
-		-- re-read the new target's auras.
-		if pcall(RegisterAttributeDriver, nc, "state-visibility", "[@" .. unit .. ",exists] show; hide") then nc.alDriven = true end
-	end
-	if not nc.alDriven then nc:Show() end
+	nc.alKey, nc.alSlots, nc.alSpec, nc.alStore, nc.alMacro, nc.alUnit = key, {}, {}, {}, "", unit
+	if driver and RegisterAttributeDriver and pcall(RegisterAttributeDriver, nc, "state-visibility", driver) then nc.alMacro = driver end
+	if nc.alMacro == "" then nc:Show() end
 	f.slotC[unit] = nc
+	Display.containersMade = (Display.containersMade or 0) + 1
 	ns.report["game-drawn trackers"] = "AuraContainer ok"
 	return nc
+end
+
+-- Containers a group no longer wants are put away rather than thrown away (the game has no way to
+-- free one), and taken out again if wanted back. Out of combat and while auras can be read only.
+local function ParkContainers(f, keep)
+	if not f.slotC or ManagerUnsafe() then return end
+	for unit, c in pairs(f.slotC) do
+		if not keep[unit] and c.alMacro ~= "parked" then
+			DriverOff(c)
+			pcall(c.Hide, c)
+			c.alMacro = "parked"
+		end
+	end
 end
 
 -- What a tracker's slot is built with beyond its look: the warn time its countdown turns red at,
@@ -2685,7 +2794,7 @@ local slotOpts = setmetatable({}, { __mode = "k" })
 local function AppliedSlotOpts(g, t)
 	local o = slotOpts[t]
 	if not o then o = {} slotOpts[t] = o end
-	if o.warn == nil or not (InCombatLockdown and InCombatLockdown()) then
+	if o.warn == nil or not ManagerUnsafe() then
 		o.warn = (g.timers ~= false and (t.warn or 0) > 0) and floor(t.warn) or 0
 		o.glow = t.glow and true or false
 	end
@@ -2695,74 +2804,56 @@ end
 -- Whether a tracker is drawn by the game (a slot) rather than by the addon, for the options panel.
 function Display.TrackerGetsSlot(t)
 	local g = t and ns.FindGroupOf(t)
-	if not (g and g.gameDrawn) then return false end
-	if t.cd or t.item or t.enchant or t.swing then return false end
-	local ids = TrackerIds(t)
-	if t.kind == "debuff" then return ids ~= nil and Display.AllNeverSecret(ids) end
-	return ids ~= nil
+	if not (g and ns.IsGameDrawn(g)) then return false end
+	return SlotSpec(t, g) ~= nil
 end
 
--- A debuff on you can be handed to the game only when every id the tracker follows is one the game
--- never hides: for anything else the game refuses to filter a debuff by spell, and the slot would
--- show nothing. Asked out of combat, when slots are made.
-local function AllNeverSecret(ids)
-	local S = C_Secrets
-	if not (S and S.GetSpellAuraSecrecy) then return false end
-	local never = Enum and Enum.SecrecyLevel and Enum.SecrecyLevel.NeverSecret or 0
-	local any = false
-	for id in pairs(ids or {}) do
-		local ok, level = pcall(S.GetSpellAuraSecrecy, id)
-		level = ok and ns.Clean(level) or nil
-		if level ~= never then return false end
-		any = true
-	end
-	return any
+-- A slot's name in its container: the tracker, the filter, and what it was built with. A slot cannot
+-- be changed once made, so anything it was built with is part of its name.
+local function SlotName(t, filter, o, suffix)
+	return tostring(t.uid) .. ":" .. filter .. ":cover" .. (o.warn > 0 and (":w" .. o.warn) or "") .. (o.glow and ":g" or "") .. (suffix or "")
 end
-Display.AllNeverSecret = AllNeverSecret
 
--- Makes sure the slots for one tracker exist and carry its spell map. Returns the slot frames.
-local function TrackerSlots(f, g, t, ids)
-	local unit = t.unit or "player"
-	local c = SlotContainer(f, g, unit)
-	if not c then return nil end
-	-- A cooldown is not an aura: the game's slots know nothing about it, and the addon can read it
-	-- through a fight anyway.
-	if t.cd then return nil end
-	if t.enchant ~= nil or t.swing ~= nil then return nil end
-	local kinds = { "HELPFUL" }
-	if t.kind == "debuff" then
-		if not AllNeverSecret(ids) then return nil end
-		kinds = { "HARMFUL" }
-	end
-	local frames = {}
-	local idsKey = IdsKey(ids)
-	local mode = "cover"
-	local o = AppliedSlotOpts(g, t)
-	for _, filter in ipairs(kinds) do
-		local key = tostring(t.uid) .. ":" .. filter .. ":" .. mode .. (o.warn > 0 and (":w" .. o.warn) or "") .. (o.glow and ":g" or "")
-		local filters = { includeSpellIDs = ids }
-		if t.mine then filters.isFromPlayerOrPlayerPet = true end
-		local frame = c.alSlots[key]
-		if not frame then
-			if InCombatLockdown and InCombatLockdown() then return nil end
-			local store = {}
-			local ok, fr = pcall(c.AddAuraSlot, c, key, filter, { initializeFrame = InitSlotFrame(g, mode, filter, store, { warn = o.warn, glow = o.glow }), candidateFilters = filters })
-			if not ok then
-				ns.report["game-drawn trackers"] = "AddAuraSlot: " .. tostring(fr)
-				AdviseGameDrawn("game-drawn trackers", "the game refused a tracker's slot")
-				return nil
-			end
-			frame = fr
-			c.alSlots[key] = frame
-			c.alStore[key] = store
-			c.alIds[key] = idsKey .. tostring(t.mine)
-		elseif c.alIds[key] ~= idsKey .. tostring(t.mine) and not (InCombatLockdown and InCombatLockdown()) then
-			pcall(c.SetAuraSlotCandidateFilters, c, key, filters)
-			c.alIds[key] = idsKey .. tostring(t.mine)
+-- Past this many slots made in a session (they cannot be freed), a reload is suggested.
+local SLOT_ADVICE = 800
+
+-- One slot in a container: made if it can be made now, and kept carrying the tracker's current
+-- filters. Nil when it is not there and cannot be made now.
+local function EnsureSlot(c, key, spec, look, o, t)
+	local frame = c.alSlots[key]
+	if not frame then
+		if ManagerUnsafe() then return nil end
+		local store = {}
+		local ok, fr = pcall(c.AddAuraSlot, c, key, spec.filter, { initializeFrame = InitSlotFrame(look, "cover", spec.filter, store,
+			{ warn = o.warn, glow = o.glow, dispelRing = t.dispel ~= nil }), candidateFilters = spec.filters })
+		if not ok or not fr then
+			ns.report["game-drawn trackers"] = "AddAuraSlot: " .. tostring(fr)
+			AdviseGameDrawn("game-drawn trackers", "the game refused a tracker's slot")
+			return nil
 		end
-		frames[#frames + 1] = { key = key, frame = frame, c = c, mask = c.alStore[key] and c.alStore[key].mask, mode = mode }
+		frame = fr
+		c.alSlots[key], c.alStore[key], c.alSpec[key] = frame, store, spec.key
+		Display.slotsMade = (Display.slotsMade or 0) + 1
+		ns.report["slots made"] = ("%d slots in %d containers this session"):format(Display.slotsMade, Display.containersMade or 0)
+		if Display.slotsMade == SLOT_ADVICE and ns.Advise then
+			ns.Advise("slots", "Aura Ledger has asked the game for a great many tracker slots this session, and the game cannot take them back. Reloading clears them out.",
+				function() return true end)
+		end
+	elseif c.alSpec[key] ~= spec.key and not ManagerUnsafe() then
+		if pcall(c.SetAuraSlotCandidateFilters, c, key, spec.filters) then c.alSpec[key] = spec.key end
 	end
-	return frames
+	return frame
+end
+
+-- The slot for one tracker in a group that watches only you. Returns the slot frames.
+local function TrackerSlots(f, g, t, spec)
+	local c = SlotContainer(f, g, "player")
+	if not c then return nil end
+	local o = AppliedSlotOpts(g, t)
+	local key = SlotName(t, spec.filter, o)
+	local frame = EnsureSlot(c, key, spec, g, o, t)
+	if not frame then return nil end
+	return { { key = key, frame = frame, c = c, mask = c.alStore[key] and c.alStore[key].mask, mode = "cover" } }
 end
 
 local function CreateGroupFrame()
@@ -2859,6 +2950,8 @@ local function LayoutGroup(f, g, visible, unlocked)
 	local flow = FLOW[grow] or grow
 	local slots = g.gameDrawn and not unlocked
 
+	-- A group that watched your party until now puts its members' containers away.
+	if f.slotC then ParkContainers(f, { player = true }) end
 	-- Every slot starts the pass switched off; the ones with a cell are switched on below.
 	-- Containers are never shown or hidden from here: the gate's driver does that.
 	if f.slotC and slots then
@@ -2868,7 +2961,7 @@ local function LayoutGroup(f, g, visible, unlocked)
 	end
 	if slots then
 		local gate = EnsureGate(f, g)
-		if gate.alDropped and not (InCombatLockdown and InCombatLockdown()) then gate:Show() gate.alDropped = nil end
+		if gate.alDropped and not ManagerUnsafe() then gate:Show() gate.alDropped = nil end
 	elseif f.gate then
 		DropGate(f)
 	end
@@ -2935,7 +3028,7 @@ local function LayoutGroup(f, g, visible, unlocked)
 			if item.t.show == "active" then widget:SetAlpha(0) end
 			for _, sl in ipairs(item.slots) do
 				sl.c.alWant[sl.key] = true
-				if not (InCombatLockdown and InCombatLockdown()) or sl.frame.alAnchor ~= k then
+				if not ManagerUnsafe() or sl.frame.alAnchor ~= k then
 					local ok = pcall(function()
 						sl.frame:ClearAllPoints()
 						sl.frame:SetPoint("TOPLEFT", widget, "TOPLEFT", 0, 0)
@@ -3002,7 +3095,7 @@ local function LayoutGroup(f, g, visible, unlocked)
 		widget.tracker, widget.entry, widget.timed = nil, nil, false
 	end
 
-	if f.slotC and slots and not (InCombatLockdown and InCombatLockdown()) then
+	if f.slotC and slots and not ManagerUnsafe() then
 		for unit, c in pairs(f.slotC) do
 			for key, want in pairs(c.alWant or {}) do
 				if c.alOn == nil then c.alOn = {} end
@@ -3057,6 +3150,8 @@ end
 -- Whether a tracker shows right now, and whether it is showing because the aura is about to run out.
 local function Wants(t, entry, now, unlocked, groupPass)
 	if unlocked then return true, false end
+	-- Only the game can draw a dispel tracker: in a group the addon draws it never shows.
+	if t.dispel then return false, false end
 	if not groupPass or not ns.CondPass(t.cond) then return false, false end
 	-- A spell is always there, so for a cooldown tracker it is the cooldown that is on or off:
 	-- "active" means on cooldown, "missing" means ready to cast.
@@ -3131,8 +3226,8 @@ function Display:RefreshGroup(g)
 		local slots
 		if g.gameDrawn and not unlocked then
 			local passes = groupPass and ns.CondPass(t.cond)
-			local ids = TrackerIds(t)
-			slots = ids and passes and TrackerSlots(f, g, t, ids)
+			local spec = passes and SlotSpec(t, g)
+			slots = spec and TrackerSlots(f, g, t, spec)
 		end
 		-- A slot tracker's warning is the colour of its countdown; it is never brought on screen early,
 		-- so its "shown" sound does not come early either.
@@ -3224,7 +3319,7 @@ function Display:Rebuild()
 	local wanted = {}
 	for _, g in ipairs(ns.profile.groups) do wanted[g.uid] = g end
 	for uid, f in pairs(active) do
-		if not wanted[uid] and f.slotC and next(f.slotC) and InCombatLockdown and InCombatLockdown() then
+		if not wanted[uid] and f.slotC and next(f.slotC) and ManagerUnsafe() then
 			-- The game's containers inside it may not be hidden from here in a fight: it goes after it.
 			active[uid] = nil
 			Display.dropAfterCombat = Display.dropAfterCombat or {}
@@ -3243,7 +3338,7 @@ function Display:Rebuild()
 			f.group = nil
 			if f.slotC then
 				for _, c in pairs(f.slotC) do
-					if UnregisterAttributeDriver and c.alDriven then pcall(UnregisterAttributeDriver, c, "state-visibility") end
+					DriverOff(c)
 					c:Hide()
 				end
 				f.slotC = nil
@@ -4059,12 +4154,13 @@ function Display:AfterCombat()
 		if pcall(BuildSkin) and skin then ns.MASK_EPOCH = (ns.MASK_EPOCH or 0) + 1 end
 		self:Rebuild()
 	end
-	if self.dropAfterCombat then
+	-- A battleground keeps auras hidden after the fight: the containers wait until they are not.
+	if self.dropAfterCombat and not ManagerUnsafe() then
 		for f in pairs(self.dropAfterCombat) do
 			f:Hide()
 			f.group = nil
 			for _, c in pairs(f.slotC or {}) do
-				if UnregisterAttributeDriver and c.alDriven then pcall(UnregisterAttributeDriver, c, "state-visibility") end
+				DriverOff(c)
 				c:Hide()
 			end
 			f.slotC = nil

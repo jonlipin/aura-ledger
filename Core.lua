@@ -572,7 +572,8 @@ local function TeachTrackers(e)
 	local lname = strlower(e.name)
 	for _, g in ipairs(ns.profile.groups) do
 		for _, t in ipairs(g.trackers) do
-			local byName = t.name and strlower(t.name) == lname
+			-- A dispel tracker is named for what it matches, not for any one aura.
+			local byName = t.name and not t.dispel and strlower(t.name) == lname
 			local byId = t.id and e.id and t.id == e.id
 			if byName or byId then
 				if e.icon and (not t.icon or t.icon == ns.QUESTION) then t.icon = e.icon end
@@ -674,20 +675,29 @@ end
 -- ------------------------------------------------------------------
 -- Layout model: groups of trackers. A lone tracker is simply a group of one.
 -- ------------------------------------------------------------------
+-- What a dispel tracker can match: anything you can remove, or one dispel type.
+ns.DISPEL_VALUES = { any = true, Magic = true, Curse = true, Poison = true, Disease = true }
+
 function ns.NewTracker(h)
 	local idOnly = h.idOnly or not h.name
+	-- A book row names what a dispel tracker matches; a ledger row's own dispel is its aura's type.
+	local dispel = ns.DISPEL_VALUES[h.matchDispel or ""] and h.matchDispel or nil
 	return {
 		uid = ns.NewUid(),
-		name = h.name, id = h.id, icon = h.icon,
-		-- A debuff on you, from the ledger; everything else is a buff on you.
-		kind = (h.kind == "debuff") and "debuff" or "buff",
+		name = h.name, id = (not dispel) and h.id or nil, icon = h.icon,
+		-- A debuff on you, from the ledger; everything else is a buff on you. A dispel tracker is a
+		-- debuff too, matched by its type rather than by a spell.
+		kind = (h.kind == "debuff" or dispel) and "debuff" or "buff",
+		dispel = dispel,
+		-- It lights only while one is there, and it glows then: that is the whole point of it.
+		glow = dispel and true or nil,
 		cd = h.cd or nil,
 		item = h.item or nil,
 		-- A weapon slot (0 main hand, 1 off hand, 2 ranged) for a weapon-enchant or a swing tracker.
 		enchant = h.enchant,
 		swing = h.swing,
-		matchId = (idOnly or h.byId) and true or false,
-		show = "active",
+		matchId = (not dispel and (idOnly or h.byId)) and true or false,
+		show = dispel and "active" or ((h.show == "missing" or h.show == "always") and h.show or "active"),
 		mine = false,
 		cond = {},
 	}
@@ -703,6 +713,19 @@ function ns.BarIconSize(g)
 	local scale = tonumber(g.barIconScale) or 1
 	if scale < 0.5 then scale = 0.5 elseif scale > 2 then scale = 2 end
 	return math.max(8, math.floor(h * scale + 0.5))
+end
+
+-- Who a group watches: nil for you alone, "party" for you and your party, "raid" for everyone in
+-- your group. Anything else saved there means you alone.
+function ns.GroupUnits(g)
+	local u = g and g.units
+	if u == "party" or u == "raid" then return u end
+	return nil
+end
+
+-- A group that watches your party is always drawn by the game, whatever its own setting says.
+function ns.IsGameDrawn(g)
+	return (g and (g.gameDrawn or ns.GroupUnits(g) ~= nil)) and true or false
 end
 
 -- What a game-drawn group can show: Blizzard's aura filters for the player.
@@ -763,6 +786,38 @@ function ns.RemoveTracker(t)
 	ns.Changed()
 end
 
+-- A tracker a group cannot hold goes into a new group beside it, with one line saying so: one that
+-- follows only you (a cooldown, an item, a weapon, a debuff the game hides) put in a group that
+-- watches your party, or a dispel tracker, which only the game can draw, put in a group the addon
+-- draws. Returns the group the tracker ended up in.
+function ns.Redirect(t, g)
+	if not (t and g) then return g end
+	local why
+	if ns.GroupUnits(g) and ns.Display and ns.Display.MemberCanHold and not ns.Display.MemberCanHold(t) then
+		why = "follows only you, so it went into a group of its own beside that one."
+	elseif t.dispel and not ns.IsGameDrawn(g) then
+		why = "can only be drawn by the game, so it went into a new group the game draws, beside that one."
+	end
+	if not why then return g end
+	for i, tr in ipairs(g.trackers) do
+		if tr == t then
+			if g.cells and g.cells[i] then table.remove(g.cells, i) end
+			table.remove(g.trackers, i)
+			break
+		end
+	end
+	local ng = ns.NewGroupLike(g)
+	ng.units, ng.memberNames, ng.perColumn = nil, nil, nil
+	if t.dispel then ng.gameDrawn = true end
+	table.insert(ng.trackers, t)
+	if #g.trackers == 0 then
+		for i, other in ipairs(ns.profile.groups) do if other == g then table.remove(ns.profile.groups, i) break end end
+	end
+	Print((t.label or t.name or ("Spell " .. tostring(t.id))) .. " " .. why)
+	if ns.selected and ns.selected.tracker == t then ns.selected.group = ng end
+	return ng
+end
+
 -- Move a tracker into group "to" at index (nil = end). Empty source groups disappear.
 function ns.MoveTracker(t, to, index)
 	local from, ti = ns.FindGroupOf(t)
@@ -779,11 +834,13 @@ function ns.MoveTracker(t, to, index)
 		end
 	end
 	if ns.selected and ns.selected.tracker == t then ns.selected.group = to end
+	ns.Redirect(t, to)
 	ns.Changed()
 end
 
 -- Track a ledger row: into an existing group, or as a new group of one at x, y (UIParent units).
 function ns.TrackHistory(h, group, index, x, y)
+	if h.preset then return nil, ns.MakePreset and ns.MakePreset(h.preset, x, y) end
 	local t = ns.NewTracker(h)
 	if not group then
 		if not x then
@@ -792,9 +849,15 @@ function ns.TrackHistory(h, group, index, x, y)
 			y = (UIParent:GetHeight() or 768) / 2 + 120 - (n % 6) * 12
 		end
 		group = ns.NewGroup(x, y)
+		-- A row meant for your party starts a group that watches it; a dispel row, one the game draws.
+		if h.units == "party" or h.units == "raid" then group.units = h.units end
+		if t.dispel or group.units then group.gameDrawn = true end
 	end
+	-- On your party a buff is worth seeing where it is missing, unless the row says otherwise.
+	if ns.GroupUnits(group) and not t.dispel and not h.show then t.show = "missing" end
 	index = index and max(1, min(index, #group.trackers + 1)) or (#group.trackers + 1)
 	table.insert(group.trackers, index, t)
+	group = ns.Redirect(t, group)
 	ns.selected = { group = group, tracker = t }
 	ns.Changed()
 	return t, group
@@ -1351,6 +1414,8 @@ function ns.WantSwingEvents()
 end
 
 function ns.Find(t)
+	-- A dispel tracker is the game's alone: the addon never reads for it.
+	if t.dispel then return nil end
 	-- A weapon's enchant, or its swing: read from the weapon, not the aura table.
 	if t.enchant ~= nil then return ns.EnchantFor(t) end
 	if t.swing ~= nil then return ns.SwingFor(t) end
@@ -1818,6 +1883,8 @@ end
 -- ------------------------------------------------------------------
 function ns.CombatTrackableWhy(h)
 	if not h then return "noid" end
+	-- Matched by dispel type, or a set of rows that are: the game follows these all through a fight.
+	if h.matchDispel or h.preset then return "yes" end
 	if h.item or h.cd or h.enchant ~= nil or h.swing ~= nil then return "addon" end
 	if h.kind == "debuff" then return "debuff" end
 	if h.id or (h.ids and next(h.ids)) then return "yes" end
@@ -2019,7 +2086,9 @@ function ns.SyncAuraSounds()
 	for _, g in ipairs(ns.profile.groups) do
 		for _, t in ipairs(g.trackers) do
 			ns.blizzardSound[t] = nil
-			local snd = t.snd
+			-- Sounds follow auras on you by spell; a group that watches your party, and a tracker
+			-- matched by dispel type, have none to hand over.
+			local snd = (not t.dispel and not ns.GroupUnits(g)) and t.snd or nil
 			if snd and (snd.applied or snd.removed) then
 				local unit = t.unit or "player"
 				for id in pairs(TrackerSpellIds(t)) do
@@ -2447,7 +2516,7 @@ local function Parse(s, pos)
 	end
 end
 
-local TRACKER_KEYS = { "name", "id", "icon", "kind", "matchId", "show", "mine", "label", "unit", "warn", "cond", "snd", "cd", "item", "glow", "enchant", "swing" }
+local TRACKER_KEYS = { "name", "id", "icon", "kind", "matchId", "show", "mine", "label", "unit", "warn", "cond", "snd", "cd", "item", "glow", "enchant", "swing", "dispel" }
 
 local function CopyTracker(t)
 	local c = {}
@@ -2482,7 +2551,7 @@ end
 
 -- Returns the string for a tracker ("tracker") or a group ("group").
 function ns.Export(obj, kind)
-	local data = { v = 1, kind = kind, addon = "AuraLedger" }
+	local data = { v = 2, kind = kind, addon = "AuraLedger" }
 	if kind == "group" then data.group = CopyGroup(obj) else data.tracker = CopyTracker(obj) end
 	local out = {}
 	Serialize(data, out)
@@ -2546,21 +2615,23 @@ function ns.Import(text)
 		if type(src) ~= "table" or (not Str(src.name) and not Num(src.id) and not tonumber(src.item)) then return nil end
 		src = { name = Str(src.name), id = Num(src.id), icon = Num(src.icon) or Str(src.icon), kind = src.kind, item = src.item, cd = src.cd,
 			matchId = src.matchId, show = src.show, mine = src.mine, label = src.label, unit = src.unit, warn = Num(src.warn),
-			cond = CleanCond(src.cond), snd = CleanSounds(src.snd), glow = src.glow, enchant = src.enchant, swing = src.swing }
+			cond = CleanCond(src.cond), snd = CleanSounds(src.snd), glow = src.glow, enchant = src.enchant, swing = src.swing,
+			dispel = ns.DISPEL_VALUES[Str(src.dispel) or ""] and src.dispel or nil }
 		if (src.enchant ~= nil or src.swing ~= nil) and not src.name then return nil end
 		local t = ns.NewTracker({ name = src.name, id = src.id, icon = src.icon, kind = src.kind or "any",
-			item = tonumber(src.item), cd = (src.cd or tonumber(src.item)) and true or nil })
+			item = tonumber(src.item), cd = (src.cd or tonumber(src.item)) and true or nil, matchDispel = src.dispel })
 		t.matchId = src.matchId and true or false
 		t.show = (src.show == "missing" or src.show == "always") and src.show or "active"
 		t.mine = src.mine and true or false
 		t.label = type(src.label) == "string" and src.label or nil
 		-- Trackers follow your own auras; a unit from an old string would never be followed.
 		t.unit = nil
-		t.kind = (src.kind == "debuff") and "debuff" or "buff"
+		t.kind = (src.kind == "debuff" or t.dispel) and "debuff" or "buff"
 		t.warn = src.warn
 		t.cond = src.cond
 		t.snd = src.snd
 		t.glow = src.glow and true or nil
+		if t.dispel then t.show, t.matchId, t.snd, t.id = "active", false, nil, nil end
 		local function WeaponSlot(v) v = tonumber(v) return (v == 0 or v == 1 or v == 2) and v or nil end
 		t.enchant, t.swing = WeaponSlot(src.enchant), WeaponSlot(src.swing)
 		return t
@@ -2589,6 +2660,8 @@ function ns.Import(text)
 		if not t then return nil, "That tracker had no name or spell ID." end
 		local g = ns.NewGroup(x, y)
 		table.insert(g.trackers, t)
+		-- Only the game can draw a dispel tracker.
+		if t.dispel then g.gameDrawn = true end
 		ns.selected = { group = g, tracker = t }
 		ns.Changed()
 		return g
@@ -3370,7 +3443,7 @@ SlashCmdList.AURALEDGER = function(msg)
 					for unit, c in pairs(f.slotC or {}) do
 						local okS, shown = pcall(c.IsShown, c)
 						local okV, vis = pcall(c.IsVisible, c)
-						Print(("    container %s: shown %s, visible %s, driver %s, level %s"):format(unit, okS and S(shown) or "?", okV and S(vis) or "?", tostring(c.alDriven), S(select(2, pcall(c.GetFrameLevel, c)))))
+						Print(("    container %s: shown %s, visible %s, driver %s, level %s"):format(unit, okS and S(shown) or "?", okV and S(vis) or "?", tostring(c.alMacro), S(select(2, pcall(c.GetFrameLevel, c)))))
 						for key, fr in pairs(c.alSlots) do
 							local okF, fs2 = pcall(fr.IsShown, fr)
 							Print(("      slot %s: on %s, wanted %s, anchored to cell %s, shown %s"):format(key, tostring(c.alOn and c.alOn[key]), tostring(c.alWant and c.alWant[key]),
@@ -3379,7 +3452,7 @@ SlashCmdList.AURALEDGER = function(msg)
 					end
 					for i, w in ipairs(f.widgets) do
 						if w:IsShown() then
-							Print(("    cell %d: %s, alpha %.1f"):format(i, w.tracker and (w.tracker.name or "?") or "-", w:GetAlpha()))
+							Print(("    cell %d: %s, alpha %.1f"):format(i, w.tracker and (w.tracker.name or "?") or "-", tonumber(w:GetAlpha()) or 1))
 						end
 					end
 				end

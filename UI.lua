@@ -731,6 +731,7 @@ end
 
 local function ClassLabel(token)
 	if token == "BAGS" then return "What you are carrying" end
+	if token == "GROUP" then return "Party and raid" end
 	if token == "ITEMS" then return "Items and food" end
 	if token == "RACIAL" then return "Racials" end
 	if token == "HISTORY" then return "Ledger" end
@@ -763,7 +764,15 @@ local function BookTooltip(b)
 	end
 	if not shown then GameTooltip:SetText(h.name or ("Spell " .. tostring(h.id)), 1, 1, 1) end
 	GameTooltip:AddLine(" ")
-	if h.enchant ~= nil or h.swing ~= nil then
+	if h.preset then
+		GameTooltip:AddLine("Makes a group that watches your party, with the buffs your class gives them and, if your class can dispel, a tracker for something you can remove. Each member gets a row.", 0.6, 0.8, 1, true)
+	elseif h.matchDispel == "any" then
+		GameTooltip:AddLine("Lights when someone has a debuff you can remove, in the debuff's own icon with a border in its type's colour. The game decides what you can remove, all through a fight.", 0.6, 0.8, 1, true)
+	elseif h.matchDispel then
+		GameTooltip:AddLine("Lights while there is a " .. h.matchDispel .. " on you (or, in a group that watches your party, on each member), in the debuff's own icon. The game follows it all through a fight.", 0.6, 0.8, 1, true)
+	elseif h.units then
+		GameTooltip:AddLine((h.note or "On each party member") .. ". Starts a group that watches your party: a row for each member, drawn by the game, so it stays right through a fight.", 0.6, 0.8, 1, true)
+	elseif h.enchant ~= nil or h.swing ~= nil then
 		GameTooltip:AddLine((h.note or "Your weapon") .. ". The addon reads it itself, in a fight too.", 0.6, 0.8, 1, true)
 	elseif h.item then
 		GameTooltip:AddLine((h.note or "In your bags") .. ": its cooldown, which this client lets an addon read straight through a fight.", 0.6, 0.8, 1, true)
@@ -788,7 +797,9 @@ local function BookTooltip(b)
 	end
 	GameTooltip:AddLine(" ")
 	local why = ns.CombatTrackableWhy and ns.CombatTrackableWhy(h) or "no"
-	if why == "addon" then
+	if h.matchDispel or h.preset then
+		-- said above
+	elseif why == "addon" then
 		-- nothing to say about the game following it: the addon reads it itself
 	elseif why == "yes" then
 		GameTooltip:AddLine("Marked combat: in a group drawn by the game, the game follows this buff on you by its spell id all through a fight, for every rank known here.", 0.45, 0.75, 1, true)
@@ -943,6 +954,7 @@ local function UpdateBookButton(b, h, tracked)
 	b.icon:SetTexture(h.icon or ns.QUESTION)
 	if h.kind == "debuff" then
 		local c = ns.DISPEL_COLORS[h.dispel or "none"] or ns.DISPEL_COLORS.none
+		if h.matchDispel == "any" then c = { 0.9, 0.9, 0.9 } end
 		b.typeBorder:SetVertexColor(c[1], c[2], c[3])
 		b.typeBorder:Show()
 	else
@@ -1000,7 +1012,7 @@ local function BookItems()
 		return list, "Search results"
 	end
 	if book.tab ~= "HISTORY" then
-		local titles = { ITEMS = "Items and food", RACIAL = "Racials", BAGS = "What you are carrying" }
+		local titles = { ITEMS = "Items and food", RACIAL = "Racials", BAGS = "What you are carrying", GROUP = "Party and raid" }
 		local page = {}
 		for _, item in ipairs(ns.BookPages()[book.tab] or {}) do
 			if not item.unknown then page[#page + 1] = item end
@@ -1176,6 +1188,8 @@ local function CreateBookTab(holder, pane, token, index)
 		icon:SetTexture("Interface\\Icons\\INV_Misc_Food_15")
 	elseif token == "BAGS" then
 		icon:SetTexture("Interface\\Icons\\INV_Misc_Bag_08")
+	elseif token == "GROUP" then
+		icon:SetTexture("Interface\\Icons\\Spell_Holy_PrayerOfFortitude")
 	elseif token == "RACIAL" then
 		icon:SetTexture("Interface\\Icons\\Racial_Orc_BerserkerStrength")
 	elseif token == "ITEMS" then
@@ -1576,7 +1590,7 @@ local function BuildGroupPanel(width)
 	exportG:SetScript("OnLeave", function() GameTooltip:Hide() end)
 	-- What the group is, in one question. The old Contents, "track in combat" and "only this
 	-- group's trackers" could be combined in ways that meant nothing; these cannot.
-	local function IsGameDrawn() local g = G() return (g and g.gameDrawn) and true or false end
+	local function IsGameDrawn() local g = G() return (g and ns.IsGameDrawn(g)) and true or false end
 	local function IsBars() local g = G() return (g and g.style == "bars") and true or false end
 	b:Header("Group")
 	b:Note("On this client an addon cannot read your auras during a fight. A group drawn by the addon shows its last reading until the fight ends; a group drawn by the game stays correct throughout.")
@@ -1746,8 +1760,10 @@ local function BuildTrackerPanel(width)
 	local function TrackerIsAddonDrawn()
 		local t = T()
 		local g = t and ns.FindGroupOf(t)
-		return not (g and g.gameDrawn)
+		return not (g and ns.IsGameDrawn(g))
 	end
+	local function IsDispel() local t = T() return (t and t.dispel) and true or false end
+	local function NotDispel() return not IsDispel() end
 	local function TrackerIsItem()
 		local t = T()
 		return (t and t.item) and true or false
@@ -1765,8 +1781,36 @@ local function BuildTrackerPanel(width)
 		local t = T()
 		return (t and (t.enchant ~= nil or t.swing ~= nil)) and true or false
 	end
-	local function TrackerIsSpell() return not TrackerIsItem() and not TrackerIsWeapon() end
+	local function TrackerIsSpell() return not TrackerIsItem() and not TrackerIsWeapon() and not IsDispel() end
 	b:Header("Tracker")
+	b:Cycle("Matches", { { "any", "Anything I can remove" }, { "Magic", "Magic" }, { "Curse", "Curse" }, { "Poison", "Poison" }, { "Disease", "Disease" } },
+		function() local t = T() return t and t.dispel or "any" end,
+		function(v)
+			local t = T()
+			if not t or not t.dispel then return end
+			-- A name that is still one of the given ones follows the choice; one you typed stays.
+			local given = false
+			for _, n in pairs(ns.DISPEL_NAMES) do if t.name == n then given = true end end
+			if given then t.name = ns.DISPEL_NAMES[v] end
+			if not t.icon or given then t.icon = ns.DispelIcon(v) end
+			t.dispel = v
+			TrackerChanged()
+			b:Sync()
+		end,
+		"Anything I can remove: whatever debuff your class can dispel, as the game decides it. A type: that type only, whether you can remove it or not.")
+	b:AppliesWhen(IsDispel)
+	b:DynamicNote(function()
+		local t = T()
+		if not (t and t.dispel) then return "" end
+		local text = "Empty until one is there. Then the game draws the debuff itself, in its own icon with its countdown and a border in its type's colour: blue for Magic, purple for Curse, green for Poison, brown for Disease."
+		if t.dispel == "any" and not (ns.DISPEL_BY_CLASS and ns.DISPEL_BY_CLASS[ns.PlayerClass() or ""]) then
+			text = text .. " Your class cannot remove debuffs, so this stays empty."
+		end
+		local g = ns.FindGroupOf(t)
+		if g and not ns.IsGameDrawn(g) then text = text .. " Only a group drawn by the game can show it." end
+		return text
+	end)
+	b:AppliesWhen(IsDispel)
 	b:Cycle("Watch", { { false, "The buff on me" }, { true, "This spell's cooldown" } },
 		function() local t = T() return (t and t.cd) and true or false end,
 		function(v)
@@ -1789,7 +1833,7 @@ local function BuildTrackerPanel(width)
 		function() local t = T() return t and t.show or "active" end,
 		function(v) local t = T() if t then t.show = v TrackerChanged() b:Sync() end end,
 		"Active: on screen while you have it. Missing: on screen only while you do not. Either: on screen both ways, red while missing. In a group drawn by the game, Missing behaves like Either.")
-	b:AppliesWhen(TrackerIsAura)
+	b:AppliesWhen(function() return TrackerIsAura() and NotDispel() end)
 	b:Cycle("Show the cooldown when it is", { { "active", "Running" }, { "missing", "Ready" }, { "always", "Either" } },
 		function() local t = T() return t and t.show or "active" end,
 		function(v) local t = T() if t then t.show = v TrackerChanged() b:Sync() end end,
@@ -1799,11 +1843,11 @@ local function BuildTrackerPanel(width)
 		get = function() local t = T() return t and (t.warn or 0) end,
 		set = function(v) local t = T() if t then t.warn = (v > 0) and v or nil TrackerChanged() end end,
 		format = function(v) return v == 0 and "off" or (v .. "s") end })
-	b:AppliesWhen(TrackerIsAura)
+	b:AppliesWhen(function() return TrackerIsAura() and NotDispel() end)
 	b:Note("With Missing: brings the tracker back on screen this long before the aura runs out, with a red border, instead of waiting for it to go. With Active or Either: it is on screen already, so the border turns red that early instead.")
-	b:AppliesWhen(function() return TrackerIsAura() and not TrackerGetsSlot() end)
+	b:AppliesWhen(function() return TrackerIsAura() and not TrackerGetsSlot() and NotDispel() end)
 	b:Note("This tracker is drawn by the game, which decides when it is on screen, so it cannot be brought back early. Instead its countdown turns red this long before the aura runs out, in combat too. It needs the group's timers on, and takes effect a moment after you stop changing it, out of combat.")
-	b:AppliesWhen(TrackerGetsSlot)
+	b:AppliesWhen(function() return TrackerGetsSlot() and NotDispel() end)
 	b:Check("Glow while it is up", function() local t = T() return t and t.glow end,
 		function(v) local t = T() if t then t.glow = v or nil TrackerChanged() end end,
 		"Plays the action bar's proc glow on this tracker while it is up and on screen. On a buff the game draws for this group, the game plays it, in combat too. Everywhere else (weapons, debuffs, and every group the addon draws) the addon plays it, going by what it shows: in a fight, the reading it is carrying.")
@@ -1834,15 +1878,16 @@ local function BuildTrackerPanel(width)
 			TrackerChanged()
 		end,
 		"Each rank of a spell has its own ID, so matching by name is usually what you want.")
-	b:AppliesWhen(function() return TrackerIsAura() and not TrackerIsItem() and not TrackerIsWeapon() end)
+	b:AppliesWhen(function() return TrackerIsAura() and not TrackerIsItem() and not TrackerIsWeapon() and NotDispel() end)
 	b:Check("Only when it was cast by me", function() local t = T() return t and t.mine end,
 		function(v) local t = T() if t then t.mine = v TrackerChanged() end end,
 		"Ignores the same aura when it comes from someone else.")
-	b:AppliesWhen(function() return TrackerIsAura() and not TrackerIsWeapon() end)
+	b:AppliesWhen(function() return TrackerIsAura() and not TrackerIsWeapon() and NotDispel() end)
 	b:Edit("Bar label (optional)", function() local t = T() return t and t.label or "" end,
 		function(text) local t = T() if t then t.label = (text ~= "" and text) or nil TrackerChanged() end end)
 
 	b:Header("Sounds")
+	b:AppliesWhen(NotDispel)
 	local soundChoices = { { 0, "None" } }
 	local combatSounds = C_UnitAuras and C_UnitAuras.AddAuraSound
 	for i, c in ipairs(ns.SOUND_CHOICES) do soundChoices[#soundChoices + 1] = { i, c[1] .. ((combatSounds and c[4]) and " (combat)" or "") } end
@@ -1861,8 +1906,10 @@ local function BuildTrackerPanel(width)
 					if not played then ns.Print(name .. " is not available on this client (or sound effects are muted); try the next one.") end
 				end
 			end, tip .. " Picking one plays it.", 150)
+		b:AppliesWhen(NotDispel)
 	end
 	b:Note("Choices marked (combat) are played by the game itself, so they also fire while the aura is hidden in combat.")
+	b:AppliesWhen(NotDispel)
 	SoundCycle("When applied", "applied", "Plays when the aura lands.")
 	SoundCycle("When it runs out", "removed", "Plays when the aura wears off or is removed.")
 	SoundCycle("When the tracker appears", "shown", "Plays when this tracker comes on screen, for whatever reason: the aura landing, going missing, or entering its warn window. In a group drawn by the game the warn time only colours the countdown, so there it plays when the aura goes, not at the warn time.")
@@ -2112,12 +2159,13 @@ local function Build()
 	book.onParchment = onParchment
 	local ink = onParchment and { 0.22, 0.1, 0 } or { 1, 0.82, 0 }
 
-	-- Tabs along the top: the ledger, your own class first, then the rest.
+	-- Tabs along the top: the ledger, your own class, your party, then the rest.
 	local order = { "HISTORY" }
 	local mine = ns.env.class
 	if mine and ns.BOOK[mine] then order[#order + 1] = mine end
+	order[#order + 1] = "GROUP"
 	for _, token in ipairs(ns.BOOK_ORDER) do
-		if token ~= mine then order[#order + 1] = token end
+		if token ~= mine and token ~= "GROUP" then order[#order + 1] = token end
 	end
 	for index, token in ipairs(order) do book.tabs[token] = CreateBookTab(frame, left, token, index) end
 

@@ -215,11 +215,143 @@ ns.BOOK.PVE = {
 -- shows them all instead.
 -- Every rank id of the book's multi-rank buffs, by spell name. Checked against the client by
 -- ns.Ranks: an id that comes back under another name is dropped.
+-- The group versions with a single rank are kept here by hand (the generated table only has spells
+-- with several), so a group that watches your party can count them too.
 ns.RANK_IDS = ns.RANK_IDS or {
 	["Detect Invisibility"] = { 132, 2970, 11743 },
+	["Arcane Brilliance"] = { 23028 },
+	["Prayer of Spirit"] = { 27681 },
+	["Prayer of Shadow Protection"] = { 27683 },
+	["Blessing of Kings"] = { 20217 },
+	["Blessing of Salvation"] = { 1038 },
+	["Blessing of Sanctuary"] = { 20911, 20912, 20913, 20914 },
+	["Greater Blessing of Kings"] = { 25898 },
+	["Greater Blessing of Salvation"] = { 25895 },
+	["Greater Blessing of Light"] = { 25890 },
+	["Greater Blessing of Sanctuary"] = { 25899 },
+	["Soulstone Resurrection"] = { 20707, 20762, 20763, 20764, 20765 },
 }
 
-ns.BOOK_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID", "RACIAL", "BAGS", "ITEMS" }
+ns.BOOK_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID", "GROUP", "RACIAL", "BAGS", "ITEMS" }
+
+-- ------------------------------------------------------------------
+-- Your party and raid
+-- ------------------------------------------------------------------
+-- Buffs that stand in for one another: the group version of a buff is as good as the single one, so
+-- a group that watches your party counts either. (A group that watches only you matches by name,
+-- as it always has.)
+ns.BUFF_FAMILIES = {
+	{ "Power Word: Fortitude", "Prayer of Fortitude" },
+	{ "Arcane Intellect", "Arcane Brilliance" },
+	{ "Mark of the Wild", "Gift of the Wild" },
+	{ "Divine Spirit", "Prayer of Spirit" },
+	{ "Shadow Protection", "Prayer of Shadow Protection" },
+	{ "Blessing of Might", "Greater Blessing of Might" },
+	{ "Blessing of Wisdom", "Greater Blessing of Wisdom" },
+	{ "Blessing of Kings", "Greater Blessing of Kings" },
+	{ "Blessing of Salvation", "Greater Blessing of Salvation" },
+	{ "Blessing of Light", "Greater Blessing of Light" },
+	{ "Blessing of Sanctuary", "Greater Blessing of Sanctuary" },
+}
+local familyIndex
+function ns.FamilyOf(name)
+	if type(name) ~= "string" then return nil end
+	if not familyIndex then
+		familyIndex = {}
+		for _, family in ipairs(ns.BUFF_FAMILIES) do
+			for _, n in ipairs(family) do familyIndex[string.lower(n)] = family end
+		end
+	end
+	return familyIndex[string.lower(name)]
+end
+
+-- What each class can remove, for the hints and the preset only: the game itself decides what
+-- "something I can remove" means.
+ns.DISPEL_TYPES = { Magic = true, Curse = true, Poison = true, Disease = true }
+ns.DISPEL_BY_CLASS = {
+	PRIEST = { "Magic", "Disease" },
+	PALADIN = { "Magic", "Poison", "Disease" },
+	DRUID = { "Curse", "Poison" },
+	MAGE = { "Curse" },
+	SHAMAN = { "Poison", "Disease" },
+}
+ns.DISPEL_ICON = {
+	Magic = "Interface\\Icons\\Spell_Holy_DispelMagic",
+	Curse = "Interface\\Icons\\Spell_Holy_RemoveCurse",
+	Poison = "Interface\\Icons\\Spell_Nature_NullifyPoison",
+	Disease = "Interface\\Icons\\Spell_Holy_NullifyDisease",
+}
+-- "Anything I can remove" wears your own class's dispel.
+local CLASS_DISPEL = { PRIEST = "Magic", PALADIN = "Interface\\Icons\\Spell_Holy_Renew", DRUID = "Curse", MAGE = "Curse", SHAMAN = "Poison" }
+
+function ns.PlayerClass()
+	if ns.env and ns.env.class then return ns.env.class end
+	if UnitClass then
+		local ok, _, token = pcall(UnitClass, "player")
+		token = ok and ns.Clean(token) or nil
+		if type(token) == "string" then return token end
+	end
+end
+
+function ns.DispelIcon(kind)
+	if kind ~= "any" then return ns.DISPEL_ICON[kind] or ns.DISPEL_ICON.Magic end
+	local own = CLASS_DISPEL[ns.PlayerClass() or ""]
+	return ns.DISPEL_ICON[own or "Magic"] or own
+end
+
+-- The names a dispel tracker is given, which it keeps until you rename it.
+ns.DISPEL_NAMES = { any = "Something I can remove", Magic = "Magic", Curse = "Curse", Poison = "Poison", Disease = "Disease" }
+
+-- The buffs a class sets up on its party in one go; ifKnown ones only when you have the spell.
+ns.PARTY_PRESETS = {
+	PRIEST = { buffs = { { "Power Word: Fortitude" }, { "Divine Spirit", ifKnown = true }, { "Shadow Protection" } } },
+	MAGE = { buffs = { { "Arcane Intellect" } } },
+	DRUID = { buffs = { { "Mark of the Wild" } } },
+	WARLOCK = { buffs = { { "Blood Pact" } } },
+	WARRIOR = { buffs = { { "Battle Shout" } } },
+	HUNTER = { buffs = { { "Trueshot Aura", ifKnown = true } } },
+}
+
+-- The buffs worth watching on everyone, with their book ids and the partner that also counts.
+local GROUP_BUFFS = {
+	{ "Power Word: Fortitude", 1243 }, { "Divine Spirit", 14752 }, { "Shadow Protection", 976 },
+	{ "Arcane Intellect", 1459 }, { "Mark of the Wild", 1126 },
+	{ "Blessing of Might", 19740 }, { "Blessing of Wisdom", 19742 }, { "Blessing of Kings", 20217 },
+	{ "Blessing of Salvation", 1038 }, { "Blessing of Light", 19977 }, { "Blessing of Sanctuary", 20911 },
+	{ "Blood Pact", 6307 }, { "Battle Shout", 6673 }, { "Trueshot Aura", 19506 },
+}
+
+-- The page itself. Rebuilt when your class is first known, since two of its rows depend on it.
+function ns.BuildGroupPage()
+	local class = ns.PlayerClass()
+	local list = {}
+	local function row(t)
+		t.prebuilt, t.class, t.kind = true, "GROUP", t.kind or "buff"
+		list[#list + 1] = t
+		return t
+	end
+	local preset = class and ns.PARTY_PRESETS[class]
+	if preset or (class and ns.DISPEL_BY_CLASS[class]) then
+		row({ name = "Party buffs for my class", preset = class, resolved = true, icon = "Interface\\Icons\\Spell_Holy_PrayerOfFortitude",
+			note = "Sets up a group that watches your party" })
+	end
+	row({ name = ns.DISPEL_NAMES.any, matchDispel = "any", units = "party", kind = "debuff", resolved = true, icon = ns.DispelIcon("any"),
+		note = "On each party member: a debuff you can dispel" })
+	for _, kind in ipairs({ "Curse", "Magic", "Poison", "Disease" }) do
+		row({ name = ns.DISPEL_NAMES[kind], matchDispel = kind, dispel = kind, kind = "debuff", resolved = true, icon = ns.DispelIcon(kind),
+			note = "On you, or on each member in a party group" })
+	end
+	for _, b in ipairs(GROUP_BUFFS) do
+		local family = ns.FamilyOf(b[1])
+		local partner
+		for _, n in ipairs(family or {}) do if n ~= b[1] then partner = n end end
+		row({ name = b[1], listId = b[2], units = "party", show = "missing",
+			note = partner and ("On each party member, or " .. partner) or "On each party member" })
+	end
+	row({ name = "Soulstone Resurrection", listId = 20707, units = "party", show = "active", note = "Who has a Soulstone" })
+	list.forClass = class
+	return list
+end
 
 -- ------------------------------------------------------------------
 -- What you are carrying
@@ -350,6 +482,8 @@ end
 -- Turn the raw rows into objects shaped like ledger rows, once.
 local built
 function ns.BookPages()
+	-- The party page depends on your class, which is not known the moment the addon loads.
+	if built and built.GROUP and built.GROUP.forClass == nil and ns.PlayerClass() then built.GROUP = ns.BuildGroupPage() end
 	if built then return built end
 	built = {}
 	for token, rows in pairs(ns.BOOK) do
@@ -363,6 +497,7 @@ function ns.BookPages()
 		built[token] = list
 	end
 	built.BAGS = ns.BuildBagPage()
+	built.GROUP = ns.BuildGroupPage()
 	return built
 end
 
@@ -533,8 +668,8 @@ function ns.BookStats()
 	local total, exact, iconOnly, unknown = 0, 0, 0, 0
 	for _, list in pairs(ns.BookPages()) do
 		for _, item in ipairs(list) do
-			-- Weapon rows are not auras: nothing about them resolves.
-			if item.enchant == nil and item.swing == nil then
+			-- Weapon, dispel and preset rows are not spells: nothing about them resolves.
+			if item.enchant == nil and item.swing == nil and not item.matchDispel and not item.preset then
 			ns.ResolveBookItem(item)
 			total = total + 1
 			if item.id then exact = exact + 1 elseif item.resolved then iconOnly = iconOnly + 1 else unknown = unknown + 1 end
