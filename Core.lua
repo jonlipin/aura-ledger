@@ -275,9 +275,19 @@ ns.MIGRATIONS = {
 			end
 		end)
 	end,
+	-- 2: groups that watch your party, and dispel trackers. Nothing to convert: this checks what is
+	-- there, and is the numbered place for any later change in what these fields mean.
+	[2] = function(db)
+		EachProfile(db, function(g) ns.CleanMemberFields(g) end)
+	end,
 }
 function ns.Migrate(db)
 	db.schema = tonumber(db.schema) or 0
+	-- Saved by a later version: its steps are unknown here, so none is run and nothing is stamped.
+	if db.schema > #ns.MIGRATIONS then
+		ns.report["saved data"] = ("saved by a newer Aura Ledger (schema %d)"):format(db.schema)
+		return
+	end
 	local step = db.schema + 1
 	while ns.MIGRATIONS[step] do
 		local ok, err = pcall(ns.MIGRATIONS[step], db)
@@ -678,6 +688,24 @@ end
 -- What a dispel tracker can match: anything you can remove, or one dispel type.
 ns.DISPEL_VALUES = { any = true, Magic = true, Curse = true, Poison = true, Disease = true }
 
+-- The one check of what a group that watches your party saves, used wherever such a group comes
+-- from (saved data, an import): a value it does not know is dropped, which leaves the group as it
+-- was before these existed. A dispel tracker always shows when active, matches no spell and has
+-- no sound (sounds follow a spell).
+function ns.CleanMemberFields(g)
+	if type(g) ~= "table" then return end
+	if g.units ~= "party" and g.units ~= "raid" then g.units = nil end
+	if g.memberNames ~= false then g.memberNames = nil end
+	local n = g.perColumn
+	if not (type(n) == "number" and n == math.floor(n) and n >= 1 and n <= 40) then g.perColumn = nil end
+	for _, t in ipairs(type(g.trackers) == "table" and g.trackers or {}) do
+		if type(t) == "table" then
+			if t.dispel ~= nil and not ns.DISPEL_VALUES[t.dispel] then t.dispel = nil end
+			if t.dispel then t.show, t.matchId, t.snd, t.id = "active", false, nil, nil end
+		end
+	end
+end
+
 function ns.NewTracker(h)
 	local idOnly = h.idOnly or not h.name
 	-- A book row names what a dispel tracker matches; a ledger row's own dispel is its aura's type.
@@ -704,7 +732,8 @@ function ns.NewTracker(h)
 end
 
 -- The look of a group, copied when a tracker is pulled out into a group of its own.
-ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "barIconScale", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "gameDrawn", "dispelColors" }
+ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "barIconScale", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "gameDrawn", "dispelColors",
+	"units", "memberNames", "perColumn" }
 
 -- How big the icon on a bar is: the bar's own height by default, and anything from half that to
 -- twice it. Kept here so the addon's bars and the slots the game fills agree on the answer.
@@ -2610,7 +2639,7 @@ function ns.Import(text)
 		return any and out or nil
 	end
 	local STYLE_TYPES = { style = "string", grow = "string", size = "number", barW = "number", barH = "number", barIconScale = "number",
-		spacing = "number", perRow = "number", scale = "number", alpha = "number" }
+		spacing = "number", perRow = "number", scale = "number", alpha = "number", units = "string", perColumn = "number" }
 	local function CleanTracker(src)
 		if type(src) ~= "table" or (not Str(src.name) and not Num(src.id) and not tonumber(src.item)) then return nil end
 		src = { name = Str(src.name), id = Num(src.id), icon = Num(src.icon) or Str(src.icon), kind = src.kind, item = src.item, cd = src.cd,
@@ -2652,6 +2681,13 @@ function ns.Import(text)
 			if t then table.insert(g.trackers, t) end
 		end
 		if #g.trackers == 0 then ns.DeleteGroup(g) return nil, "That group had no trackers in it." end
+		ns.CleanMemberFields(g)
+		-- What a group watching your party cannot hold goes beside it, as when it is dropped there.
+		for i = #g.trackers, 1, -1 do ns.Redirect(g.trackers[i], g) end
+		if #g.trackers == 0 then
+			ns.Changed()
+			return ns.profile.groups[#ns.profile.groups]
+		end
 		ns.selected = { group = g }
 		ns.Changed()
 		return g
