@@ -793,7 +793,7 @@ local function BookTooltip(b)
 	elseif why == "yes" then
 		GameTooltip:AddLine("Marked combat: in a group drawn by the game, the game follows this buff on you by its spell id all through a fight, for every rank known here.", 0.45, 0.75, 1, true)
 	elseif why == "debuff" then
-		GameTooltip:AddLine("Not marked combat: the game cannot follow a debuff on you by spell, so the addon draws it, and in a fight it shows the reading taken before the fight started.", 0.8, 0.7, 0.5, true)
+		GameTooltip:AddLine("A debuff on you: the addon draws it, exact out of a fight and carried in one, and its sounds are handed to the game by spell. The game cannot follow a debuff on you by spell, except the few it never hides, which a group drawn by the game then draws itself.", 0.8, 0.7, 0.5, true)
 	elseif why == "renamed" then
 		GameTooltip:AddLine("Not marked combat: this client knows this spell as " .. tostring(h.clientName) .. ". Once it has been on you, track it from the ledger row of that name.", 0.8, 0.7, 0.5, true)
 	else
@@ -982,7 +982,7 @@ local function BookItems()
 		local have = {}
 		for _, h in pairs(ns.db.history) do
 			local hay = strlower(h.name or "") .. " " .. tostring(h.id or "")
-			if hay:find(query, 1, true) and h.kind ~= "debuff" then
+			if hay:find(query, 1, true) then
 				list[#list + 1] = h
 				if h.name then have[strlower(h.name)] = true end
 			end
@@ -1010,8 +1010,6 @@ local function BookItems()
 	for _, h in pairs(ns.db.history) do
 		local keep
 		keep = histFilter == "all" or h.kind == histFilter or h.kind == "any"
-		-- Only buffs on you can be tracked on this client, so only those are offered.
-		if h.kind == "debuff" then keep = false end
 		if keep then list[#list + 1] = h end
 	end
 	if histSort == "name" then

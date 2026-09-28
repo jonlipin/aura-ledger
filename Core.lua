@@ -679,7 +679,8 @@ function ns.NewTracker(h)
 	return {
 		uid = ns.NewUid(),
 		name = h.name, id = h.id, icon = h.icon,
-		kind = "buff",
+		-- A debuff on you, from the ledger; everything else is a buff on you.
+		kind = (h.kind == "debuff") and "debuff" or "buff",
 		cd = h.cd or nil,
 		item = h.item or nil,
 		-- A weapon slot (0 main hand, 1 off hand, 2 ranged) for a weapon-enchant or a swing tracker.
@@ -2555,7 +2556,7 @@ function ns.Import(text)
 		t.label = type(src.label) == "string" and src.label or nil
 		-- Trackers follow your own auras; a unit from an old string would never be followed.
 		t.unit = nil
-		t.kind = "buff"
+		t.kind = (src.kind == "debuff") and "debuff" or "buff"
 		t.warn = src.warn
 		t.cond = src.cond
 		t.snd = src.snd

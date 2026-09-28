@@ -2696,9 +2696,29 @@ end
 function Display.TrackerGetsSlot(t)
 	local g = t and ns.FindGroupOf(t)
 	if not (g and g.gameDrawn) then return false end
-	if t.cd or t.item or t.kind == "debuff" or t.enchant or t.swing then return false end
-	return TrackerIds(t) ~= nil
+	if t.cd or t.item or t.enchant or t.swing then return false end
+	local ids = TrackerIds(t)
+	if t.kind == "debuff" then return ids ~= nil and Display.AllNeverSecret(ids) end
+	return ids ~= nil
 end
+
+-- A debuff on you can be handed to the game only when every id the tracker follows is one the game
+-- never hides: for anything else the game refuses to filter a debuff by spell, and the slot would
+-- show nothing. Asked out of combat, when slots are made.
+local function AllNeverSecret(ids)
+	local S = C_Secrets
+	if not (S and S.GetSpellAuraSecrecy) then return false end
+	local never = Enum and Enum.SecrecyLevel and Enum.SecrecyLevel.NeverSecret or 0
+	local any = false
+	for id in pairs(ids or {}) do
+		local ok, level = pcall(S.GetSpellAuraSecrecy, id)
+		level = ok and ns.Clean(level) or nil
+		if level ~= never then return false end
+		any = true
+	end
+	return any
+end
+Display.AllNeverSecret = AllNeverSecret
 
 -- Makes sure the slots for one tracker exist and carry its spell map. Returns the slot frames.
 local function TrackerSlots(f, g, t, ids)
@@ -2709,8 +2729,11 @@ local function TrackerSlots(f, g, t, ids)
 	-- through a fight anyway.
 	if t.cd then return nil end
 	if t.enchant ~= nil or t.swing ~= nil then return nil end
-	if t.kind == "debuff" then return nil end
 	local kinds = { "HELPFUL" }
+	if t.kind == "debuff" then
+		if not AllNeverSecret(ids) then return nil end
+		kinds = { "HARMFUL" }
+	end
 	local frames = {}
 	local idsKey = IdsKey(ids)
 	local mode = "cover"
