@@ -554,11 +554,14 @@ end
 -- The "only show when" block. getCond returns the cond table being edited. draw, when given, is
 -- { get, set, available } for the group's "the game draws it" setting, which belongs with the
 -- combat question rather than off on its own.
-function Builder:Conditions(getCond, onChange, draw)
+function Builder:Conditions(getCond, onChange, draw, hideRest)
 	local function Cond() return getCond() or {} end
+	-- The addon cannot draw this group: only the game's way is offered, or hidden.
+	local function GameOnly() return draw and draw.available and not draw.available() end
 	self:Check("Never show (disabled)", function() return Cond().never end,
 		function(v) Cond().never = v or nil onChange() end,
 		"Switches this off without deleting it.")
+	local firstRow = #self.rows
 	-- In combat: shown or hidden, and if shown, who draws it. On this client the addon cannot see
 	-- auras during a fight, so handing the group to the game is the only way to stay correct.
 	local inChoices = { { "addon", "Shown, drawn by the addon" } }
@@ -567,11 +570,12 @@ function Builder:Conditions(getCond, onChange, draw)
 	self:Cycle("In combat", inChoices,
 		function()
 			if Cond().combat == "no" then return "hide" end
-			if draw and draw.get() then return "game" end
+			if draw and (draw.get() or GameOnly()) then return "game" end
 			return "addon"
 		end,
 		function(v)
 			local c = Cond()
+			if GameOnly() and v == "addon" then v = "game" end
 			if v == "hide" then
 				c.combat = "no"
 				if draw then draw.set(false) end
@@ -582,7 +586,7 @@ function Builder:Conditions(getCond, onChange, draw)
 			onChange()
 			self:Sync()
 		end,
-		"On this client an addon cannot read your auras during a fight. That is the whole reason this setting exists."
+		"On this client an addon cannot read your auras during a fight. That is the whole reason this setting exists. A group that watches your party is always drawn by the game."
 		.. "\n\n|cffffd000Drawn by the addon:|r the group shows the reading taken before the fight started and keeps counting it down. It is not frozen: it still takes a buff dropping when the game names which one, and a buff you cast yourself, and anything it has had to work out rather than read wears a ~. Anything else that changes mid-fight it will not know about until the fight ends."
 		.. "\n\n|cffffd000Drawn by the game:|r each tracker is handed over as an aura slot for the game to fill, so it is correct the whole way through, and whether the slot is filled is what tells the addon the aura has gone."
 		.. "\n\n|cffffd000What that costs:|r the game draws these in its own look rather than this group's, and it fills a slot whenever the aura is on you, in a fight or out of it. So a tracker here is on screen the whole time its aura is up, whatever you set Show to, which is why Missing behaves like Either. A warn time cannot bring it back early; it turns the game's countdown red instead.",
@@ -646,6 +650,17 @@ function Builder:Conditions(getCond, onChange, draw)
 		function(v) Cond().talentSet = (v ~= "any") and v or nil onChange() end,
 		"For dual talent specs: show only while this set of talents is active.", 170)
 	self:AppliesWhen(function() return (tonumber(ns.env and ns.env.talentSets) or 1) > 1 or Cond().talentSet ~= nil end)
+	-- Everything after the off switch, hidden while hideRest says so.
+	if hideRest then
+		for i = firstRow + 1, #self.rows do
+			local row = self.rows[i]
+			local was = row.visible
+			row.visible = function()
+				if hideRest() then return false end
+				return (not was) or (was() and true or false)
+			end
+		end
+	end
 end
 
 -- ------------------------------------------------------------------
@@ -1499,7 +1514,9 @@ local function UpdateTreeRow(row, item)
 		row.text:SetPoint("RIGHT", -24, 0)
 		local off = g.cond and g.cond.never
 		local groupC, dimC, offC = InkCodes()
-		local what = off and "off" or (g.style == "bars" and "bars" or (g.shaped and "cluster" or "icons"))
+		local units = ns.GroupUnits(g)
+		local what = off and "off" or (units == "raid" and "everyone") or (units == "party" and "my party")
+			or (g.style == "bars" and "bars" or (g.shaped and "cluster" or "icons"))
 		row.text:SetText((off and offC or groupC) .. ns.GroupName(g) .. "|r  " .. dimC .. what .. "|r")
 		row.sel:SetShown(SelectedGroup() == g and not SelectedTracker())
 	end
@@ -1591,17 +1608,41 @@ local function BuildGroupPanel(width)
 	-- What the group is, in one question. The old Contents, "track in combat" and "only this
 	-- group's trackers" could be combined in ways that meant nothing; these cannot.
 	local function IsGameDrawn() local g = G() return (g and ns.IsGameDrawn(g)) and true or false end
-	local function IsBars() local g = G() return (g and g.style == "bars") and true or false end
+	local function IsMembers() local g = G() return (g and ns.GroupUnits(g)) and true or false end
+	local function NotMembers() return not IsMembers() end
+	local function IsRaidScope() local g = G() return (g and ns.GroupUnits(g) == "raid") and true or false end
+	-- A group that watches your party is drawn as icons whatever its saved look.
+	local function IsBars() local g = G() return (g and g.style == "bars" and not ns.GroupUnits(g)) and true or false end
 	b:Header("Group")
 	b:Note("On this client an addon cannot read your auras during a fight. A group drawn by the addon shows its last reading until the fight ends; a group drawn by the game stays correct throughout.")
 	b:Edit("Name", function() local g = G() return g and g.name or "" end,
 		function(text) local g = G() if g then g.name = (text ~= "" and text) or nil GroupChanged() end end)
+	b:Cycle("Track on", { { "me", "Me" }, { "party", "My party" }, { "raid", "Everyone in my group" } },
+		function() local g = G() return (g and ns.GroupUnits(g)) or "me" end,
+		function(v)
+			local g = G()
+			if not g then return end
+			ns.SetGroupUnits(g, v ~= "me" and v or nil)
+			b:Sync()
+			UI:RefreshTree()
+		end,
+		"My party: you and up to four others. In a raid, that is the four in your own raid group, which is who Blood Pact and Battle Shout reach. Everyone: your party, or every member of a raid, ten to a column. Either way the game draws each member's buffs, so they stay right all through a fight.")
 	-- Two plain questions: what is in the group, and who draws it. The second only comes up for a
 	-- group of your own trackers, because a group the game fills is always drawn by the game.
 	b:DynamicNote(function()
 		local g = G()
+		if g and ns.GroupUnits(g) then
+			local text = "The game draws each member's trackers, so they stay right all through a fight. A dimmed row is one the game cannot see right now: Far (out of view) or Off (offline). A ? means that row changed hands during a fight; it is read afresh when the fight ends. Changes to this group wait until you are out of a fight."
+			if ns.GroupUnits(g) == "raid" then
+				text = text .. " In a raid that is up to 40 rows, so a smaller icon size keeps them on screen. In a battleground the rows are right until the raid changes, and put right when the match ends."
+				if ns.Display.RaidCapped and ns.Display.RaidCapped(g) then
+					text = text .. (" Raid rows carry the first %d trackers across groups that watch a whole raid; the rest show on your party's rows only, outside a raid."):format(ns.RAID_TRACKER_CAP or 8)
+				end
+			end
+			return text
+		end
 		if g and g.gameDrawn then
-			return "The game draws these trackers, through its own Cooldown Manager, so they stay correct all through a fight. It fills a slot whenever the aura is on you, in a fight or out, so a tracker here is on screen the whole time its aura is up whatever Show is set to."
+			return "The game draws these trackers, so they stay correct all through a fight. It fills a slot whenever the aura is on you, in a fight or out, so a tracker here is on screen the whole time its aura is up whatever Show is set to."
 		end
 		return "The addon draws these trackers, so during a fight they show the reading taken before it started, counting down, plus whatever it can still work out. To hand them to the game instead, set In combat under Only show this group when."
 	end)
@@ -1620,6 +1661,7 @@ local function BuildGroupPanel(width)
 			b:Sync()
 		end,
 		"Icons show the time left as a number on the icon. Bars show an icon, the name and a draining bar.")
+	b:AppliesWhen(NotMembers)
 	b:Cycle("Grow towards", ns.GROWS,
 		function() local g = G() return g and g.grow or "RIGHT" end,
 		function(v) local g = G() if g then ns.Display:SetGrow(g, v) end end,
@@ -1635,6 +1677,12 @@ local function BuildGroupPanel(width)
 		"How big the icon beside the bar is, against the bar's own height. Above 100% it stands proud of the bar, above and below.")
 	b:AppliesWhen(IsBars)
 	b:Slider("Spacing", { min = 0, max = 30, step = 1, get = Num("spacing", 4), set = SetNum("spacing") })
+	b:Check("Show names", function() local g = G() return g and g.memberNames ~= false end,
+		function(v) local g = G() if g then g.memberNames = (not v) and false or nil GroupChanged() end end,
+		"Each member's name at the start of their row, in their class colour. Hover it for what the game can see of them.")
+	b:AppliesWhen(IsMembers)
+	b:Slider("Members per column", { min = 1, max = 40, step = 1, get = Num("perColumn", 10), set = SetNum("perColumn") })
+	b:AppliesWhen(IsRaidScope)
 	b:Slider("Trackers per row before wrapping", { min = 1, max = 40, step = 1, get = Num("perRow", 8),
 		set = function(v)
 			local g = G()
@@ -1644,13 +1692,14 @@ local function BuildGroupPanel(width)
 			if g.style ~= "bars" then ns.ReflowCells(g) end
 			GroupChanged()
 		end })
+	b:AppliesWhen(NotMembers)
 	b:Button("Lay the icons out in rows again", function()
 		local g = G()
 		if not g then return end
 		ns.ReflowCells(g)
 		GroupChanged()
 	end, "Puts every icon back into plain rows, as many across as the setting above, undoing a shape built by dragging one icon against another.")
-	b:AppliesWhen(function() return not IsBars() end)
+	b:AppliesWhen(function() return not IsBars() and NotMembers() end)
 	b:DynamicNote(function()
 		local g = G()
 		if g and g.shaped then
@@ -1658,7 +1707,7 @@ local function BuildGroupPanel(width)
 		end
 		return "While arranging, drag one icon against a free side of another, above, below or to either side, to hang it there. Until you do, this group is plain rows: whatever is on screen fills them in order and the rest close up."
 	end)
-	b:AppliesWhen(function() return not IsBars() end)
+	b:AppliesWhen(function() return not IsBars() and NotMembers() end)
 	b:Slider("Scale", { min = 0.5, max = 2.5, step = 0.05, get = Num("scale", 1), set = SetNum("scale"),
 		format = function(v) return ("%d%%"):format(floor(v * 100 + 0.5)) end })
 	b:Slider("Opacity", { min = 0.1, max = 1, step = 0.05, get = Num("alpha", 1), set = SetNum("alpha"),
@@ -1685,6 +1734,7 @@ local function BuildGroupPanel(width)
 
 	b:Header("Only show this group when")
 	b:Conditions(function() local g = G() return g and g.cond end, TrackerChanged, {
+		available = NotMembers,
 		get = function() local g = G() return g and g.gameDrawn end,
 		set = function(v)
 			local g = G()
@@ -1764,6 +1814,11 @@ local function BuildTrackerPanel(width)
 	end
 	local function IsDispel() local t = T() return (t and t.dispel) and true or false end
 	local function NotDispel() return not IsDispel() end
+	local function InMembers()
+		local t = T()
+		local g = t and ns.FindGroupOf(t)
+		return (g and ns.GroupUnits(g)) and true or false
+	end
 	local function TrackerIsItem()
 		local t = T()
 		return (t and t.item) and true or false
@@ -1879,9 +1934,21 @@ local function BuildTrackerPanel(width)
 		end,
 		"Each rank of a spell has its own ID, so matching by name is usually what you want.")
 	b:AppliesWhen(function() return TrackerIsAura() and not TrackerIsItem() and not TrackerIsWeapon() and NotDispel() end)
+	b:DynamicNote(function()
+		local t = T()
+		local family = t and t.name and not t.matchId and ns.FamilyOf(t.name)
+		if not (family and InMembers()) then return "" end
+		local others = {}
+		for _, n in ipairs(family) do if n ~= t.name then others[#others + 1] = n end end
+		return "Also counts " .. table.concat(others, " and ") .. ", on each member."
+	end)
+	b:AppliesWhen(function()
+		local t = T()
+		return InMembers() and t ~= nil and t.name ~= nil and not t.matchId and ns.FamilyOf(t.name) ~= nil
+	end)
 	b:Check("Only when it was cast by me", function() local t = T() return t and t.mine end,
 		function(v) local t = T() if t then t.mine = v TrackerChanged() end end,
-		"Ignores the same aura when it comes from someone else.")
+		"Ignores the same aura when it comes from someone else. In a group that watches your party, a member the game cannot see shows Far rather than missing.")
 	b:AppliesWhen(function() return TrackerIsAura() and not TrackerIsWeapon() and NotDispel() end)
 	b:Edit("Bar label (optional)", function() local t = T() return t and t.label or "" end,
 		function(text) local t = T() if t then t.label = (text ~= "" and text) or nil TrackerChanged() end end)
@@ -1906,17 +1973,22 @@ local function BuildTrackerPanel(width)
 					if not played then ns.Print(name .. " is not available on this client (or sound effects are muted); try the next one.") end
 				end
 			end, tip .. " Picking one plays it.", 150)
-		b:AppliesWhen(NotDispel)
+		b:AppliesWhen(function() return NotDispel() and not InMembers() end)
 	end
+	b:Note("Sounds follow auras on you, so a tracker that watches your party plays none.")
+	b:AppliesWhen(function() return NotDispel() and InMembers() end)
 	b:Note("Choices marked (combat) are played by the game itself, so they also fire while the aura is hidden in combat.")
-	b:AppliesWhen(NotDispel)
+	b:AppliesWhen(function() return NotDispel() and not InMembers() end)
 	SoundCycle("When applied", "applied", "Plays when the aura lands.")
 	SoundCycle("When it runs out", "removed", "Plays when the aura wears off or is removed.")
 	SoundCycle("When the tracker appears", "shown", "Plays when this tracker comes on screen, for whatever reason: the aura landing, going missing, or entering its warn window. In a group drawn by the game the warn time only colours the countdown, so there it plays when the aura goes, not at the warn time.")
 
 	b:Header("Only show this tracker when")
 	b:Note("These add to the group's own conditions.")
-	b:Conditions(function() local t = T() return t and t.cond end, TrackerChanged)
+	b:AppliesWhen(function() return not InMembers() end)
+	b:Note("In a group that watches your party, conditions belong to the group: a condition read out of a fight would stand for the whole of the next one. Only switching the tracker off applies here.")
+	b:AppliesWhen(InMembers)
+	b:Conditions(function() local t = T() return t and t.cond end, TrackerChanged, nil, InMembers)
 
 	b.y = b.y - 8
 	b:Note("To move this tracker to another group, or out into a group of its own, drag it in the Groups and trackers list. To remove it, click the X on its row there twice.")

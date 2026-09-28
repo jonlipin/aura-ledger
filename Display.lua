@@ -3574,6 +3574,95 @@ function Display:RosterChanged()
 	self.rosterDirty = true
 end
 
+-- Whether some of a raid group's trackers are past the raid cap, for its panel.
+function Display.RaidCapped(g)
+	if ns.GroupUnits(g) ~= "raid" then return false end
+	local allowance = RaidAllowance()
+	local allowed = allowance[g] or {}
+	for _, t in ipairs(g.trackers) do
+		if Display.MemberCanHold(t) and not (t.cond and t.cond.never) and SlotSpec(t, g) and not allowed[t] then return true end
+	end
+	return false
+end
+
+-- /auraledger debug members: every group that watches your party, row by row, and what has been
+-- asked of the game this session. "probe" sets a member's container to its unit again, which is
+-- what the addon waits for the end of a fight to do; run in a fight, it shows whether that waiting
+-- is needed at all.
+function Display:MembersReport(emit, rest)
+	local S = function(v) if issecretvalue and issecretvalue(v) then return "hidden" end return tostring(v) end
+	if string.lower(rest or "") == "probe" then
+		for _, f in pairs(active) do
+			local m = f.members
+			for token, row in pairs(m and m.rows or {}) do
+				local c = f.slotC and f.slotC["m:" .. token]
+				if c and token ~= "player" and row.shown and row.built then
+					local blocked = 0
+					for _, n in pairs(ns.blocked or {}) do blocked = blocked + n end
+					local ok1, e1 = pcall(c.SetUnit, c, "none")
+					local ok2, e2 = pcall(c.SetUnit, c, token)
+					local after = 0
+					for _, n in pairs(ns.blocked or {}) do after = after + n end
+					emit(("probe on %s (%s), in a fight %s: first %s, second %s, blocked calls %d"):format(token, tostring(row.name or "?"),
+						tostring(InCombatLockdown and InCombatLockdown() or false), ok1 and "ok" or ("error " .. tostring(e1)),
+						ok2 and "ok" or ("error " .. tostring(e2)), after - blocked))
+					emit("Now look at their row: if it still shows their buffs, rows can be read afresh in a fight.")
+					return
+				end
+			end
+		end
+		emit("probe: needs a group that watches your party, with a party member on screen.")
+		return
+	end
+	local any = false
+	for _, f in pairs(active) do
+		local g, m = f.group, f.members
+		if g and ns.GroupUnits(g) then
+			any = true
+			local plan = m and m.plan
+			emit(("%s: watches %s, showing %s rows, %d trackers (%d on raid rows)%s, gate %s"):format(ns.GroupName(g), ns.GroupUnits(g),
+				tostring(m and m.set or "-"), plan and #plan.trackers or 0, plan and #plan.raidTrackers or 0, plan and plan.capped and ", past the raid cap" or "",
+				f.gate and tostring(f.gate.alMacro) or "none"))
+			local tokens = {}
+			for token in pairs(m and m.rows or {}) do tokens[#tokens + 1] = token end
+			table.sort(tokens, function(a, b) return (TOKEN_INDEX[a] or 0) + (a:find("^raid") and 100 or 0) < (TOKEN_INDEX[b] or 0) + (b:find("^raid") and 100 or 0) end)
+			for _, token in ipairs(tokens) do
+				local row = m.rows[token]
+				local c = f.slotC and f.slotC["m:" .. token]
+				local n, on = 0, 0
+				for key in pairs(c and c.alSlots or {}) do
+					n = n + 1
+					if c.alOn and c.alOn[key] then on = on + 1 end
+				end
+				if row.inPlan then
+					emit(("  %s %s: %s%s%s%s, container %s, slots %d (%d on)"):format(token, tostring(row.name or row.fallback), tostring(row.state or "-"),
+						row.guid and "" or ", not yet read", row.stale and ", marked" or "", row.needsBounce and ", to be read afresh" or "",
+						c and S(c.alMacro) or "none", n, on))
+				end
+			end
+		end
+	end
+	if not any then emit("No group watches your party.") end
+	emit(("Build steps waiting: %d. Made this session: %d containers, %d slots. Rows refill in a fight when back in view: %s.")
+		:format(#self.memberJobs, self.containersMade or 0, self.slotsMade or 0, tostring(ns.MEMBER_REFILL)))
+	local _, raidTrackers = RaidAllowance()
+	emit(("Raid rows: %d of %d trackers used."):format(raidTrackers, ns.RAID_TRACKER_CAP))
+	emit("Edit Mode placeholders: " .. tostring(ns.report["edit mode preview"] or "not asked yet"))
+	for _, family in ipairs(ns.BUFF_FAMILIES or {}) do
+		local parts = {}
+		for _, name in ipairs(family) do
+			ns.Ranks(name)
+			local st = ns.rankState[name]
+			local own = ns.bookRanks[string.lower(name)]
+			local mine = 0
+			for _ in pairs(own or {}) do mine = mine + 1 end
+			parts[#parts + 1] = ("%s %d kept, %d dropped, %d waiting, %d from your spellbook"):format(name, st and st.kept or 0, st and st.dropped or 0,
+				st and st.pending or 0, mine)
+		end
+		emit("  " .. table.concat(parts, "; "))
+	end
+end
+
 -- Something every member group has to take in (new ranks, the end of a fight).
 function Display:MembersDirty()
 	for _, f in pairs(active) do if f.members then f.members.dirty = true end end

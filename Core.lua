@@ -2970,7 +2970,7 @@ function ns.ClearMaskDiagnostics()
 	end
 end
 
-ns.DIAG_ORDER = { "log", "api", "gd", "cdm2", "cdmrestore", "probe", "atlases", "icon", "item", "cdread" }
+ns.DIAG_ORDER = { "log", "api", "gd", "members", "cdm2", "cdmrestore", "probe", "atlases", "icon", "item", "cdread" }
 ns.DIAG = {}
 for _, k in ipairs(ns.DIAG_ORDER) do ns.DIAG[k] = true end
 ns.DIAG.soundtest, ns.DIAG.soundclear = true, true
@@ -3562,6 +3562,9 @@ SlashCmdList.AURALEDGER = function(msg)
 			end
 			if found == 0 then Print("nothing documented under that name (try the exact name from /api search)") end
 		end
+	elseif cmd == "members" then
+		Print("Groups that watch your party:")
+		if ns.Display and ns.Display.MembersReport then ns.Display:MembersReport(function(line) Print("  " .. line) end, rest) end
 	elseif cmd == "gd" then
 		local function S(v) if issecretvalue and issecretvalue(v) then return "secret" end return tostring(v) end
 		Print("game-drawn groups (secret: " .. YesNo(AurasSecret()) .. ", attribute drivers " .. YesNo(RegisterAttributeDriver) .. "):")

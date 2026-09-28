@@ -9,7 +9,10 @@ Aura Ledger writes down every buff that ever lands on you, so you can find it ag
 ## What it can follow
 
 - **A buff on you.** The thing it was built for.
-- **A spell's cooldown.** Under **Watch** in a tracker's settings, or `/auraledger cooldown <spell>`.
+- **Your party or your whole raid.** A group can watch everyone: a row per member, with the game drawing each member's buffs, all through a fight. See below.
+- **Something you can remove.** A dispel tracker lights when there is a debuff you can dispel, or one of a type (Curse, Magic, Poison, Disease), on you or on each member.
+- **A debuff on you**, from the ledger. The addon draws it: exact out of a fight, carried in one.
+- **A spell's cooldown.** Under **Watch** in a tracker's settings, or `/auraledger cooldown <spell>`. A school locked out by an interrupt shows too, reddened, with the time left.
 - **Something you are carrying.** The **What you are carrying** chapter of the book lists everything in your bags or worn that has a use on it. Drag one out and you get its cooldown, trinkets included.
 - **Your weapons.** The same chapter starts with your main hand, off hand and ranged weapon: the temporary enchant on each (oils, stones, poisons, imbues), with its time left and charges, and the time to your next swing.
 
@@ -28,13 +31,29 @@ The left side is laid out like the spellbook and borrows its art when the client
 
 - **Ledger**: everything that has ever been on you, with how often and how recently.
 - **A chapter for every class**: the buffs that class can cast, so you can track Fortitude or Mark of the Wild before anyone has cast it on you.
+- **Party and raid**, right after your own class: the dispel trackers, the buffs worth watching on everyone, Soulstone Resurrection, and **Party buffs for my class**, which sets up a whole party group in one double-click.
 - **Racials**: including the ones read straight out of this client's own spellbook, so a racial the written list never heard of is there anyway.
 - **What you are carrying**: your weapons' enchants and swings, then everything in your bags or worn that has a use on it.
 - **Items and food**: food, drink, bandages, flasks, elixirs, potions, scrolls, world buffs and trinkets, listed under the name of the buff rather than the item.
 - **Search** looks through every chapter at once, by name, spell ID or source ("naxx", "flask", "world buff").
 - **Add by spell name or ID** takes a name, an ID or a shift-clicked spell link, for anything not in the book.
 
-Rows a group drawn by the game can follow all through a fight carry a small **combat** mark: a buff on you with a spell id known on this client. Every rank you know is handed to the game, straight from your spellbook. That matters: see below.
+Rows a group drawn by the game can follow all through a fight carry a small **combat** mark: a buff with a spell id known on this client, or a dispel tracker. Every rank known is handed to the game: the ranks of the book's class buffs come with the addon, and your own come straight from your spellbook. That matters: see below.
+
+## Your party and raid
+
+**Track on**, at the top of a group's settings, says who the group watches: **Me**, **My party** (you and up to four others; in a raid, your own raid group, which is who Blood Pact and Battle Shout reach) or **Everyone in my group** (your party, or every member of a raid, ten to a column).
+
+Each member gets a row: their name in their class colour, then a cell for each tracker. The game draws each member's buffs in those cells, so the rows stay right all through a fight, and someone joining mid-fight fills in at once. A buff's group version counts too: Prayer of Fortitude for Fortitude, Arcane Brilliance for Arcane Intellect, a Greater Blessing for its Blessing. A new buff put in such a group shows where it is missing.
+
+A row also says what the game cannot show you:
+
+- **Far**: out of view. The game has no auras for them until they are back.
+- **Off**: offline.
+- **(dead)** after the name.
+- **?**: the row changed hands during a fight, because someone left and the rest moved up. It is read afresh when the fight ends. (In a battleground that is when the match ends.)
+
+Everything about these groups is built and laid out out of a fight, a little at a time, so a change made in one waits for it to end. Cooldowns, items, weapons and most debuffs follow only you, so they go into a group of their own beside one that watches your party. Tracker sounds and a tracker's own conditions are for you alone too; the group's conditions still apply. Raid rows carry the first eight trackers across at most two groups that watch a whole raid; the rest show on your party's rows.
 
 ## Arranging
 
@@ -51,7 +70,7 @@ In the **Groups and trackers** list, drag a row onto a group to move it there, o
 
 ## Settings
 
-**Per group**: name, icons or bars, growth direction, icon size, bar width and height, icon scale on bars, spacing, icons per row, scale, opacity, time text, names on bars, and whether to draw the bar border, the bar background and the icon frame.
+**Per group**: name, who it watches, icons or bars, growth direction, icon size, bar width and height, icon scale on bars, spacing, icons per row, scale, opacity, time text, names on bars, whether to draw the bar border, the bar background and the icon frame, and whether to colour each aura's border by its dispel type. A group that watches your party also has member names on or off, and members per column.
 
 **Per tracker**: what it watches (the buff, or the spell's cooldown); when it shows (Active, Missing, or Either); how long before it runs out or comes back to put it on screen again; match by name or exact spell ID; only when cast by you; a glow while it is up (in a group drawn by the game); a bar label; and a sound when it lands, when it goes, and when the tracker appears.
 
@@ -81,6 +100,7 @@ Cooldowns, carried items and your weapons are read by the addon itself, in a fig
 | `/auraledger minimap` | show or hide the minimap button |
 | `/auraledger debug` | what this client let the addon read |
 | `/auraledger debug cdread` | everything the game says about each cooldown tracker |
+| `/auraledger debug members` | every group that watches your party, row by row |
 
 Aura Ledger also has a page in the game's own Options, under AddOns, with a button that opens it.
 
@@ -88,7 +108,7 @@ Aura Ledger also has a page in the game's own Options, under AddOns, with a butt
 
 `/auraledger debug` reports what this client actually allowed: which interface templates resolved, which art drew, what the aura reads returned, and which calls were refused. That report is the useful thing to send with a bug report, because this client differs from others in ways no addon can see from the outside.
 
-Only buffs on you are listed. Nothing on this client can follow an aura on another unit through a fight, and a debuff on you cannot be tracked by spell at all, so the game's own debuff frame is what shows those.
+On this client the game follows a buff by spell on you and on your party and raid, and a debuff by its type, but not a debuff by spell (bar the few it never hides), and nothing at all on an enemy. So a debuff tracker on you is drawn by the addon, and the game's own frames are what show auras on your target.
 
 ## Credits
 
