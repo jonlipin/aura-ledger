@@ -89,3 +89,7 @@ Aura Ledger also has a page in the game's own Options, under AddOns, with a butt
 `/auraledger debug` reports what this client actually allowed: which interface templates resolved, which art drew, what the aura reads returned, and which calls were refused. That report is the useful thing to send with a bug report, because this client differs from others in ways no addon can see from the outside.
 
 Only buffs on you are listed. Nothing on this client can follow an aura on another unit through a fight, and a debuff on you cannot be tracked by spell at all, so the game's own debuff frame is what shows those.
+
+## Credits
+
+Spell rank data (Ranks.lua): Data from talentsforever.com (https://talentsforever.com), licensed CC BY 4.0.

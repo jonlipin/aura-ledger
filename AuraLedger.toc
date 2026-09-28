@@ -11,5 +11,6 @@
 AuraLedger.xml
 Core.lua
 Data.lua
+Ranks.lua
 Display.lua
 UI.lua
