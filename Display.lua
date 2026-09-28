@@ -18,13 +18,19 @@ local ANCHOR = { RIGHT = "TOPLEFT", DOWN = "TOPLEFT", LEFT = "TOPRIGHT", UP = "B
 local FLOW = { CENTER_H = "RIGHT", CENTER_V = "DOWN" }
 -- A cell's c and r are the group's own axes; these say which way each one points on screen, so a
 -- side the cursor is held against can be turned into a cell whichever way the group grows.
-local function PointAtCell(obj, f, flow, a, b, stepX, stepY)
+-- In pixels: pa along the flow, pb across it.
+local function PointAtCellPx(obj, f, flow, pa, pb)
 	obj:ClearAllPoints()
-	if flow == "RIGHT" then obj:SetPoint("TOPLEFT", f, "TOPLEFT", a * stepX, -b * stepY)
-	elseif flow == "LEFT" then obj:SetPoint("TOPRIGHT", f, "TOPRIGHT", -a * stepX, -b * stepY)
-	elseif flow == "DOWN" then obj:SetPoint("TOPLEFT", f, "TOPLEFT", b * stepX, -a * stepY)
-	else obj:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", b * stepX, a * stepY) end
+	if flow == "RIGHT" then obj:SetPoint("TOPLEFT", f, "TOPLEFT", pa, -pb)
+	elseif flow == "LEFT" then obj:SetPoint("TOPRIGHT", f, "TOPRIGHT", -pa, -pb)
+	elseif flow == "DOWN" then obj:SetPoint("TOPLEFT", f, "TOPLEFT", pb, -pa)
+	else obj:SetPoint("BOTTOMLEFT", f, "BOTTOMLEFT", pb, pa) end
 end
+local function PointAtCell(obj, f, flow, a, b, stepX, stepY)
+	if flow == "RIGHT" or flow == "LEFT" then PointAtCellPx(obj, f, flow, a * stepX, b * stepY)
+	else PointAtCellPx(obj, f, flow, a * stepY, b * stepX) end
+end
+Display.PointAtCell = PointAtCell
 
 local AXIS = {
 	RIGHT = { c = { 1, 0 }, r = { 0, -1 } },
@@ -2721,7 +2727,8 @@ end
 local function SlotContainer(f, g, unit, driver, member)
 	f.slotC = f.slotC or {}
 	local key = member and "member" or SlotKey(g)
-	local c = f.slotC[unit]
+	local slot = member and ("m:" .. unit) or unit
+	local c = f.slotC[slot]
 	if ManagerUnsafe() then return c end
 	if c and c.alKey == key then
 		local want = driver or ""
@@ -2738,7 +2745,7 @@ local function SlotContainer(f, g, unit, driver, member)
 	end
 	if c then
 		DriverOff(c)
-		c:Hide() c:ClearAllPoints() f.slotC[unit] = nil
+		c:Hide() c:ClearAllPoints() f.slotC[slot] = nil
 	end
 	local gate = EnsureGate(f, g)
 	if gate.alDropped then gate:Show() gate.alDropped = nil end
@@ -2766,7 +2773,7 @@ local function SlotContainer(f, g, unit, driver, member)
 	nc.alKey, nc.alSlots, nc.alSpec, nc.alStore, nc.alMacro, nc.alUnit = key, {}, {}, {}, "", unit
 	if driver and RegisterAttributeDriver and pcall(RegisterAttributeDriver, nc, "state-visibility", driver) then nc.alMacro = driver end
 	if nc.alMacro == "" then nc:Show() end
-	f.slotC[unit] = nc
+	f.slotC[slot] = nc
 	Display.containersMade = (Display.containersMade or 0) + 1
 	ns.report["game-drawn trackers"] = "AuraContainer ok"
 	return nc
@@ -2939,6 +2946,639 @@ local function SetCellLevel(w, base)
 	if w.overlay then w.overlay:SetFrameLevel(base + 5) end
 end
 
+-- ------------------------------------------------------------------
+-- Groups that watch your party or raid. Each member has a container of the game's own, shown and
+-- hidden by the game through a driver under the group's gate, holding one slot per tracker, each
+-- anchored once over a cell of the addon's own for that member and tracker. All of it is made and
+-- laid out out of a fight, a little each frame; in a fight the addon only shows and hides its own
+-- frames (a row, its name, its veil) and repaints them.
+-- ------------------------------------------------------------------
+ns.RAID_TRACKER_CAP = 8   -- trackers across every group that watches a whole raid
+ns.RAID_GROUP_CAP = 2     -- groups that watch a whole raid
+-- Whether a member's slots fill again when they come back into view during a fight. Until that is
+-- seen in game, such a row says "?" until the fight ends, when it is read afresh.
+ns.MEMBER_REFILL = false
+local PARTY_TOKENS = { "player", "party1", "party2", "party3", "party4" }
+local RAID_TOKENS = {}
+for i = 1, 40 do RAID_TOKENS[i] = "raid" .. i end
+local TOKEN_INDEX = {}
+for i, token in ipairs(PARTY_TOKENS) do TOKEN_INDEX[token] = i - 1 end
+for i, token in ipairs(RAID_TOKENS) do TOKEN_INDEX[token] = i - 1 end
+local PUMP_MS = 4
+Display.memberJobs = {}
+local jobIndex = {}
+
+-- A question about a member, asked safely: nil when the call fails or the answer is hidden. A hidden
+-- answer is only ever recognised, never tested.
+local function Ask(fn, ...)
+	if type(fn) ~= "function" then return nil end
+	local ok, v = pcall(fn, ...)
+	if not ok then return nil end
+	if issecretvalue and issecretvalue(v) then return nil end
+	return v
+end
+local function AskClass(unit)
+	if type(UnitClass) ~= "function" then return nil end
+	local ok, _, token = pcall(UnitClass, unit)
+	if not ok or (issecretvalue and issecretvalue(token)) then return nil end
+	return type(token) == "string" and token or nil
+end
+Display.Ask = Ask
+
+-- Members are always drawn as icons. The group's own look is left as it is (switching back to you
+-- alone brings bars back) and read through this, which answers icons for the style.
+local lookOf = setmetatable({}, { __mode = "k" })
+local function MemberLook(g)
+	local l = lookOf[g]
+	if not l then
+		l = setmetatable({ style = "icons" }, { __index = g })
+		lookOf[g] = l
+	end
+	return l
+end
+-- What a member's slot is built with. A change means new slots in the same containers.
+local function MemberLookKey(g)
+	return "m" .. tostring(g.size or 40) .. (g.iconFrame ~= false and "f" or "") .. (g.timers ~= false and "t" or "")
+		.. (g.dispelColors and "d" or "") .. "e" .. tostring(ns.MASK_EPOCH or 0)
+end
+-- Everything that changes what a member group has to build or lay out.
+local function MemberSig(g)
+	local parts = { MemberLookKey(g), tostring(g.units), tostring(g.memberNames), tostring(g.perColumn), tostring(g.grow),
+		tostring(g.spacing), tostring(g.alpha) }
+	for _, t in ipairs(g.trackers) do
+		parts[#parts + 1] = table.concat({ tostring(t.uid), tostring(t.show), tostring(t.dispel), tostring(t.mine), tostring(t.matchId),
+			tostring(t.name), tostring(t.id), tostring(t.glow), tostring(t.warn), tostring(t.cond and t.cond.never), tostring(t.kind),
+			tostring(t.icon) }, "|")
+	end
+	return table.concat(parts, ";")
+end
+
+-- Which groups that watch a whole raid get the raid set, and which of their trackers, counted in
+-- the order the groups are kept. Past either cap a tracker is on your party's rows only.
+local function RaidAllowance()
+	local out, groups, trackers = {}, 0, 0
+	for _, g in ipairs(ns.profile.groups) do
+		if ns.GroupUnits(g) == "raid" then
+			groups = groups + 1
+			local allowed = {}
+			if groups <= ns.RAID_GROUP_CAP then
+				for _, t in ipairs(g.trackers) do
+					if Display.MemberCanHold(t) and not (t.cond and t.cond.never) and SlotSpec(t, g) then
+						trackers = trackers + 1
+						if trackers <= ns.RAID_TRACKER_CAP then allowed[t] = true end
+					end
+				end
+			end
+			out[g] = allowed
+		end
+	end
+	return out, trackers
+end
+Display.RaidAllowance = RaidAllowance
+
+-- What a member group shows: its trackers in order, each with its slot's spec (nil for one the game
+-- cannot follow here, which keeps its place with a question mark), and those the raid set carries.
+-- A tracker's own conditions do not apply to members, bar switching it off: a condition read out
+-- of a fight would stand for the whole of the next one.
+local function MemberPlan(g)
+	local units = ns.GroupUnits(g)
+	local plan = { units = units, trackers = {}, raidTrackers = {}, byUid = {}, capped = false }
+	local allowed = (units == "raid") and (RaidAllowance())[g] or nil
+	for _, t in ipairs(g.trackers) do
+		if Display.MemberCanHold(t) and not (t.cond and t.cond.never) then
+			local item = { t = t, spec = SlotSpec(t, g) }
+			plan.trackers[#plan.trackers + 1] = item
+			plan.byUid[t.uid] = item
+			if allowed then
+				if allowed[t] then plan.raidTrackers[#plan.raidTrackers + 1] = item
+				elseif item.spec then plan.capped = true end
+			end
+		end
+	end
+	plan.raid = units == "raid" and #plan.raidTrackers > 0
+	return plan
+end
+
+-- Each member's container is shown by the game while that member is there. In a group that watches
+-- a whole raid, your party's rows give way to the raid's in a raid.
+local function MemberDriver(plan, token)
+	if token == "player" then return plan.raid and "[group:raid] hide; show" or nil end
+	if token:find("^party") then return (plan.raid and "[group:raid] hide; " or "") .. "[@" .. token .. ",exists] show; hide" end
+	return "[@" .. token .. ",exists] show; hide"
+end
+Display.MemberDriver = MemberDriver
+
+local function PlanTokens(plan)
+	local list = {}
+	for _, token in ipairs(PARTY_TOKENS) do list[#list + 1] = { token = token, set = "party" } end
+	if plan.raid then
+		for _, token in ipairs(RAID_TOKENS) do list[#list + 1] = { token = token, set = "raid" } end
+	end
+	return list
+end
+
+-- The shape of a member group, in its own flow: a row per member (a column, growing up or down),
+-- its name first, then a cell per tracker; raid rows wrap into a new block every perCol rows.
+local function MemberGeom(g, plan, set)
+	local size, sp = g.size or 40, g.spacing or 4
+	local step = size + sp
+	local grow = g.grow or "RIGHT"
+	local flow = FLOW[grow] or grow
+	local horiz = flow == "RIGHT" or flow == "LEFT"
+	local names = g.memberNames ~= false
+	local L = names and (horiz and 68 or 14) or 0
+	local P = (names and not horiz) and max(step, 44) or step
+	local list = (set == "raid") and plan.raidTrackers or plan.trackers
+	return { size = size, sp = sp, step = step, flow = flow, horiz = horiz, names = names, L = L, P = P, T = #list, list = list,
+		blockLen = L + #list * step + floor(step / 2), perCol = (set == "raid") and (g.perColumn or 10) or 5 }
+end
+
+local function HideRow(row)
+	row.hit:Hide()
+	row.veil:Hide()
+	for _, cell in pairs(row.cells) do cell:Hide() end
+	row.shown = false
+end
+
+local STATE_SENTENCE = {
+	ok = "The game is drawing this member's trackers, in a fight too.",
+	wait = "Being set up, a little at a time, out of a fight.",
+	off = "Offline.",
+	dead = "Dead.",
+	far = "Out of view: the game has no auras to show for them until they are back.",
+	stale = "Changed places in the group during this fight. The row is read afresh when the fight ends.",
+	absent = "Nobody here yet. When someone joins, their row fills in, in a fight too.",
+}
+local VEIL_WORD = { wait = "...", off = "Off", far = "Far", stale = "?" }
+
+local function RowTooltip(owner, row)
+	GameTooltip:SetOwner(owner, "ANCHOR_RIGHT")
+	GameTooltip:SetText(row.name or row.fallback or row.token, 1, 1, 1)
+	local cls = row.class and LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[row.class]
+	if cls then GameTooltip:AddLine(cls, 0.8, 0.8, 0.8) end
+	GameTooltip:AddLine(STATE_SENTENCE[row.state or "ok"] or "", 0.6, 0.8, 1, true)
+	GameTooltip:Show()
+end
+
+-- A member's row: its name, a veil over its cells saying why the game cannot show them, and the
+-- cells. All of it on the gate, so it goes when the group's conditions hide it.
+local function MemberRow(f, token, set)
+	local m = f.members
+	local row = m.rows[token]
+	if row then return row end
+	row = { token = token, set = set, index = TOKEN_INDEX[token] or 0, cells = {} }
+	local hit = CreateFrame("Frame", nil, f.gate)
+	-- Motion only: the name gives a tooltip, and clicks go past it to the world.
+	hit:EnableMouse(false)
+	if hit.SetMouseMotionEnabled then pcall(hit.SetMouseMotionEnabled, hit, true) end
+	hit:SetScript("OnEnter", function(self) RowTooltip(self, row) end)
+	hit:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	local label = hit:CreateFontString(nil, "OVERLAY")
+	label:SetFont(FONT, 11, "OUTLINE")
+	label:SetAllPoints(hit)
+	label:SetWordWrap(false)
+	local veil = CreateFrame("Frame", nil, f.gate)
+	veil:EnableMouse(false)
+	local shade = veil:CreateTexture(nil, "BACKGROUND")
+	shade:SetAllPoints(veil)
+	shade:SetColorTexture(0, 0, 0, 0.6)
+	veil.word = veil:CreateFontString(nil, "OVERLAY")
+	veil.word:SetPoint("CENTER", veil, "CENTER", 0, 0)
+	row.hit, row.label, row.veil = hit, label, veil
+	if token == "player" then row.fallback = "You"
+	elseif token:find("^party") then row.fallback = "Party " .. token:sub(6)
+	else row.fallback = "Raid " .. token:sub(5) end
+	HideRow(row)
+	m.rows[token] = row
+	return row
+end
+
+local function MemberCell(f, row, t)
+	local cell = row.cells[t.uid]
+	if cell then return cell end
+	cell = CreateWidget(f.gate)
+	cell:EnableMouse(false)
+	if cell.SetMouseMotionEnabled then pcall(cell.SetMouseMotionEnabled, cell, false) end
+	cell.underSlot = true
+	cell:Hide()
+	row.cells[t.uid] = cell
+	return cell
+end
+
+-- The missing look under each slot; nothing under one shown only while active, or a dispel
+-- tracker; a question mark where the game cannot follow the tracker here.
+local function PaintCell(cell, g, item)
+	cell.underSlot = true
+	PaintWidget(cell, MemberLook(g), item.t, nil, false, false)
+	if not item.spec then
+		cell.icon:SetTexture(QUESTION)
+		cell:SetAlpha(0.5)
+	elseif item.t.show == "active" or item.t.dispel then
+		cell:SetAlpha(0)
+	else
+		cell:SetAlpha(1)
+	end
+end
+
+-- Where a row's name, veil and cells go. Out of a fight only.
+local function PlaceRow(f, g, row, geo)
+	local q, r = floor(row.index / geo.perCol), row.index % geo.perCol
+	local base = q * geo.blockLen
+	PointAtCellPx(row.hit, f, geo.flow, base, r * geo.P)
+	if geo.horiz then row.hit:SetSize(max(1, geo.L - 4), geo.size) else row.hit:SetSize(max(1, geo.P - 2), 12) end
+	row.label:SetJustifyH(geo.flow == "LEFT" and "RIGHT" or "LEFT")
+	local span = max(1, geo.T * geo.step - geo.sp)
+	PointAtCellPx(row.veil, f, geo.flow, base + geo.L, r * geo.P)
+	if geo.horiz then row.veil:SetSize(span, geo.size) else row.veil:SetSize(geo.size, span) end
+	row.veil.word:SetFont(FONT, max(8, floor(geo.size * 0.45)), "OUTLINE")
+	local planned = {}
+	for k, item in ipairs(geo.list) do
+		local cell = MemberCell(f, row, item.t)
+		planned[item.t.uid] = true
+		PaintCell(cell, g, item)
+		PointAtCellPx(cell, f, geo.flow, base + geo.L + (k - 1) * geo.step, r * geo.P)
+	end
+	for uid, cell in pairs(row.cells) do
+		cell.alInPlan = planned[uid] or false
+		if not cell.alInPlan then cell:Hide() end
+	end
+end
+
+-- A slot goes over its cell once; cells only move out of a fight, and it follows them.
+local function AnchorSlot(frame, cell)
+	if frame.alCell == cell or ManagerUnsafe() then return end
+	local ok = pcall(function()
+		frame:ClearAllPoints()
+		frame:SetPoint("TOPLEFT", cell, "TOPLEFT", 0, 0)
+		frame:SetPoint("BOTTOMRIGHT", cell, "BOTTOMRIGHT", 0, 0)
+	end)
+	if ok then frame.alCell = cell end
+end
+
+-- The cell sits under the game's slot and the veil over it, glow and all.
+local function LevelRow(f, row, cell, frame)
+	local okL, lvl = pcall(function() return frame:GetFrameLevel() end)
+	lvl = okL and ns.Clean(lvl) or nil
+	local okG, glvl = pcall(function() return f.gate:GetFrameLevel() end)
+	glvl = okG and ns.Clean(glvl) or nil
+	if type(lvl) == "number" then SetCellLevel(cell, lvl - 6)
+	elseif type(glvl) == "number" then SetCellLevel(cell, glvl - 3) end
+	local veilLevel = max(type(glvl) == "number" and (glvl + 20) or 0, type(lvl) == "number" and (lvl + 10) or 0)
+	if veilLevel > 0 and (row.veilLevel or 0) < veilLevel then
+		row.veil:SetFrameLevel(veilLevel)
+		row.veilLevel = veilLevel
+	end
+end
+
+local function MemberSlotKey(g, item, o)
+	return SlotName(item.t, item.spec.filter, o, ":" .. MemberLookKey(g))
+end
+
+local function QueueJob(f, g, token, uid)
+	local k = tostring(g.uid) .. ":" .. token .. ":" .. tostring(uid or "c")
+	if jobIndex[k] then return end
+	jobIndex[k] = true
+	local jobs = Display.memberJobs
+	jobs[#jobs + 1] = { f = f, g = g, token = token, uid = uid, k = k }
+end
+
+-- One step of building: a member's container and row, or one slot in it.
+local function RunJob(job)
+	local f, g, token = job.f, job.g, job.token
+	local m = f.members
+	if f.group ~= g or not (m and m.plan) or not f.gate then return end
+	local plan = m.plan
+	local set = token:find("^raid") and "raid" or "party"
+	if set == "raid" and not plan.raid then return end
+	local geo = MemberGeom(g, plan, set)
+	local row = MemberRow(f, token, set)
+	row.inPlan = true
+	if not job.uid then
+		local c = SlotContainer(f, g, token, MemberDriver(plan, token), true)
+		if not c then return end
+		PlaceRow(f, g, row, geo)
+		row.guid = Ask(UnitGUID, token)
+		row.built = true
+		return
+	end
+	local item = plan.byUid[job.uid]
+	if not (item and item.spec) then return end
+	local inSet = false
+	for _, it in ipairs(geo.list) do if it == item then inSet = true end end
+	if not inSet then return end
+	local c = f.slotC and f.slotC["m:" .. token]
+	if not c then return end
+	local o = AppliedSlotOpts(g, item.t)
+	local key = MemberSlotKey(g, item, o)
+	local frame = EnsureSlot(c, key, item.spec, MemberLook(g), o, item.t)
+	if not frame then return end
+	c.alOn = c.alOn or {}
+	c.alOn[key] = true
+	local cell = MemberCell(f, row, item.t)
+	AnchorSlot(frame, cell)
+	LevelRow(f, row, cell, frame)
+end
+
+-- A row the game has to read afresh: after a fight in which its member changed, or came back into
+-- view. Never in a fight, and never a show or a hide: setting the unit again is what makes it read.
+function Display.BounceMembers()
+	if ManagerUnsafe() then
+		ns.WhenFree("members:bounce", Display.BounceMembers)
+		return
+	end
+	for _, f in pairs(active) do
+		local m = f.members
+		if m then
+			for token, row in pairs(m.rows) do
+				if row.needsBounce then
+					local c = f.slotC and f.slotC["m:" .. token]
+					if c and row.built then
+						pcall(c.SetUnit, c, "none")
+						pcall(c.SetUnit, c, token)
+					end
+					row.guid = Ask(UnitGUID, token)
+					row.stale, row.needsBounce = nil, nil
+				end
+			end
+		end
+	end
+end
+
+-- The state of a member, first match wins; anything that cannot be told counts as fine.
+local function RowState(row, unlocked)
+	if not row.built and not unlocked then return "wait" end
+	local token = row.token
+	if Ask(UnitIsConnected, token) == false then return "off" end
+	if Ask(UnitIsDeadOrGhost, token) == true and Ask(UnitIsFeignDeath, token) ~= true then return "dead" end
+	if Ask(UnitIsVisible, token) == false then return "far" end
+	if row.stale then return "stale" end
+	return "ok"
+end
+
+local function ShowRow(row, g, state, placeholder)
+	row.state = state
+	row.shown = true
+	row.hit:SetShown(g.memberNames ~= false)
+	for _, cell in pairs(row.cells) do cell:SetShown(cell.alInPlan == true) end
+	if not placeholder then
+		local name = Ask(UnitName, row.token)
+		if type(name) == "string" and name ~= "" and name ~= (type(UNKNOWNOBJECT) == "string" and UNKNOWNOBJECT or "Unknown") then row.name = name end
+		local class = AskClass(row.token)
+		if class then row.class = class end
+	end
+	local text = (not placeholder and row.name) or row.fallback
+	local color = (state == "ok" and not placeholder and row.class and RAID_CLASS_COLORS and RAID_CLASS_COLORS[row.class]) or nil
+	local shown = (color and color.colorStr) and ("|c" .. color.colorStr .. text .. "|r") or ("|cff8c8c8c" .. text .. "|r")
+	if state == "dead" then shown = shown .. " |cff8c8c8c(dead)|r" end
+	if row.labelText ~= shown then
+		row.label:SetText(shown)
+		row.labelText = shown
+	end
+	local word = (not placeholder) and VEIL_WORD[state] or nil
+	if word then
+		row.veil.word:SetText(word)
+		row.veil:Show()
+	else
+		row.veil:Hide()
+	end
+end
+
+-- Which rows are on screen and what they say. Cheap, and safe at any time: it only shows and hides
+-- the addon's own frames. Returns true when a row wants reading afresh now.
+local function PaintStates(f, g)
+	local m = f.members
+	if not (m and m.plan) then return end
+	local unlocked = Display:IsUnlocked()
+	local unsafe = ManagerUnsafe()
+	local set = "party"
+	if m.plan.raid then
+		local inRaid = Ask(IsInRaid)
+		if inRaid == true then set = "raid" elseif inRaid == nil then set = m.set or "party" end
+	end
+	m.set = set
+	local bounce = false
+	for token, row in pairs(m.rows) do
+		if not row.inPlan or row.set ~= set then
+			HideRow(row)
+		else
+			local exists = (token == "player") or Ask(UnitExists, token)
+			if exists == nil then exists = row.shown end
+			if exists then
+				local guid = Ask(UnitGUID, token)
+				if row.wasAbsent then
+					-- Just joined: the game's own show of its container has read them afresh.
+					row.wasAbsent = nil
+					row.stale = nil
+					if row.built and guid then row.guid = guid end
+				elseif guid and row.guid and guid ~= row.guid then
+					-- Someone else holds this place now, and the container still shows who was there.
+					row.needsBounce = true
+					if unsafe then row.stale = true else bounce = true end
+				elseif guid and row.built and not row.guid then
+					row.guid = guid
+				end
+				local state = RowState(row, unlocked)
+				if (row.state == "far" or row.state == "off") and state == "ok" then
+					row.needsBounce = true
+					if not unsafe then bounce = true
+					elseif not ns.MEMBER_REFILL then row.stale = true state = "stale" end
+				end
+				ShowRow(row, g, state, false)
+			elseif unlocked and set == "party" and row.built then
+				-- While arranging, an empty place in the party shows where it would be.
+				row.wasAbsent = true
+				ShowRow(row, g, "absent", true)
+			else
+				row.wasAbsent = true
+				row.state = "absent"
+				HideRow(row)
+			end
+		end
+	end
+	if bounce then Display.BounceMembers() end
+end
+
+-- Gives up a group's member rows: the frame is going to another group, or back to watching you.
+local function ReleaseMembers(f)
+	local m = f.members
+	if not m then return end
+	for _, row in pairs(m.rows) do HideRow(row) end
+	f.members = nil
+end
+Display.ReleaseMembers = ReleaseMembers
+
+-- The member pass: what the group should hold, laid out, with anything missing queued to be built.
+-- Out of a fight and while auras can be read only; otherwise the rows are only repainted.
+function Display:RefreshMembers(g)
+	local f = active[g.uid]
+	if not f then return end
+	f.members = f.members or { rows = {}, dirty = true }
+	local m = f.members
+	local unsafe = ManagerUnsafe()
+	local unlocked = self:IsUnlocked()
+	-- A member group draws no cells of the ordinary kind.
+	for _, w in ipairs(f.widgets) do
+		if w.tracker or w:IsShown() then
+			w:Hide()
+			WidgetGlow(w, g, false)
+			w.tracker, w.entry, w.timed = nil, nil, false
+		end
+	end
+	f:SetAlpha(g.alpha or 1)
+	f:Show()
+	if not unsafe then
+		-- The gate's conditions can change without the group changing (a zone, a talent swap).
+		local gate = EnsureGate(f, g)
+		if gate.alDropped then gate:Show() gate.alDropped = nil end
+	end
+	local sig = MemberSig(g)
+	if m.sig ~= sig then m.dirty = true end
+	local passed = false
+	if not unsafe and f.gate and m.dirty then
+		passed = true
+		Display.memberPasses = (Display.memberPasses or 0) + 1
+		m.dirty = false
+		m.sig = sig
+		local plan = MemberPlan(g)
+		m.plan = plan
+		local lookKey = MemberLookKey(g)
+		if m.lookKey ~= lookKey then
+			if m.lookKey then Display.lookChangedAt = GetTime() end
+			m.lookKey = lookKey
+		end
+		local tokens = PlanTokens(plan)
+		local keep = {}
+		for _, e in ipairs(tokens) do keep["m:" .. e.token] = true end
+		ParkContainers(f, keep)
+		for token, row in pairs(m.rows) do if not keep["m:" .. token] then row.inPlan = false HideRow(row) end end
+		local geos = { party = MemberGeom(g, plan, "party"), raid = MemberGeom(g, plan, "raid") }
+		local look = MemberLook(g)
+		for _, e in ipairs(tokens) do
+			local geo = geos[e.set]
+			local c = f.slotC and f.slotC["m:" .. e.token]
+			local row = m.rows[e.token]
+			if not row and (e.set == "party" or c) then row = MemberRow(f, e.token, e.set) end
+			-- A container kept from before (the rows were given up, the containers cannot be) is built.
+			if row and c and c.alKey == "member" then row.built = true end
+			if row then
+				row.inPlan = true
+				PlaceRow(f, g, row, geo)
+			end
+			if c and c.alKey == "member" then
+				SlotContainer(f, g, e.token, MemberDriver(plan, e.token), true)
+				local wanted = {}
+				for _, item in ipairs(geo.list) do
+					if item.spec then
+						local o = AppliedSlotOpts(g, item.t)
+						local key = MemberSlotKey(g, item, o)
+						wanted[key] = true
+						local frame = c.alSlots[key]
+						if frame then
+							EnsureSlot(c, key, item.spec, look, o, item.t)
+							local cell = row and row.cells[item.t.uid]
+							if cell then
+								AnchorSlot(frame, cell)
+								LevelRow(f, row, cell, frame)
+							end
+						else
+							QueueJob(f, g, e.token, item.t.uid)
+						end
+					end
+				end
+				-- Slots for trackers no longer here, or built with an old look, are switched off; the
+				-- rest on. Whether the member is there does not matter: a slot that is on fills the
+				-- moment someone joins, in a fight too.
+				c.alOn = c.alOn or {}
+				for key in pairs(c.alSlots) do
+					local on = wanted[key] and true or false
+					if c.alOn[key] ~= on and pcall(c.SetAuraSlotEnabled, c, key, on) then c.alOn[key] = on end
+				end
+			else
+				QueueJob(f, g, e.token, nil)
+				for _, item in ipairs(geo.list) do
+					if item.spec then QueueJob(f, g, e.token, item.t.uid) end
+				end
+			end
+		end
+		-- The group's size: every row of the set on show, so the anchor corner never moves.
+		local geo = (plan.raid and (unlocked or m.set == "raid")) and geos.raid or geos.party
+		local rowsCount = (geo == geos.raid) and 40 or 5
+		local cols = ceil(rowsCount / geo.perCol)
+		local along = (cols - 1) * geo.blockLen + geo.L + max(1, geo.T * geo.step - geo.sp)
+		local across = (min(rowsCount, geo.perCol) - 1) * geo.P + geo.size
+		if geo.horiz then f:SetSize(max(1, along), max(1, across)) else f:SetSize(max(1, across), max(1, along)) end
+	end
+	f.chrome:SetShown(unlocked)
+	if unlocked then
+		local scope = (ns.GroupUnits(g) == "raid") and "everyone" or "my party"
+		local hidden = f.gate and not f.gate:IsShown()
+		f.chrome.label:SetText(ns.GroupName(g) .. "  |cff8fd4ff" .. scope .. "|r" .. (hidden and "  |cff9a9a9ahidden now|r" or ""))
+		local sel = ns.selected and ns.selected.group == g
+		if f.chrome.SetBackdropBorderColor then
+			if sel then f.chrome:SetBackdropBorderColor(0.3, 1, 0.4, 1) else f.chrome:SetBackdropBorderColor(1, 0.82, 0, 0.9) end
+		end
+	end
+	-- Between passes the twice-a-second poll keeps the rows up to date; every scan of your own auras
+	-- comes through here, and none of them is news about your party.
+	if passed then PaintStates(f, g) end
+end
+
+-- Builds what the member passes queued, a few milliseconds a frame, out of a fight only. While the
+-- options window is open it waits until the look has stopped changing, so that moving a slider
+-- does not leave a set of slots behind at every step.
+function Display:PumpMembers()
+	if self.rosterDirty then
+		self.rosterDirty = nil
+		self:PollMembers()
+	end
+	local jobs = self.memberJobs
+	if #jobs == 0 or ManagerUnsafe() then return end
+	if self:IsUnlocked() and GetTime() - (self.lookChangedAt or -100) < 1 then return end
+	local start = type(debugprofilestop) == "function" and debugprofilestop() or nil
+	local n = 0
+	while #jobs > 0 do
+		local job = table.remove(jobs, 1)
+		jobIndex[job.k] = nil
+		local ok, err = pcall(RunJob, job)
+		if not ok then ns.report["members"] = "a build step failed: " .. tostring(err) end
+		n = n + 1
+		if ManagerUnsafe() then break end
+		if start then
+			if debugprofilestop() - start >= PUMP_MS then break end
+		elseif n >= 2 then
+			break
+		end
+	end
+	if #jobs == 0 then
+		-- Built: one more pass switches the new slots on and settles the rows.
+		for _, f in pairs(active) do
+			if f.members and f.group then
+				f.members.dirty = true
+				self:RefreshMembers(f.group)
+			end
+		end
+	end
+end
+
+-- The roster and each member's state, twice a second: only rows of groups on screen, and only
+-- what changed is repainted.
+function Display:PollMembers()
+	if not ready then return end
+	for _, f in pairs(active) do
+		local g = f.group
+		if g and f.members and ns.GroupUnits(g) and f.gate and f.gate:IsShown() then PaintStates(f, g) end
+	end
+end
+
+function Display:RosterChanged()
+	self.rosterDirty = true
+end
+
+-- Something every member group has to take in (new ranks, the end of a fight).
+function Display:MembersDirty()
+	for _, f in pairs(active) do if f.members then f.members.dirty = true end end
+end
+
 local function LayoutGroup(f, g, visible, unlocked)
 	local n = #visible
 	local w, h
@@ -2950,7 +3590,8 @@ local function LayoutGroup(f, g, visible, unlocked)
 	local flow = FLOW[grow] or grow
 	local slots = g.gameDrawn and not unlocked
 
-	-- A group that watched your party until now puts its members' containers away.
+	-- A group that watched your party until now puts its members' rows and containers away.
+	if f.members then ReleaseMembers(f) end
 	if f.slotC then ParkContainers(f, { player = true }) end
 	-- Every slot starts the pass switched off; the ones with a cell are switched on below.
 	-- Containers are never shown or hidden from here: the gate's driver does that.
@@ -3210,6 +3851,8 @@ function Display:ActiveFrame(uid)
 end
 
 function Display:RefreshGroup(g)
+	-- A group that watches your party has its own pass; its look is always icons.
+	if ns.GroupUnits(g) then return self:RefreshMembers(g) end
 	if g.style == "bars" and Display.TrySkinAgain and Display:TrySkinAgain() then
 		Display:Rebuild()
 		return
@@ -3273,7 +3916,8 @@ function Display:Tick(now)
 	local unlocked = self:IsUnlocked()
 	for _, f in pairs(active) do
 		local g = f.group
-		if g then
+		-- A group that watches your party has no timers of the addon's own: the game draws them all.
+		if g and not ns.GroupUnits(g) then
 			-- A warn window opens with no event, and so does a cooldown starting or coming back, so
 			-- trackers that watch either are re-checked each tick.
 			if not unlocked then
@@ -3336,6 +3980,7 @@ function Display:Rebuild()
 				if Display.ShowGuides then Display.ShowGuides(nil, nil) end
 			end
 			f.group = nil
+			ReleaseMembers(f)
 			if f.slotC then
 				for _, c in pairs(f.slotC) do
 					DriverOff(c)
@@ -3356,6 +4001,7 @@ function Display:Rebuild()
 			active[uid] = f
 		end
 		f.group = g
+		if f.members then f.members.dirty = true end
 		if not f.moving then ApplyPosition(f, g) end
 	end
 	self:Refresh()
@@ -3434,7 +4080,7 @@ end
 -- of it the cursor is on. Returns nothing for a group of bars, for a side that is already taken,
 -- and when the cursor is sitting squarely on an icon rather than against one of its sides.
 function Display:DropCell(f, g, cx, cy, dragged)
-	if not f or not g or g.style == "bars" then return end
+	if not f or not g or g.style == "bars" or ns.GroupUnits(g) then return end
 	-- A group saved by an older version has no shape until something changes it.
 	if ns.FitCells then ns.FitCells(g) end
 	local axis = AXIS[FLOW[g.grow or "RIGHT"] or g.grow or "RIGHT"]
@@ -4065,6 +4711,11 @@ end
 function Display:GroupDragStart(f)
 	local g = f.group
 	if not g or not self:IsUnlocked() then return end
+	-- The game's containers ride on it, and are not moved in a fight.
+	if ns.GroupUnits(g) and ManagerUnsafe() then
+		ns.Print("A group that watches your party can be moved once the fight is over.")
+		return
+	end
 	f.moving = true
 	-- Whatever was being hovered when the drag started goes away with it.
 	GameTooltip:Hide()
@@ -4155,10 +4806,14 @@ function Display:AfterCombat()
 		self:Rebuild()
 	end
 	-- A battleground keeps auras hidden after the fight: the containers wait until they are not.
+	-- Rows that changed hands in the fight are read afresh, and what waited is laid out.
+	self:MembersDirty()
+	Display.BounceMembers()
 	if self.dropAfterCombat and not ManagerUnsafe() then
 		for f in pairs(self.dropAfterCombat) do
 			f:Hide()
 			f.group = nil
+			ReleaseMembers(f)
 			for _, c in pairs(f.slotC or {}) do
 				DriverOff(c)
 				c:Hide()

@@ -815,6 +815,93 @@ function ns.RemoveTracker(t)
 	ns.Changed()
 end
 
+-- Who a group watches. Refused in a fight (the game's containers cannot be made or put away then),
+-- and when nothing in the group could be followed on anyone else. What the group cannot hold
+-- goes into a group of its own beside it. The look is left as it is, so switching back to you alone
+-- brings it back; trackers added or moved meanwhile join it in rows.
+function ns.SetGroupUnits(g, units)
+	if units ~= "party" and units ~= "raid" then units = nil end
+	if not g or ns.GroupUnits(g) == units then return true end
+	if (InCombatLockdown and InCombatLockdown()) or AurasSecret() then
+		Print("Change who a group watches once the fight is over.")
+		return false
+	end
+	local canHold = ns.Display and ns.Display.MemberCanHold
+	if units and canHold and #g.trackers > 0 then
+		local any = false
+		for _, t in ipairs(g.trackers) do if canHold(t) then any = true break end end
+		if not any then
+			Print("Nothing in this group can be followed on your party: a cooldown, an item, a weapon or a debuff the game hides is yours alone.")
+			return false
+		end
+	end
+	if units == "raid" then
+		local n = 0
+		for _, other in ipairs(ns.profile.groups) do if other ~= g and ns.GroupUnits(other) == "raid" then n = n + 1 end end
+		if n >= (ns.RAID_GROUP_CAP or 2) then
+			Print(("At most %d groups can watch everyone in a raid. This one can watch your party."):format(ns.RAID_GROUP_CAP or 2))
+			return false
+		end
+	end
+	g.units = units
+	if units and canHold then
+		local out
+		for i = #g.trackers, 1, -1 do
+			local t = g.trackers[i]
+			if not canHold(t) then
+				if not out then
+					out = ns.NewGroupLike(g)
+					out.units, out.memberNames, out.perColumn = nil, nil, nil
+				end
+				if g.cells and g.cells[i] then table.remove(g.cells, i) end
+				table.remove(g.trackers, i)
+				table.insert(out.trackers, 1, t)
+			end
+		end
+		if out then
+			Print(("%d tracker%s that follow%s only you went into a group of %s own beside it."):format(#out.trackers,
+				#out.trackers == 1 and "" or "s", #out.trackers == 1 and "s" or "", #out.trackers == 1 and "its" or "their"))
+		end
+	end
+	ns.CleanMemberFields(g)
+	ns.Changed()
+	return true
+end
+
+-- One group with the buffs your class gives its party, each shown where it is missing, and a
+-- tracker for a debuff you can remove if your class can remove any. Buffs from talents only when
+-- you have them.
+function ns.MakePreset(class, x, y)
+	local preset = ns.PARTY_PRESETS and ns.PARTY_PRESETS[class or ""]
+	local names = {}
+	for _, b in ipairs(preset and preset.buffs or {}) do
+		if not b.ifKnown or (ns.bookRanks and ns.bookRanks[strlower(b[1])]) then names[#names + 1] = b[1] end
+	end
+	local canDispel = ns.DISPEL_BY_CLASS and ns.DISPEL_BY_CLASS[class or ""]
+	if #names == 0 and not canDispel then
+		Print("Your class has no party buffs or dispels to set up.")
+		return nil
+	end
+	if not x then
+		local n = #ns.profile.groups
+		x = (UIParent:GetWidth() or 1024) / 2 - 120 + (n % 6) * 12
+		y = (UIParent:GetHeight() or 768) / 2 + 120 - (n % 6) * 12
+	end
+	local g = ns.NewGroup(x, y)
+	g.name, g.units, g.gameDrawn = "Party buffs", "party", true
+	for _, name in ipairs(names) do
+		local _, icon, id = ns.SpellInfo(name)
+		local t = ns.NewTracker({ name = name, id = id, icon = icon, show = "missing" })
+		table.insert(g.trackers, t)
+	end
+	if canDispel then
+		table.insert(g.trackers, ns.NewTracker({ name = ns.DISPEL_NAMES.any, matchDispel = "any", icon = ns.DispelIcon("any") }))
+	end
+	ns.selected = { group = g }
+	ns.Changed()
+	return g
+end
+
 -- A tracker a group cannot hold goes into a new group beside it, with one line saying so: one that
 -- follows only you (a cooldown, an item, a weapon, a debuff the game hides) put in a group that
 -- watches your party, or a dispel tracker, which only the game can draw, put in a group the addon
@@ -883,7 +970,7 @@ function ns.TrackHistory(h, group, index, x, y)
 		if t.dispel or group.units then group.gameDrawn = true end
 	end
 	-- On your party a buff is worth seeing where it is missing, unless the row says otherwise.
-	if ns.GroupUnits(group) and not t.dispel and not h.show then t.show = "missing" end
+	if ns.GroupUnits(group) and not t.dispel and not h.show and ns.Display and ns.Display.MemberCanHold and ns.Display.MemberCanHold(t) then t.show = "missing" end
 	index = index and max(1, min(index, #group.trackers + 1)) or (#group.trackers + 1)
 	table.insert(group.trackers, index, t)
 	group = ns.Redirect(t, group)
@@ -2314,6 +2401,7 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		end
 		if C_Timer and C_Timer.After then C_Timer.After(1, function() if ns.SyncAuraSounds then ns.SyncAuraSounds() end end) end
 		ns.UpdateEnv()
+		if ns.Display and ns.Display.RosterChanged then ns.Display:RosterChanged() end
 		ns.Settle()
 	elseif event == "ADDON_RESTRICTION_STATE_CHANGED" then
 		ns.dirty = true
@@ -2353,6 +2441,9 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		ns.LearnBookRanks()
 		ns.ReadTalents()
 		ns.UpdateEnv()
+	elseif event == "GROUP_ROSTER_UPDATE" then
+		ns.UpdateEnv()
+		if ns.Display and ns.Display.RosterChanged then ns.Display:RosterChanged() end
 	elseif isEnvEvent[event] then
 		ns.UpdateEnv()
 	end
@@ -2393,6 +2484,10 @@ function ns.OnUpdate(elapsed)
 	-- Drawing every frame is what makes a bar drain smoothly; working out what should be on screen
 	-- is the expensive half and stays on its tenth of a second.
 	if ns.Display and ns.Display.Draw then ns.Display:Draw(now) end
+	-- Groups that watch your party are built a little each frame, and a roster change is taken in on
+	-- the next frame, so a burst of them comes to one.
+	local D = ns.Display
+	if D and D.PumpMembers and (D.rosterDirty or (D.memberJobs and #D.memberJobs > 0)) then D:PumpMembers() end
 	tickAcc = tickAcc + elapsed
 	if tickAcc >= 0.1 then
 		tickAcc = 0
@@ -2406,8 +2501,11 @@ function ns.OnUpdate(elapsed)
 		if ns.ranksChanged then
 			ns.ranksChanged = nil
 			if ns.SyncAuraSounds then ns.SyncAuraSounds() end
+			if ns.Display and ns.Display.MembersDirty then ns.Display:MembersDirty() end
 			if ns.Display and ns.Display.Refresh then ns.Display:Refresh() end
 		end
+		-- Who is in view, online and alive, twice a second.
+		if ns.Display and ns.Display.PollMembers then ns.Display:PollMembers() end
 		-- The auras you already had when you reloaded come with no event of any kind, so for a
 		-- little while after entering the world the addon simply asks again.
 		if ns.settleUntil then
