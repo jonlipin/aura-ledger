@@ -44,7 +44,6 @@ local ready = false
 -- ------------------------------------------------------------------
 -- Helpers
 -- ------------------------------------------------------------------
-function Display:ForgetMarks() marked = {} end
 -- (the grid is shown and hidden from Display:SyncGrid, called when arranging starts or stops)
 
 function Display:IsUnlocked()
@@ -1475,6 +1474,7 @@ end
 -- ------------------------------------------------------------------
 -- Icons marked with shift-click, to be moved as one. Held by tracker, and only while arranging.
 local marked = {}
+function Display:ForgetMarks() marked = {} end
 
 function Display:IsMarked(t) return t ~= nil and marked[t] == true end
 
@@ -2432,7 +2432,6 @@ local function InitSlotFrame(g, mode, filter, store, opts)
 			outer:SetPoint("LEFT", button, "LEFT", IS + 2 + ox, oy)
 			bar:SetPoint("LEFT", button, "LEFT", IS + 2 + inx + ox, oy)
 			button.alBar = bar
-			button.alBarBg = bg
 			bar:SetFrameLevel(button:GetFrameLevel() + 1)
 			-- The fill is a strip inside a sheet: the bar's texture needs the atlas (or the crop), not the sheet.
 			bar:SetStatusBarTexture(s.fill.file or BAR_TEXTURE)
@@ -2634,6 +2633,12 @@ local function SlotContainer(f, g, unit)
 		ns.report["game-drawn trackers"] = "AuraContainer not available: " .. tostring(nc)
 		AdviseGameDrawn("game-drawn trackers", "the game's aura display could not be created")
 		return nil
+	end
+	-- While the game's Edit Mode is open it would fill this with placeholder auras, which match none
+	-- of our spells, so every tracker would read as missing until it closed.
+	if nc.SetEditModePreviewEnabled then
+		local okE = pcall(nc.SetEditModePreviewEnabled, nc, false)
+		ns.report["edit mode preview"] = okE and "off" or "the game refused to turn it off"
 	end
 	nc:SetAllPoints(f)
 	nc:SetFrameLevel(gate:GetFrameLevel() + 3)

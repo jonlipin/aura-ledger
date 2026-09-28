@@ -229,6 +229,67 @@ local function CharKey()
 	return tostring(name) .. "-" .. tostring(realm)
 end
 
+-- One-time changes to saved data, by number. Each runs once, for every character's profile, and
+-- stamps db.schema; a step that fails leaves the stamp where it was, so the next load tries again.
+-- What used to be redone at every load lives here now, so a later version can give a tracker a
+-- field an older step would have wiped.
+local function EachProfile(db, fn)
+	for _, profile in pairs(db.chars or {}) do
+		if type(profile) == "table" and type(profile.groups) == "table" then
+			for _, g in ipairs(profile.groups) do
+				if type(g) == "table" then
+					g.trackers = type(g.trackers) == "table" and g.trackers or {}
+					fn(g)
+				end
+			end
+		end
+	end
+end
+ns.MIGRATIONS = {
+	-- 1: everything the loader used to redo at every login, done once.
+	[1] = function(db)
+		EachProfile(db, function(g)
+			g.cond = type(g.cond) == "table" and g.cond or {}
+			g.liveOnlyMine = nil -- retired: the combat question covers this properly
+			g.live = nil -- retired: a group the game filled could not honor the list put in it
+			g.watch = nil -- retired: the ~ in front of a carried time already says it
+			-- Trackers were buffs on you: an aura on another unit could not be followed through a fight.
+			for _, t in ipairs(g.trackers) do
+				t.unit = nil
+				t.kind = "buff"
+			end
+			-- Group size used to be three boxes; it is a number of players now.
+			local function MigrateGroupSize(cond)
+				if type(cond) ~= "table" or type(cond.group) ~= "table" then return end
+				local set = cond.group
+				cond.group = nil
+				if set.solo then return end -- "solo too" means any size
+				if set.party then cond.minGroup = 2 elseif set.raid then cond.minGroup = 6 end
+			end
+			MigrateGroupSize(g.cond)
+			for _, t in ipairs(g.trackers) do MigrateGroupSize(t.cond) end
+			-- Retired conditions: resting, mounted and having a target were rarely what anyone meant.
+			for _, key in ipairs({ "resting", "mounted", "target" }) do
+				g.cond[key] = nil
+				for _, t in ipairs(g.trackers) do if type(t.cond) == "table" then t.cond[key] = nil end end
+			end
+		end)
+	end,
+}
+function ns.Migrate(db)
+	db.schema = tonumber(db.schema) or 0
+	local step = db.schema + 1
+	while ns.MIGRATIONS[step] do
+		local ok, err = pcall(ns.MIGRATIONS[step], db)
+		if not ok then
+			ns.report["saved data"] = ("step %d failed: %s"):format(step, tostring(err))
+			return
+		end
+		db.schema = step
+		step = step + 1
+	end
+end
+
 function ns.InitDB()
 	if type(AuraLedgerDB) ~= "table" then AuraLedgerDB = {} end
 	local db = AuraLedgerDB
@@ -242,32 +303,11 @@ function ns.InitDB()
 	db.chars[key] = type(db.chars[key]) == "table" and db.chars[key] or {}
 	local profile = db.chars[key]
 	profile.groups = type(profile.groups) == "table" and profile.groups or {}
+	ns.Migrate(db)
+	-- What every load still makes sure of: the tables are there.
 	for _, g in ipairs(profile.groups) do
 		g.trackers = type(g.trackers) == "table" and g.trackers or {}
 		g.cond = type(g.cond) == "table" and g.cond or {}
-		g.liveOnlyMine = nil -- retired: the combat question covers this properly
-		g.live = nil -- retired: a group the game filled could not honor the list put in it
-		-- Trackers are buffs on you: an aura on another unit cannot be followed through a fight.
-		for _, t in ipairs(g.trackers) do
-			t.unit = nil
-			t.kind = "buff"
-		end
-		g.watch = nil -- retired: the ~ in front of a carried time already says it
-		-- Group size used to be three boxes; it is a number of players now.
-		local function MigrateGroupSize(c)
-			if type(c) ~= "table" or type(c.group) ~= "table" then return end
-			local set = c.group
-			c.group = nil
-			if set.solo then return end -- "solo too" means any size
-			if set.party then c.minGroup = 2 elseif set.raid then c.minGroup = 6 end
-		end
-		MigrateGroupSize(g.cond)
-		for _, t in ipairs(g.trackers) do MigrateGroupSize(t.cond) end
-		-- Retired conditions: resting, mounted and having a target were rarely what anyone meant.
-		for _, key in ipairs({ "resting", "mounted", "target" }) do
-			if g.cond then g.cond[key] = nil end
-			for _, t in ipairs(g.trackers) do if t.cond then t.cond[key] = nil end end
-		end
 		for _, t in ipairs(g.trackers) do t.cond = type(t.cond) == "table" and t.cond or {} end
 	end
 	ns.db, ns.profile, ns.charKey = db, profile, key
@@ -2005,6 +2045,27 @@ local function SafeRegister(event)
 	registered[event] = ok
 	return ok
 end
+-- Work that cannot be done in a fight, or while the game is hiding auras, waits here by name; the
+-- last one asked for under a name wins. It runs when both are over, in the order it was asked for.
+local freeQueue, freeOrder = {}, {}
+function ns.WhenFree(key, fn)
+	if not (InCombatLockdown and InCombatLockdown()) and not AurasSecret() then fn() return end
+	if not freeQueue[key] then freeOrder[#freeOrder + 1] = key end
+	freeQueue[key] = fn
+end
+function ns.DrainWhenFree()
+	if (InCombatLockdown and InCombatLockdown()) or AurasSecret() then return end
+	local queue, order = freeQueue, freeOrder
+	freeQueue, freeOrder = {}, {}
+	for _, key in ipairs(order) do
+		local fn = queue[key]
+		if fn then
+			local ok, err = pcall(fn)
+			if not ok then ns.report["waiting work"] = tostring(key) .. ": " .. tostring(err) end
+		end
+	end
+end
+
 -- Only these units' events are wanted, so the client is asked for nothing else.
 ns.SafeRegister = SafeRegister
 function ns.SafeUnregister(event)
@@ -2105,6 +2166,7 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		ns.dirty = true
 		if ns.soundSyncPending and ns.SyncAuraSounds then ns.SyncAuraSounds() end
 		if ns.Display and ns.Display.AfterCombat then ns.Display:AfterCombat() end
+		ns.DrainWhenFree()
 		if C_Timer and C_Timer.After then C_Timer.After(1, ns.FlushAdvice) end
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		ns.playerGUID = UnitGUID and UnitGUID("player") or ns.playerGUID
@@ -2143,6 +2205,7 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 				tostring(AurasSecret()), cdHidden, tostring(InCombatLockdown and InCombatLockdown())))
 			if ns.soundSyncPending and ns.SyncAuraSounds then ns.SyncAuraSounds() end
 			if ns.Display and ns.Display.AfterCombat and not (InCombatLockdown and InCombatLockdown()) then ns.Display:AfterCombat() end
+			ns.DrainWhenFree()
 		end) end
 	elseif event == "BAG_UPDATE_DELAYED" or event == "PLAYER_EQUIPMENT_CHANGED" then
 		-- What you are carrying has changed, so the page of it is out of date.
@@ -2404,14 +2467,60 @@ end
 function ns.Import(text)
 	text = tostring(text or ""):gsub("^%s+", ""):gsub("%s+$", "")
 	if not text:find("^!AL1:") then return nil, "That is not an Aura Ledger string (it should start with !AL1:)." end
-	local raw = B64Decode(text:sub(6))
-	local data, _, err = Parse(raw, 1)
+	local okD, raw = pcall(B64Decode, text:sub(6))
+	if not okD or type(raw) ~= "string" then return nil, "That string could not be read." end
+	local okP, data, _, err = pcall(Parse, raw, 1)
+	if not okP then err, data = "it is damaged", nil end
 	if err or type(data) ~= "table" or data.addon ~= "AuraLedger" then return nil, "That string could not be read" .. (err and (": " .. err) or ".") end
 	local n = #ns.profile.groups
 	local x = (UIParent:GetWidth() or 1024) / 2 - 40 + (n % 6) * 12
 	local y = (UIParent:GetHeight() or 768) / 2 + 100 - (n % 6) * 12
+	-- Only what the addon knows, each of the kind it expects: anything else in a string is dropped.
+	local function Str(v) return type(v) == "string" and v or nil end
+	local function Num(v) return type(v) == "number" and v == v and v or nil end
+	local function CleanSet(v, valueType)
+		if type(v) ~= "table" then return nil end
+		local out, any = {}, false
+		for k, val in pairs(v) do
+			if type(k) == "string" and type(val) == valueType then out[k] = val any = true end
+		end
+		return any and out or nil
+	end
+	local function CleanCond(src)
+		local out = {}
+		if type(src) ~= "table" then return out end
+		out.never = src.never == true or nil
+		for _, tog in ipairs(ns.TOGGLES) do
+			local v = src[tog[1]]
+			if v == "yes" or v == "no" then out[tog[1]] = v end
+		end
+		out.minGroup = Num(src.minGroup)
+		-- an older string: group size as three boxes
+		if not out.minGroup and type(src.group) == "table" and not src.group.solo then
+			out.minGroup = src.group.party and 2 or src.group.raid and 6 or nil
+		end
+		out.place = CleanSet(src.place, "boolean")
+		out.class = CleanSet(src.class, "boolean")
+		out.tree = Str(src.tree)
+		out.talentSet = (src.talentSet == 1 or src.talentSet == 2) and src.talentSet or nil
+		return out
+	end
+	local function CleanSounds(src)
+		if type(src) ~= "table" then return nil end
+		local out, any = {}, false
+		for _, key in ipairs({ "applied", "removed", "shown" }) do
+			local v = Num(src[key])
+			if v and ns.SOUND_CHOICES[v] then out[key] = v any = true end
+		end
+		return any and out or nil
+	end
+	local STYLE_TYPES = { style = "string", grow = "string", size = "number", barW = "number", barH = "number", barIconScale = "number",
+		spacing = "number", perRow = "number", scale = "number", alpha = "number" }
 	local function CleanTracker(src)
-		if type(src) ~= "table" or (not src.name and not src.id and not tonumber(src.item)) then return nil end
+		if type(src) ~= "table" or (not Str(src.name) and not Num(src.id) and not tonumber(src.item)) then return nil end
+		src = { name = Str(src.name), id = Num(src.id), icon = Num(src.icon) or Str(src.icon), kind = src.kind, item = src.item, cd = src.cd,
+			matchId = src.matchId, show = src.show, mine = src.mine, label = src.label, unit = src.unit, warn = Num(src.warn),
+			cond = CleanCond(src.cond), snd = CleanSounds(src.snd), glow = src.glow, enchant = src.enchant, swing = src.swing }
 		if (src.enchant ~= nil or src.swing ~= nil) and not src.name then return nil end
 		local t = ns.NewTracker({ name = src.name, id = src.id, icon = src.icon, kind = src.kind or "any",
 			item = tonumber(src.item), cd = (src.cd or tonumber(src.item)) and true or nil })
@@ -2419,10 +2528,12 @@ function ns.Import(text)
 		t.show = (src.show == "missing" or src.show == "always") and src.show or "active"
 		t.mine = src.mine and true or false
 		t.label = type(src.label) == "string" and src.label or nil
-		t.unit = src.unit == "target" and "target" or nil
-		t.warn = tonumber(src.warn) or nil
-		t.cond = type(src.cond) == "table" and src.cond or {}
-		t.snd = type(src.snd) == "table" and src.snd or nil
+		-- Trackers follow your own auras; a unit from an old string would never be followed.
+		t.unit = nil
+		t.kind = "buff"
+		t.warn = src.warn
+		t.cond = src.cond
+		t.snd = src.snd
 		t.glow = src.glow and true or nil
 		local function WeaponSlot(v) v = tonumber(v) return (v == 0 or v == 1 or v == 2) and v or nil end
 		t.enchant, t.swing = WeaponSlot(src.enchant), WeaponSlot(src.swing)
@@ -2431,10 +2542,15 @@ function ns.Import(text)
 	if data.kind == "group" and type(data.group) == "table" then
 		local src = data.group
 		local g = ns.NewGroup(x, y)
-		for _, k in ipairs(ns.GROUP_STYLE_KEYS) do if src[k] ~= nil then g[k] = src[k] end end
-		g.name = type(src.name) == "string" and src.name or nil
-		g.cond = type(src.cond) == "table" and src.cond or {}
-		for _, ts in ipairs(src.trackers or {}) do
+		for _, k in ipairs(ns.GROUP_STYLE_KEYS) do
+			local v = src[k]
+			local want = STYLE_TYPES[k] or "boolean"
+			if type(v) == want and (want ~= "number" or v == v) then g[k] = v end
+		end
+		if g.style ~= "icons" and g.style ~= "bars" then g.style = "icons" end
+		g.name = Str(src.name)
+		g.cond = CleanCond(src.cond)
+		for _, ts in ipairs(type(src.trackers) == "table" and src.trackers or {}) do
 			local t = CleanTracker(ts)
 			if t then table.insert(g.trackers, t) end
 		end
