@@ -681,7 +681,7 @@ local function PlaceBarShape(w, ref, width, height, want)
 	local pool = w.barShape or {}
 	w.barShape = pool
 	if not pieces or not want then
-		for _, tex in ipairs(pool) do tex:Hide() end
+		for _, tex in ipairs(pool) do tex:Hide() tex.alWanted = false end
 		return false
 	end
 	for i, def in ipairs(pieces) do
@@ -726,8 +726,9 @@ local function PlaceBarShape(w, ref, width, height, want)
 		end
 		ApplyRectWH(tex, ref, rect, (def.aspect or 1) * height, height)
 		tex:Show()
+		tex.alWanted = true
 	end
-	for i = #pieces + 1, #pool do pool[i]:Hide() end
+	for i = #pieces + 1, #pool do pool[i]:Hide() pool[i].alWanted = false end
 	return true
 end
 
@@ -1601,7 +1602,7 @@ local function PlaceBarFrame(w, ref, height, want)
 	local pool = w.barFrame or {}
 	w.barFrame = pool
 	if not want then
-		for _, tex in ipairs(pool) do tex:Hide() end
+		for _, tex in ipairs(pool) do tex:Hide() tex.alWanted = false end
 		return false
 	end
 	local px = max(1, floor(height / 14 + 0.5))
@@ -1633,6 +1634,7 @@ local function PlaceBarFrame(w, ref, height, want)
 			tex:SetWidth(px)
 		end
 		tex:Show()
+		tex.alWanted = true
 	end
 	return true
 end
@@ -1742,9 +1744,11 @@ local function PlaceDecor(w, list, key, ref, H, want, even)
 			ApplyTexture(tex, d)
 		end
 		ApplyGeometry(tex, d.geo, ref, H, even)
-		tex:SetShown(not want or want(d))
+		local on = (not want or want(d)) and true or false
+		tex:SetShown(on)
+		tex.alWanted = on
 	end
-	for i = #list + 1, #pool do pool[i]:Hide() end
+	for i = #list + 1, #pool do pool[i]:Hide() pool[i].alWanted = false end
 end
 
 local function ApplyFont(fs, d, H, fallbackPx)
@@ -1943,7 +1947,7 @@ local function ConfigureWidget(w, g)
 			w.bar.bg:SetPoint("BOTTOMRIGHT", w.bar, "BOTTOMRIGHT", -inx, iny)
 		end
 		w.bar:Show()
-		if PlaceBarShape(w, w.bar, max(8, g.barW - IS - 2), H, g.border ~= false or g.background ~= false) then
+		if PlaceBarShape(w, w.bar, max(8, g.barW - IS - 2), H, g.border ~= false or (not w.underSlot and g.background ~= false)) then
 			PlaceDecor(w, {}, "decor", w.bar, H, wantBar)
 		else
 			PlaceDecor(w, s.decor, "decor", w.bar, H, function(dd) return BarPieceWanted(dd, g.border ~= false) end)
@@ -2569,10 +2573,14 @@ local function InitSlotFrame(g, mode, filter, store, opts)
 			button.alBarArt = barW
 			-- This slot wears the frame while the game is drawing the aura. The cell underneath wears
 			-- one too, for when it is not, and gives it up while the aura is there: see BarArtShown.
-			if not PlaceBarShape(barW, outer, max(8, W - IS - 2), H, g.border ~= false) then
-				PlaceDecor(barW, s.decor, "decor", outer, H, function(dd) return BarPieceWanted(dd, g.border ~= false) end)
+			-- A member's cell cannot know when the aura is there, so it keeps its frame, and the slot
+			-- over it goes without.
+			if not opts.noFrame then
+				if not PlaceBarShape(barW, outer, max(8, W - IS - 2), H, g.border ~= false) then
+					PlaceDecor(barW, s.decor, "decor", outer, H, function(dd) return BarPieceWanted(dd, g.border ~= false) end)
+				end
+				PlaceBarFrame(barW, outer, H, g.border ~= false and not HaveBarFrame())
 			end
-			PlaceBarFrame(barW, outer, H, g.border ~= false and not HaveBarFrame())
 			PlaceBarPip(barW, bar:GetStatusBarTexture(), H, g.border ~= false)
 			if g.iconFrame ~= false then
 				local e1 = PlaceCleanEdge(w, icon, IS, true)
@@ -2826,13 +2834,13 @@ local SLOT_ADVICE = 800
 
 -- One slot in a container: made if it can be made now, and kept carrying the tracker's current
 -- filters. Nil when it is not there and cannot be made now.
-local function EnsureSlot(c, key, spec, look, o, t)
+local function EnsureSlot(c, key, spec, look, o, t, noFrame)
 	local frame = c.alSlots[key]
 	if not frame then
 		if ManagerUnsafe() then return nil end
 		local store = {}
 		local ok, fr = pcall(c.AddAuraSlot, c, key, spec.filter, { initializeFrame = InitSlotFrame(look, "cover", spec.filter, store,
-			{ warn = o.warn, glow = o.glow, dispelRing = t.dispel ~= nil }), candidateFilters = spec.filters })
+			{ warn = o.warn, glow = o.glow, dispelRing = t.dispel ~= nil, noFrame = noFrame }), candidateFilters = spec.filters })
 		if not ok or not fr then
 			ns.report["game-drawn trackers"] = "AddAuraSlot: " .. tostring(fr)
 			AdviseGameDrawn("game-drawn trackers", "the game refused a tracker's slot")
@@ -2989,30 +2997,34 @@ local function AskClass(unit)
 end
 Display.Ask = Ask
 
--- Members are always drawn as icons. The group's own look is left as it is (switching back to you
--- alone brings bars back) and read through this, which answers icons for the style.
-local lookOf = setmetatable({}, { __mode = "k" })
+-- Members are drawn as the group is: icons, or bars. (A shape built by hand is not used for them:
+-- each member's row is laid out in order.)
 local function MemberLook(g)
-	local l = lookOf[g]
-	if not l then
-		l = setmetatable({ style = "icons" }, { __index = g })
-		lookOf[g] = l
-	end
-	return l
+	return g
 end
--- What a member's slot is built with. A change means new slots in the same containers.
+-- What a member's slot is built with. A change means new slots in the same containers. Icons need
+-- only a few things; a bar is built with everything the group's own slots are, its art and the
+-- plate's reach included.
+local PLATE_KEYS = { "plateTop", "plateBottom", "plateEven", "fillInsetX", "fillInsetY", "barOffsetX", "barOffsetY", "plateLeft", "plateRight" }
 local function MemberLookKey(g)
+	if g.style == "bars" then
+		local parts = { "mb", tostring(g.barW), tostring(g.barH), tostring(g.barIconScale or 1), tostring(g.iconFrame ~= false),
+			tostring(g.border ~= false), tostring(g.timers ~= false), tostring(g.names ~= false), tostring(g.dispelColors == true),
+			tostring(ns.MASK_EPOCH or 0) }
+		for _, k in ipairs(PLATE_KEYS) do parts[#parts + 1] = tostring(ns.db and ns.db[k]) end
+		return table.concat(parts, ":")
+	end
 	return "m" .. tostring(g.size or 40) .. (g.iconFrame ~= false and "f" or "") .. (g.timers ~= false and "t" or "")
 		.. (g.dispelColors and "d" or "") .. "e" .. tostring(ns.MASK_EPOCH or 0)
 end
 -- Everything that changes what a member group has to build or lay out.
 local function MemberSig(g)
 	local parts = { MemberLookKey(g), tostring(g.units), tostring(g.memberNames), tostring(g.perColumn), tostring(g.grow),
-		tostring(g.spacing), tostring(g.alpha), tostring(g.cond and g.cond.never) }
+		tostring(g.spacing), tostring(g.alpha), tostring(g.cond and g.cond.never), tostring(g.style), tostring(g.background ~= false) }
 	for _, t in ipairs(g.trackers) do
 		parts[#parts + 1] = table.concat({ tostring(t.uid), tostring(t.show), tostring(t.dispel), tostring(t.mine), tostring(t.matchId),
 			tostring(t.name), tostring(t.id), tostring(t.glow), tostring(t.warn), tostring(t.cond and t.cond.never), tostring(t.kind),
-			tostring(t.icon), tostring(t.cd), tostring(t.item), tostring(t.enchant), tostring(t.swing) }, "|")
+			tostring(t.icon), tostring(t.cd), tostring(t.item), tostring(t.enchant), tostring(t.swing), tostring(t.label) }, "|")
 	end
 	return table.concat(parts, ";")
 end
@@ -3085,19 +3097,29 @@ local function PlanTokens(plan)
 end
 
 -- The shape of a member group, in its own flow: a row per member (a column, growing up or down),
--- its name first, then a cell per tracker; raid rows wrap into a new block every perCol rows.
+-- its name first, then a cell per tracker; raid rows wrap into a new block every perCol rows. A cell
+-- is an icon, or a bar: as wide as the group's bars, and as tall as the taller of bar and icon.
 local function MemberGeom(g, plan, set)
-	local size, sp = g.size or 40, g.spacing or 4
-	local step = size + sp
+	local sp = g.spacing or 4
+	local cw, ch
+	if g.style == "bars" then
+		cw, ch = g.barW or 190, max(g.barH or 22, ns.BarIconSize(g))
+	else
+		cw, ch = g.size or 40, g.size or 40
+	end
 	local grow = g.grow or "RIGHT"
 	local flow = FLOW[grow] or grow
 	local horiz = flow == "RIGHT" or flow == "LEFT"
+	-- A cell's length along the flow, and its breadth across it.
+	local along, across = cw, ch
+	if not horiz then along, across = ch, cw end
+	local step = along + sp
 	local names = g.memberNames ~= false
 	local L = names and (horiz and 68 or 14) or 0
-	local P = (names and not horiz) and max(step, 44) or step
+	local P = (names and not horiz) and max(across + sp, 44) or (across + sp)
 	local list = (set == "raid") and plan.raidTrackers or plan.trackers
-	return { size = size, sp = sp, step = step, flow = flow, horiz = horiz, names = names, L = L, P = P, T = #list, list = list,
-		blockLen = L + #list * step + floor(step / 2), perCol = (set == "raid") and (g.perColumn or 10) or 5 }
+	return { along = along, across = across, sp = sp, step = step, flow = flow, horiz = horiz, names = names, L = L, P = P,
+		T = #list, list = list, blockLen = L + #list * step + floor(min(step, 44) / 2), perCol = (set == "raid") and (g.perColumn or 10) or 5 }
 end
 
 local function HideRow(row)
@@ -3179,6 +3201,11 @@ local function PaintCell(cell, g, item)
 	PaintWidget(cell, MemberLook(g), item.t, nil, false, false)
 	if not item.spec then
 		cell.icon:SetTexture(QUESTION)
+		if g.style == "bars" then
+			SetFill(cell, 0)
+			TintFill(cell, nil, false)
+			if cell.duration then cell.duration:SetText("") end
+		end
 		cell:SetAlpha(0.5)
 	elseif item.t.show == "active" or item.t.dispel then
 		cell:SetAlpha(0)
@@ -3192,12 +3219,12 @@ local function PlaceRow(f, g, row, geo)
 	local q, r = floor(row.index / geo.perCol), row.index % geo.perCol
 	local base = q * geo.blockLen
 	PointAtCellPx(row.hit, f, geo.flow, base, r * geo.P)
-	if geo.horiz then row.hit:SetSize(max(1, geo.L - 4), geo.size) else row.hit:SetSize(max(1, geo.P - 2), 12) end
+	if geo.horiz then row.hit:SetSize(max(1, geo.L - 4), geo.across) else row.hit:SetSize(max(1, geo.P - 2), 12) end
 	row.label:SetJustifyH(geo.flow == "LEFT" and "RIGHT" or "LEFT")
 	local span = max(1, geo.T * geo.step - geo.sp)
 	PointAtCellPx(row.veil, f, geo.flow, base + geo.L, r * geo.P)
-	if geo.horiz then row.veil:SetSize(span, geo.size) else row.veil:SetSize(geo.size, span) end
-	row.veil.word:SetFont(FONT, max(8, floor(geo.size * 0.45)), "OUTLINE")
+	if geo.horiz then row.veil:SetSize(span, geo.across) else row.veil:SetSize(geo.across, span) end
+	row.veil.word:SetFont(FONT, max(8, floor(min(geo.along, geo.across) * 0.45)), "OUTLINE")
 	local planned = {}
 	for k, item in ipairs(geo.list) do
 		local cell = MemberCell(f, row, item.t)
@@ -3237,8 +3264,13 @@ local function LevelRow(f, row, cell, frame)
 	end
 end
 
+-- Whether a member's bar slot leaves its frame to the cell: the cell is on show under it (the
+-- tracker shows when missing too).
+local function SlotNoFrame(g, item)
+	return g.style == "bars" and item.t.show ~= "active" and not item.t.dispel
+end
 local function MemberSlotKey(g, item, o)
-	return SlotName(item.t, item.spec.filter, o, ":" .. MemberLookKey(g))
+	return SlotName(item.t, item.spec.filter, o, ":" .. MemberLookKey(g) .. (SlotNoFrame(g, item) and ":nf" or ""))
 end
 
 local function QueueJob(f, g, token, uid)
@@ -3285,7 +3317,7 @@ local function RunJob(job)
 	if not c then return end
 	local o = AppliedSlotOpts(g, item.t)
 	local key = MemberSlotKey(g, item, o)
-	local frame = EnsureSlot(c, key, item.spec, MemberLook(g), o, item.t)
+	local frame = EnsureSlot(c, key, item.spec, MemberLook(g), o, item.t, SlotNoFrame(g, item))
 	if not frame then return end
 	c.alOn = c.alOn or {}
 	c.alOn[key] = true
@@ -3365,15 +3397,24 @@ end
 
 -- The group's size: every row of the set on show, so the anchor corner never moves. Out of a fight
 -- only (in one, a new size would move the game's slots with the cells).
-local function SizeMembers(f, g, plan, set)
-	if ManagerUnsafe() then return end
+local function Extent(g, plan, set)
 	local geo = MemberGeom(g, plan, set)
 	local rowsCount = (set == "raid") and 40 or 5
 	local cols = ceil(rowsCount / geo.perCol)
 	local along = (cols - 1) * geo.blockLen + geo.L + max(1, geo.T * geo.step - geo.sp)
-	local across = (min(rowsCount, geo.perCol) - 1) * geo.P + geo.size
-	if geo.horiz then f:SetSize(max(1, along), max(1, across)) else f:SetSize(max(1, across), max(1, along)) end
-	f.members.sizedFor = set
+	local across = (min(rowsCount, geo.perCol) - 1) * geo.P + geo.across
+	if geo.horiz then return max(1, along), max(1, across) end
+	return max(1, across), max(1, along)
+end
+local function SizeMembers(f, g, plan, set, both)
+	if ManagerUnsafe() then return end
+	local w, h = Extent(g, plan, set)
+	if both then
+		local w2, h2 = Extent(g, plan, "party")
+		w, h = max(w, w2), max(h, h2)
+	end
+	f:SetSize(w, h)
+	f.members.sizedFor = both and "both" or set
 end
 
 -- A row the game is not showing (the group's conditions hide it, or it belongs to the other set):
@@ -3478,6 +3519,10 @@ function Display:RefreshMembers(g)
 		local gate = EnsureGate(f, g)
 		if gate.alDropped then gate:Show() gate.alDropped = nil end
 	end
+	if g.style == "bars" and not unsafe and Display.TrySkinAgain and Display:TrySkinAgain() then
+		Display:Rebuild()
+		return
+	end
 	local sig = MemberSig(g)
 	if m.sig ~= sig then m.dirty = true end
 	local passed = false
@@ -3524,7 +3569,7 @@ function Display:RefreshMembers(g)
 						wanted[key] = true
 						local frame = c.alSlots[key]
 						if frame then
-							EnsureSlot(c, key, item.spec, look, o, item.t)
+							EnsureSlot(c, key, item.spec, look, o, item.t, SlotNoFrame(g, item))
 							local cell = row and row.cells[item.t.uid]
 							if cell then
 								AnchorSlot(frame, cell)
@@ -3556,7 +3601,9 @@ function Display:RefreshMembers(g)
 				end
 			end
 		end
-		SizeMembers(f, g, plan, (plan.raid and (unlocked or m.set == "raid")) and "raid" or "party")
+		local centred = g.grow == "CENTER_H" or g.grow == "CENTER_V"
+		local both = unlocked and plan.raid and not centred
+		SizeMembers(f, g, plan, (plan.raid and (both or m.set == "raid")) and "raid" or "party", both)
 	end
 	f.chrome:SetShown(unlocked)
 	if unlocked then

@@ -1613,8 +1613,7 @@ local function BuildGroupPanel(width)
 	local function IsMembers() local g = G() return (g and ns.GroupUnits(g)) and true or false end
 	local function NotMembers() return not IsMembers() end
 	local function IsRaidScope() local g = G() return (g and ns.GroupUnits(g) == "raid") and true or false end
-	-- A group that watches your party is drawn as icons whatever its saved look.
-	local function IsBars() local g = G() return (g and g.style == "bars" and not ns.GroupUnits(g)) and true or false end
+	local function IsBars() local g = G() return (g and g.style == "bars") and true or false end
 	-- Only the game can draw a dispel tracker, so a group holding one stays drawn by the game.
 	local function HasDispel() local g = G() for _, t in ipairs(g and g.trackers or {}) do if t.dispel then return true end end return false end
 	b:Header("Group")
@@ -1630,15 +1629,16 @@ local function BuildGroupPanel(width)
 			b:Sync()
 			UI:RefreshTree()
 		end,
-		"My party: you and up to four others. In a raid, that is the four in your own raid group, which is who Blood Pact and Battle Shout reach. Everyone: your party, or every member of a raid, ten to a column. Either way the game draws each member's buffs, so they stay right all through a fight.")
+		"My party: you and up to four others. In a raid, that is the four in your own raid group, which is who Blood Pact and Battle Shout reach. Everyone: your party, or every member of a raid, ten to a block. Either way the game draws each member's buffs, so they stay right all through a fight.")
 	-- Two plain questions: what is in the group, and who draws it. The second only comes up for a
 	-- group of your own trackers, because a group the game fills is always drawn by the game.
 	b:DynamicNote(function()
 		local g = G()
 		if g and ns.GroupUnits(g) then
 			local text = "The game draws each member's trackers, so they stay right all through a fight. A dimmed row is one the game cannot see right now: Far (out of view) or Off (offline). A ? means the row changed hands during a fight, or its member came back into view or online; it is read afresh when the fight ends. Changes to this group wait until you are out of a fight (in a battleground, until the match ends)."
+			text = text .. " Growing right or left, each member is a row with the trackers side by side; growing up or down, each member is a column with them stacked."
 			if ns.GroupUnits(g) == "raid" then
-				text = text .. " In a raid that is up to 40 rows, so a smaller icon size keeps them on screen. In a battleground the rows are right until the raid changes, and put right when the match ends."
+				text = text .. " In a raid that is up to 40 members, ten to a block by default, then a new block beside it (Members before wrapping). With bars the blocks are wide: more members before wrapping, or a lower Scale, keeps them on screen. In a battleground the rows are right until the raid changes, and put right when the match ends."
 				if ns.Display.RaidCapped and ns.Display.RaidCapped(g) then
 					text = text .. (" Raid rows carry the first %d trackers across groups that watch a whole raid; the rest show on your party's rows only, outside a raid."):format(ns.RAID_TRACKER_CAP or 8)
 				end
@@ -1656,8 +1656,9 @@ local function BuildGroupPanel(width)
 			local g = G()
 			if not g then return end
 			g.style = v
-			-- Bars are wide, so a group of them stacks rather than marching sideways.
-			if v == "bars" then
+			-- Bars are wide, so a group of them stacks rather than marching sideways. A group that
+			-- watches your party keeps a row per member, the bars side by side in it.
+			if v == "bars" and not ns.GroupUnits(g) then
 				if g.grow == "RIGHT" or g.grow == "LEFT" then ns.Display:SetGrow(g, "DOWN")
 				elseif g.grow == "CENTER_H" then ns.Display:SetGrow(g, "CENTER_V") end
 			end
@@ -1665,7 +1666,6 @@ local function BuildGroupPanel(width)
 			b:Sync()
 		end,
 		"Icons show the time left as a number on the icon. Bars show an icon, the name and a draining bar.")
-	b:AppliesWhen(NotMembers)
 	b:Cycle("Grow towards", ns.GROWS,
 		function() local g = G() return g and g.grow or "RIGHT" end,
 		function(v) local g = G() if g then ns.Display:SetGrow(g, v) end end,
@@ -1681,11 +1681,11 @@ local function BuildGroupPanel(width)
 		"How big the icon beside the bar is, against the bar's own height. Above 100% it stands proud of the bar, above and below.")
 	b:AppliesWhen(IsBars)
 	b:Slider("Spacing", { min = 0, max = 30, step = 1, get = Num("spacing", 4), set = SetNum("spacing") })
-	b:Check("Show names", function() local g = G() return g and g.memberNames ~= false end,
+	b:Check("Show member names", function() local g = G() return g and g.memberNames ~= false end,
 		function(v) local g = G() if g then g.memberNames = (not v) and false or nil GroupChanged() end end,
 		"Each member's name at the start of their row, in their class colour. Hover it for what the game can see of them.")
 	b:AppliesWhen(IsMembers)
-	b:Slider("Members per column", { min = 1, max = 40, step = 1, get = Num("perColumn", 10), set = SetNum("perColumn") })
+	b:Slider("Members before wrapping", { min = 1, max = 40, step = 1, get = Num("perColumn", 10), set = SetNum("perColumn") })
 	b:AppliesWhen(IsRaidScope)
 	b:Slider("Trackers per row before wrapping", { min = 1, max = 40, step = 1, get = Num("perRow", 8),
 		set = function(v)
@@ -1728,7 +1728,8 @@ local function BuildGroupPanel(width)
 	b:Check("Bar background", function() local g = G() return g and g.background ~= false end,
 		function(v) local g = G() if g then g.background = v GroupChanged() end end,
 		"The dark plate behind the fill. Untick to see through the empty part of a bar.")
-	b:AppliesWhen(IsBars)
+	-- The game's bars for your party always have their own dark backing.
+	b:AppliesWhen(function() return IsBars() and NotMembers() end)
 	b:Check("Icon frame", function() local g = G() return g and g.iconFrame ~= false end,
 		function(v) local g = G() if g then g.iconFrame = v GroupChanged() end end,
 		"The decorative frame around each icon, when the client has one.")

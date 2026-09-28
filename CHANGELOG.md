@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.74.1
+
+- New: groups that watch your party or your raid can be bars. **Show as** is offered for them now: each member's trackers become bars with the time left draining, drawn by the game all through a fight, like the icons. Growing right or left, each member is a row with the bars side by side; growing up or down, each member is a column with the bars stacked. Bar width, height, icon scale, border and names on bars all apply.
+- Changed: the option for the names at the start of each member's row is now **Show member names**, so it is not mistaken for the names on the bars, and **Members per column** is now **Members before wrapping**, since growing up or down it counts members side by side.
+- Fixed: on bars the game draws, the frame the group asks for could be drawn twice, or come back after Bar border was unticked. Each bar now wears it once, and only when asked for.
+- Fixed: Bar background did nothing on bars the game draws, which always have their own dark backing; it is no longer offered for a group that watches your party.
+
 ## 1.74.0
 
 - New: groups that watch your party or your whole raid. **Track on**, at the top of a group's settings, is now Me, My party, or Everyone in my group. Each member gets a row: their name in their class colour, then a cell for each tracker, and the game draws each member's buffs in them, so the rows stay right all through a fight. My party is you and up to four others; in a raid that is your own raid group, which is who Blood Pact and Battle Shout reach. Everyone is your party, or in a raid every member, ten to a column (**Members per column** changes that).

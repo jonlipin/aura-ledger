@@ -42,9 +42,9 @@ Rows a group drawn by the game can follow all through a fight carry a small **co
 
 ## Your party and raid
 
-**Track on**, at the top of a group's settings, says who the group watches: **Me**, **My party** (you and up to four others; in a raid, your own raid group, which is who Blood Pact and Battle Shout reach) or **Everyone in my group** (your party, or every member of a raid, ten to a column).
+**Track on**, at the top of a group's settings, says who the group watches: **Me**, **My party** (you and up to four others; in a raid, your own raid group, which is who Blood Pact and Battle Shout reach) or **Everyone in my group** (your party, or every member of a raid, ten to a block by default: **Members before wrapping** sets how many).
 
-Each member gets a row: their name in their class colour, then a cell for each tracker. The game draws each member's buffs in those cells, so the rows stay right all through a fight, and someone joining mid-fight fills in at once. A buff's group version counts too: Prayer of Fortitude for Fortitude, Arcane Brilliance for Arcane Intellect, a Greater Blessing for its Blessing. A new buff put in such a group shows where it is missing.
+Each member gets a row: their name in their class colour, then a cell for each tracker, as an icon or as a bar with the time left draining (**Show as**). Growing right or left, each member is a row with the trackers side by side; growing up or down, each member is a column with them stacked. The game draws each member's buffs in those cells, so the rows stay right all through a fight, and someone joining mid-fight fills in at once. A buff's group version counts too: Prayer of Fortitude for Fortitude, Arcane Brilliance for Arcane Intellect, a Greater Blessing for its Blessing. A new buff put in such a group shows where it is missing.
 
 A row also says what the game cannot show you:
 
@@ -70,7 +70,7 @@ In the **Groups and trackers** list, drag a row onto a group to move it there, o
 
 ## Settings
 
-**Per group**: name, who it watches, icons or bars, growth direction, icon size, bar width and height, icon scale on bars, spacing, icons per row, scale, opacity, time text, names on bars, whether to draw the bar border, the bar background and the icon frame, and whether to colour each aura's border by its dispel type. A group that watches your party also has member names on or off; one that watches everyone in your group also has members per column.
+**Per group**: name, who it watches, icons or bars, growth direction, icon size, bar width and height, icon scale on bars, spacing, icons per row, scale, opacity, time text, names on bars, whether to draw the bar border, the bar background and the icon frame, and whether to colour each aura's border by its dispel type. A group that watches your party also has member names on or off; one that watches everyone in your group also has members before wrapping. Its trackers are laid out in each member's row in order, so a shape built by hand is not used there.
 
 **Per tracker**: what it watches (the buff, or the spell's cooldown); when it shows (Active, Missing, or Either); how long before it runs out or comes back to put it on screen again; match by name or exact spell ID; only when cast by you; a glow while it is up (in a group drawn by the game); a bar label; and a sound when it lands, when it goes, and when the tracker appears.
 
