@@ -918,20 +918,17 @@ end
 -- rather than a square behind a rounded corner.
 -- The client's own soft shadows, best first. A flat shape is a silhouette, not a shadow, so one of
 -- these is wanted; without any, none is drawn at all.
-local SHADOW_ATLASES = {
-	"UI-HUD-CoolDownManager-IconShadow",
-	"UI-HUD-ActionBar-IconFrame-Shadow",
-	"spellbook-item-iconframe-shadow",
-	"UI-Frame-IconShadow",
-}
+-- When the manager's art could not be copied: its own icon overlay, at the reach measured off its
+-- icons (shares of the picture's size). What lies past the picture is the shadow. Nothing else is
+-- tried: art named in hope has the wrong shape here (the spellbook's item shadow, used once, is the
+-- outline of a spellbook entry, not an icon's shadow).
+local SHADOW_ART = { atlas = "UI-HUD-CoolDownManager-IconOverlay", l = 0.200, r = 0.200, t = 0.175, b = 0.175 }
 local shadowAtlas, shadowTried
 local function ShadowArt()
 	if not shadowTried then
 		shadowTried = true
-		for _, a in ipairs(SHADOW_ATLASES) do
-			if HasAtlas(a) then shadowAtlas = a break end
-		end
-		ns.report["icon shadow"] = shadowAtlas or "none of the client's shadow art is present"
+		if HasAtlas(SHADOW_ART.atlas) then shadowAtlas = SHADOW_ART.atlas end
+		ns.report["icon shadow"] = shadowAtlas or "the manager's icon overlay is not present"
 	end
 	return shadowAtlas
 end
@@ -955,10 +952,9 @@ local function ShapeShadow(w, icon, size, want)
 	end
 	-- Soft art spreads past what it shadows, which is where the softness lives, so it is drawn
 	-- larger than the picture rather than masked to the picture's own shape.
-	local px = max(2, floor(size / 8 + 0.5))
 	tex:ClearAllPoints()
-	tex:SetPoint("TOPLEFT", icon, "TOPLEFT", -px, px)
-	tex:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", px, -px)
+	tex:SetPoint("TOPLEFT", icon, "TOPLEFT", -size * SHADOW_ART.l, size * SHADOW_ART.t)
+	tex:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", size * SHADOW_ART.r, -size * SHADOW_ART.b)
 	tex:Show()
 	return true
 end
@@ -1199,6 +1195,7 @@ local function BuildSkin()
 	return s
 end
 Display.BuildSkin = BuildSkin
+Display.HaveShape = function() return HaveShape() end
 Display.IconCrop = IconCrop
 Display.BorderMode = BorderMode
 Display.EvenOverhang = EvenOverhang
@@ -1682,23 +1679,68 @@ end
 -- The manager's bar items are hidden until it has something to track, and a hidden bar has nothing
 -- to read: a skin taken at login has no bar frame in it. This looks again, now and then, and takes
 -- the frame the moment the manager is drawing a bar of its own.
-local lastSkinTry = 0
-function Display:TrySkinAgain()
+-- The manager's art is read when the skin is first made, and read again now and then while part of
+-- it is missing: the bar frame (the manager only draws a bar while it is tracking something), or the
+-- icon shape (a reading taken while it had no icons on show has none). A new reading never costs the
+-- skin anything it had: the icon part and the bar part are each kept from whichever reading has them.
+-- (A reading that came back with less used to replace the skin whole, and every icon made after it
+-- lost its shape, its border and its shadow.)
+local ICON_PART = { "shape", "shapeFrom", "soloIconDecor", "soloIconCoords", "iconSource" }
+local ICON_REPORT = { "icon shape", "icon shape tried", "icon skin" }
+local lastSkinTry, skinTries = 0, 0
+-- The manager has just been switched on: look at once, rather than at the next try.
+function Display.SkinRetryNow()
+	lastSkinTry, skinTries = 0, 0
+end
+function Display:TrySkinAgain(wantBar)
 	if ManagerUnsafe() then return false end
-	if HaveBarFrame() then return false end
+	local hadBar, hadShape = HaveBarFrame(), shapeInHand
+	if (hadBar or not wantBar) and hadShape then return false end
 	local now = GetTime and GetTime() or 0
-	if now - lastSkinTry < 5 then return false end
+	-- Every few seconds at first; after a couple of minutes without luck, now and then.
+	if now - lastSkinTry < ((skinTries < 24) and 5 or 30) then return false end
 	lastSkinTry = now
+	skinTries = skinTries + 1
 	local had = skin
+	local said = {}
+	for _, k in ipairs(ICON_REPORT) do said[k] = ns.report[k] end
+	said["bar skin"] = ns.report["bar skin"]
 	skin = nil
 	local ok = pcall(BuildSkin)
-	if not ok or not skin then skin = had return false end
-	if HaveBarFrame() then
-		ns.report["bar skin"] = tostring(skin.source) .. " (read again once the manager had a bar to show)"
-		ns.MASK_EPOCH = (ns.MASK_EPOCH or 0) + 1
-		return true
+	if not ok or not skin or not had then
+		if not skin then skin, shapeInHand = had, hadShape end
+		return false
 	end
-	return false
+	local fresh = skin
+	local gotBar = wantBar and HaveBarFrame() and not hadBar
+	local gotShape = shapeInHand and not hadShape
+	if not gotBar and not gotShape then
+		skin, shapeInHand = had, hadShape
+		for k, v in pairs(said) do ns.report[k] = v end
+		return false
+	end
+	-- Start from whichever reading has the bar frame, and give it the icon part of whichever has the shape.
+	local base = (HaveBarFrame() or not hadBar) and fresh or had
+	local icons = gotShape and fresh or had
+	if base ~= icons then
+		for _, k in ipairs(ICON_PART) do base[k] = icons[k] end
+	end
+	if icons == had then for _, k in ipairs(ICON_REPORT) do ns.report[k] = said[k] end end
+	skin = base
+	shapeInHand = (base.shape and #(base.shape.masks or {}) > 0) and true or false
+	skinTries = 0
+	ns.report["bar skin"] = tostring(skin.source) .. " (read again: the manager had " .. (gotBar and "a bar" or "icons") .. " to show)"
+	ns.MASK_EPOCH = (ns.MASK_EPOCH or 0) + 1
+	return true
+end
+-- For the harness: the next try waits its full interval, as it does just after one.
+function Display.HoldSkinRetryForTest()
+	lastSkinTry = GetTime and GetTime() or 0
+end
+-- For the harness: a skin that has lost its icon shape, as one read at the wrong moment has.
+function Display.ForgetIconShapeForTest()
+	if skin then skin.shape = nil end
+	shapeInHand = false
 end
 
 -- How far the bar is moved from where it would otherwise sit: sideways, and up. Shares of its
@@ -1960,7 +2002,7 @@ local function ConfigureWidget(w, g)
 		w.ringRef = nil
 		ShapeMask(w, w.icon, IS, g.iconFrame ~= false)
 		ShapeArt(w, w.icon, IS, g.iconFrame ~= false, w.underSlot and 1 or 0)
-		ShapeShadow(w, w.icon, IS, g.iconFrame ~= false)
+		ShapeShadow(w, w.icon, IS, g.iconFrame ~= false and ShadowLayers(w.underSlot and 1 or 0) > 0)
 		ShapeCooldown(w, w.cd, IS, g.iconFrame ~= false)
 		local shaped = ShapeBorder(w, w.icon, IS, g.iconFrame ~= false) or (HaveShape() and g.iconFrame ~= false)
 		local edged = PlaceCleanEdge(w, w.icon, IS, g.iconFrame ~= false)
@@ -2019,7 +2061,8 @@ local function ConfigureWidget(w, g)
 		ShapeMask(w, w.icon, S, g.iconFrame ~= false)
 		-- Under a slot the game draws one layer of its own, which counts towards the depth.
 		ShapeArt(w, w.icon, S, g.iconFrame ~= false, w.underSlot and 1 or 0)
-		ShapeShadow(w, w.icon, S, g.iconFrame ~= false)
+		-- Under a slot the game's own overlay counts as one layer of the shadow's depth.
+		ShapeShadow(w, w.icon, S, g.iconFrame ~= false and ShadowLayers(w.underSlot and 1 or 0) > 0)
 		ShapeCooldown(w, w.cd, S, g.iconFrame ~= false)
 		local shaped = ShapeBorder(w, w.icon, S, g.iconFrame ~= false) or (HaveShape() and g.iconFrame ~= false)
 		local edged = PlaceCleanEdge(w, w.icon, S, g.iconFrame ~= false, w.underSlot)
@@ -2468,7 +2511,8 @@ local function InitSlotFrame(g, mode, filter, store, opts)
 		-- The cell underneath draws the shadow for this tracker; a second set here would sit exactly
 		-- on top of it and come out twice as deep.
 		ShapeArt(w, icon, IW, false)
-		ShapeShadow(w, icon, IW, g.iconFrame ~= false)
+		-- Nor its own stand-in shadow: the game draws its overlay on its slots itself.
+		ShapeShadow(w, icon, IW, false)
 		button.alIcon = icon
 		pcall(button.SetIcon, button, icon)
 		SquareUp()
@@ -3075,6 +3119,10 @@ local function MemberPlan(g)
 		end
 	end
 	plan.raid = units == "raid" and #plan.raidTrackers > 0
+	-- Whether any tracker here can be taken off a member (a buff set to show when missing).
+	for _, item in ipairs(plan.trackers) do
+		if item.t.show == "missing" and item.spec and item.spec.filter == "HELPFUL" then plan.takes = true end
+	end
 	return plan
 end
 
@@ -3234,7 +3282,10 @@ local function PlaceRow(f, g, row, geo)
 	end
 	for uid, cell in pairs(row.cells) do
 		cell.alInPlan = planned[uid] or false
-		if not cell.alInPlan then cell:Hide() end
+		if not cell.alInPlan then
+			cell:Hide()
+			cell.alSuppressed = nil
+		end
 	end
 end
 
@@ -3262,6 +3313,71 @@ local function LevelRow(f, row, cell, frame)
 		row.veil:SetFrameLevel(veilLevel)
 		row.veilLevel = veilLevel
 	end
+end
+
+-- ---- Reading members, for a group hidden in a fight ----
+-- Out of a fight nothing about anyone's auras is hidden, so a group that is only on screen then can
+-- read its members itself, and a tracker set to show when missing can mean it: taken off the
+-- members who have the aura (its slot switched off, its cell hidden) until the aura is gone or
+-- inside the tracker's warn time. In a fight such a group is hidden, so nothing has to change then.
+-- A battleground or an arena keeps everyone's auras hidden for the whole match, out of fights too:
+-- nothing can be read there, so nothing is taken off anyone there.
+local function ReadsMembers(g)
+	if not (ns.GroupUnits(g) ~= nil and g.cond ~= nil and g.cond.combat == "no" and not g.cond.never) then return false end
+	local place = ns.env and ns.env.place
+	return place ~= "bg" and place ~= "arena"
+end
+Display.ReadsMembers = ReadsMembers
+-- Each member's aura changes, counted: every group that reads them reads again once per change.
+local auraGen = {}
+local auraWatch
+-- A member's auras changed: read again at the next look.
+function Display.MemberAuraChanged(unit)
+	if type(unit) == "string" then auraGen[unit] = (auraGen[unit] or 0) + 1 end
+end
+local function WatchMemberAuras(on)
+	if on and not auraWatch then
+		auraWatch = CreateFrame("Frame")
+		auraWatch:SetScript("OnEvent", function(_, _, unit)
+			if not (issecretvalue and issecretvalue(unit)) then Display.MemberAuraChanged(unit) end
+		end)
+	end
+	if not auraWatch then return end
+	if on and not auraWatch.alOn then
+		if pcall(auraWatch.RegisterEvent, auraWatch, "UNIT_AURA") then auraWatch.alOn = true end
+	elseif not on and auraWatch.alOn then
+		pcall(auraWatch.UnregisterEvent, auraWatch, "UNIT_AURA")
+		auraWatch.alOn = nil
+	end
+end
+
+-- The aura a tracker follows on a member, from what was read: by the spell ids its slot is given.
+local function MatchAura(entries, t, spec)
+	local ids = spec and spec.filters and spec.filters.includeSpellIDs
+	if not (entries and ids) then return nil end
+	local best
+	for _, e in pairs(entries) do
+		if e.id and ids[e.id] and (not t.mine or e.mine) then
+			if not best or (best.expires > 0 and (e.expires == 0 or e.expires > best.expires)) then best = e end
+		end
+	end
+	return best
+end
+
+-- Whether a tracker can be taken off a member: a buff set to show when it is missing. (Only buffs:
+-- what is read is a member's buffs.)
+local function Takes(item)
+	return item.t.show == "missing" and item.spec ~= nil and item.spec.filter == "HELPFUL"
+end
+-- Whether a Missing tracker is taken off a member now: they have the aura, and it is not about to go.
+local function Suppressed(row, item, now)
+	if not Takes(item) or not row.auras then return false end
+	local e = MatchAura(row.auras, item.t, item.spec)
+	if not e then return false end
+	if e.expires > 0 and e.expires <= now then return false end
+	local warn = tonumber(item.t.warn) or 0
+	if warn > 0 and e.expires > 0 and e.expires - now <= warn then return false end
+	return true
 end
 
 -- Whether a member's bar slot leaves its frame to the cell: the cell is on show under it (the
@@ -3371,7 +3487,7 @@ local function ShowRow(row, g, state, placeholder)
 	row.state = state
 	row.shown = true
 	row.hit:SetShown(g.memberNames ~= false)
-	for _, cell in pairs(row.cells) do cell:SetShown(cell.alInPlan == true) end
+	for _, cell in pairs(row.cells) do cell:SetShown(cell.alInPlan == true and not cell.alSuppressed) end
 	if not placeholder then
 		local name = Ask(UnitName, row.token)
 		if type(name) == "string" and name ~= "" and name ~= (type(UNKNOWNOBJECT) == "string" and UNKNOWNOBJECT or "Unknown") then row.name = name end
@@ -3486,11 +3602,104 @@ local function PaintStates(f, g)
 	if bounce then Display.BounceMembers() end
 end
 
+-- Reads the members of a group hidden in a fight and takes its Missing trackers off those who have
+-- the aura. Out of a fight and while auras can be read only; in one, what was decided stands (the
+-- group is hidden then anyway). While the options window is open everything is shown. A member is
+-- read again when their auras change, when someone else is in their place, and now and then anyway.
+local function ApplyPresence(f, g)
+	local m = f.members
+	if not (m and m.plan) or ManagerUnsafe() then return end
+	local reads = ReadsMembers(g) and m.plan.takes and not Display:IsUnlocked()
+	if not reads and not m.anyTaken then return end
+	local now = GetTime()
+	-- Each tracker's slot name, once: it is the same in every member's container.
+	local keys = {}
+	for _, item in ipairs(m.plan.trackers) do
+		if item.spec then keys[item] = MemberSlotKey(g, item, AppliedSlotOpts(g, item.t)) end
+	end
+	local anyTaken = false
+	for token, row in pairs(m.rows) do
+		if row.inPlan then
+			if reads and row.shown and row.set == m.set and Ask(UnitIsVisible, token) ~= false then
+				local guid = Ask(UnitGUID, token)
+				if row.auraGen ~= (auraGen[token] or 0) or row.auraGuid ~= guid or not row.auraAt or now - row.auraAt > 10 then
+					local out = {}
+					local bad = ns.ReadAuras and ns.ReadAuras(token, "HELPFUL", "buff", out)
+					row.auras = (bad == 0) and out or nil
+					row.auraAt, row.auraGen, row.auraGuid = now, auraGen[token] or 0, guid
+				end
+			else
+				row.auras, row.auraAt = nil, nil
+			end
+			local c = f.slotC and f.slotC["m:" .. token]
+			local list = (row.set == "raid") and m.plan.raidTrackers or m.plan.trackers
+			for _, item in ipairs(list) do
+				local off = reads and Suppressed(row, item, now) or false
+				if off then anyTaken = true end
+				local cell = row.cells[item.t.uid]
+				if cell and (cell.alSuppressed or false) ~= off then
+					cell.alSuppressed = off
+					cell:SetShown(row.shown and cell.alInPlan == true and not off)
+				end
+				local key = keys[item]
+				if c and key then
+					c.alSuppress = c.alSuppress or {}
+					c.alSuppress[key] = off or nil
+					c.alOn = c.alOn or {}
+					if c.alSlots[key] and c.alWanted and c.alWanted[key] then
+						local on = not off
+						if c.alOn[key] ~= on and pcall(c.SetAuraSlotEnabled, c, key, on) then c.alOn[key] = on end
+					end
+				end
+			end
+		end
+	end
+	m.anyTaken = anyTaken
+end
+Display.ApplyPresence = ApplyPresence
+
+-- Everything taken off members is put back: slots on, cells shown. Before a loading screen, since in
+-- a battleground on the other side nothing can be changed until the match ends.
+function Display.DropPresence()
+	if ManagerUnsafe() then return end
+	for _, f in pairs(active) do
+		local m = f.members
+		if m and m.anyTaken then
+			for token, row in pairs(m.rows) do
+				row.auras, row.auraAt = nil, nil
+				for _, cell in pairs(row.cells) do
+					if cell.alSuppressed then
+						cell.alSuppressed = false
+						cell:SetShown(row.shown and cell.alInPlan == true)
+					end
+				end
+				local c = f.slotC and f.slotC["m:" .. token]
+				if c and c.alSuppress then
+					for key in pairs(c.alSuppress) do
+						if c.alSlots[key] and c.alWanted and c.alWanted[key] and c.alOn and c.alOn[key] ~= true then
+							if pcall(c.SetAuraSlotEnabled, c, key, true) then c.alOn[key] = true end
+						end
+					end
+					c.alSuppress = {}
+				end
+			end
+			m.anyTaken = false
+		end
+	end
+end
+
 -- Gives up a group's member rows: the frame is going to another group, or back to watching you.
 function ReleaseMembers(f)
 	local m = f.members
 	if not m then return end
-	for _, row in pairs(m.rows) do HideRow(row) end
+	for _, row in pairs(m.rows) do
+		HideRow(row)
+		for _, cell in pairs(row.cells) do cell.alSuppressed = nil end
+	end
+	-- What was taken off members goes with the rows: the next pass switches slots on by what it wants.
+	for slot, c in pairs(f.slotC or {}) do
+		if slot:sub(1, 2) == "m:" then c.alSuppress = nil end
+	end
 	f.members = nil
 end
 Display.ReleaseMembers = ReleaseMembers
@@ -3519,7 +3728,7 @@ function Display:RefreshMembers(g)
 		local gate = EnsureGate(f, g)
 		if gate.alDropped then gate:Show() gate.alDropped = nil end
 	end
-	if g.style == "bars" and not unsafe and Display.TrySkinAgain and Display:TrySkinAgain() then
+	if not unsafe and Display.TrySkinAgain and Display:TrySkinAgain(g.style == "bars") then
 		Display:Rebuild()
 		return
 	end
@@ -3590,8 +3799,9 @@ function Display:RefreshMembers(g)
 				-- rest on. Whether the member is there does not matter: a slot that is on fills the
 				-- moment someone joins, in a fight too.
 				c.alOn = c.alOn or {}
+				c.alWanted = wanted
 				for key in pairs(c.alSlots) do
-					local on = wanted[key] and true or false
+					local on = (wanted[key] and not (c.alSuppress and c.alSuppress[key])) and true or false
 					if c.alOn[key] ~= on and pcall(c.SetAuraSlotEnabled, c, key, on) then c.alOn[key] = on end
 				end
 			else
@@ -3617,7 +3827,10 @@ function Display:RefreshMembers(g)
 	end
 	-- Between passes the twice-a-second poll keeps the rows up to date; every scan of your own auras
 	-- comes through here, and none of them is news about your party.
-	if passed then PaintStates(f, g) end
+	if passed then
+		PaintStates(f, g)
+		ApplyPresence(f, g)
+	end
 end
 
 -- Builds what the member passes queued, a few milliseconds a frame, out of a fight only. While the
@@ -3662,17 +3875,22 @@ end
 -- what changed is repainted.
 function Display:PollMembers()
 	if not ready then return end
+	local watch = false
 	for _, f in pairs(active) do
 		local g = f.group
+		if g and ReadsMembers(g) and f.members and f.members.plan and f.members.plan.takes then watch = true end
 		if g and f.members and ns.GroupUnits(g) and f.gate then
 			if f.gate:IsShown() then
 				PaintStates(f, g)
+				ApplyPresence(f, g)
 			else
 				-- Hidden by its conditions: its containers are hidden too, and are read afresh when shown.
 				for _, row in pairs(f.members.rows) do Unseen(row) end
 			end
 		end
 	end
+	-- Members' aura changes are listened for only while a group reads them.
+	WatchMemberAuras(watch)
 end
 
 function Display:RosterChanged()
@@ -4082,7 +4300,7 @@ end
 function Display:RefreshGroup(g)
 	-- A group that watches your party has its own pass; its look is always icons.
 	if ns.GroupUnits(g) then return self:RefreshMembers(g) end
-	if g.style == "bars" and Display.TrySkinAgain and Display:TrySkinAgain() then
+	if Display.TrySkinAgain and Display:TrySkinAgain(g.style == "bars") then
 		Display:Rebuild()
 		return
 	end

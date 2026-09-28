@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.74.2
+
+- New: Aura Ledger tells you, once a session, when the game's Cooldown Manager is switched off. It draws its icons and bars in the manager's look (the icon shape, its border and shadow, the bar's frame), copied from the manager's own displays, so with the manager off every tracker falls back to plain stand-ins. Turn it on under Options, Gameplay, Advanced Options: Enable Cooldown Manager. The look is picked up within a few seconds, with no reload.
+- Fixed: the look could be lost in the middle of a session. While a bar group had no bar frame yet, the addon read the manager's art again every few seconds and kept each new reading whole, even one taken while the manager showed nothing, which took away the icons' shape, border and shadow and the bars' frame. A reading now only ever adds what was missing, and the addon keeps looking until it has both the icon look and the bar frame.
+- Fixed: the stand-in shadow drawn when the manager's art is not to hand was the spellbook's item shadow, a dark outline of the wrong shape behind every icon. It is now the manager's own icon overlay, at the size measured off its icons, and never doubled round the icons the game draws.
+- Fixed: in a group that watches your party or raid and is hidden in a fight (**In combat: Hidden**), a tracker set to **Missing** showed on everyone, the members who had the buff included. Out of a fight the addon now reads everyone's buffs itself, so Missing shows only the members without it, and a warn time brings it back on a member as theirs runs low. With the options window open everyone is still shown, to arrange by. Shown in a fight, the game draws a buff on everyone who has it, so there Missing still behaves like Either, and so it does in a battleground or an arena, where nobody's auras can be read.
+
 ## 1.74.1
 
 - New: groups that watch your party or your raid can be bars. **Show as** is offered for them now: each member's trackers become bars with the time left draining, drawn by the game all through a fight, like the icons. Growing right or left, each member is a row with the bars side by side; growing up or down, each member is a column with the bars stacked. Bar width, height, icon scale, border and names on bars all apply.

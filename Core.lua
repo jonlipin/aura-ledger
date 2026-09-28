@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.74.1"
+ns.VERSION = "1.74.2"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1707,6 +1707,8 @@ local function ProbeOne(unit, t)
 	return "unknown"
 end
 ns.ProbeOne = ProbeOne
+-- One unit's auras of one filter into "out", keyed; returns how many could not be read.
+ns.ReadAuras = function(unit, filter, kind, out) return ReadFilter(unit, filter, kind, out) end
 
 local firstScan = true
 -- How long after entering the world the addon keeps asking for the auras you already have. The
@@ -2068,6 +2070,17 @@ function ns.CDM.Available()
 		and Enum and Enum.CooldownViewerCategory and CDMTag() ~= nil) and true or false
 end
 
+-- The manager's own switch: true on, false off, nil when the client will not say. Aura Ledger draws
+-- its icons and bars in the manager's look, copied from the manager's own displays, so with the
+-- manager off it has nothing to copy and draws plain stand-ins.
+function ns.CDM.Enabled()
+	if not (C_CVar and C_CVar.GetCVar) then return nil end
+	local ok, v = pcall(C_CVar.GetCVar, "cooldownViewerEnabled")
+	v = ok and Clean(v) or nil
+	if v == nil then return nil end
+	return tostring(v) ~= "0"
+end
+
 function ns.CDM.LayoutName()
 	return "Aura Ledger (" .. tostring(CDMTag()) .. ")"
 end
@@ -2410,6 +2423,7 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		if ns.Display and ns.Display.AfterCombat then ns.Display:AfterCombat() end
 		ns.DrainWhenFree()
 		if C_Timer and C_Timer.After then C_Timer.After(1, ns.FlushAdvice) end
+		if ns.cdmCheckPending then ns.CheckCooldownManager() end
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		ns.playerGUID = UnitGUID and UnitGUID("player") or ns.playerGUID
 		if C_Timer and C_Timer.After then
@@ -2431,6 +2445,8 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 			end)
 		end
 		if C_Timer and C_Timer.After then C_Timer.After(1, function() if ns.SyncAuraSounds then ns.SyncAuraSounds() end end) end
+		-- The manager has to be on for the look: said a few seconds in, once the world is up.
+		if C_Timer and C_Timer.After then C_Timer.After(5, ns.CheckCooldownManager) else ns.CheckCooldownManager() end
 		ns.UpdateEnv()
 		if ns.Display and ns.Display.RosterChanged then ns.Display:RosterChanged() end
 		ns.Settle()
@@ -2475,6 +2491,22 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 	elseif event == "GROUP_ROSTER_UPDATE" then
 		ns.UpdateEnv()
 		if ns.Display and ns.Display.RosterChanged then ns.Display:RosterChanged() end
+	elseif event == "CVAR_UPDATE" then
+		local name = Clean(a1)
+		if type(name) == "string" and name:lower() == "cooldownviewerenabled" then
+			if ns.CDM.Enabled() then
+				-- Switched on: its look is read again as soon as it is on screen, and everything redrawn.
+				ns.report["cooldown manager switch"] = "on"
+				if ns.Display and ns.Display.SkinRetryNow then ns.Display.SkinRetryNow() end
+				if C_Timer and C_Timer.After then C_Timer.After(1, function() if ns.Display then ns.Display:Refresh() end end) end
+			else
+				ns.CheckCooldownManager()
+			end
+		end
+	elseif event == "PLAYER_LEAVING_WORLD" then
+		-- Last chance before a loading screen to put back what was taken off members: in a
+		-- battleground nothing about anyone's auras can be read, or changed, until the match ends.
+		if ns.Display and ns.Display.DropPresence then ns.Display.DropPresence() end
 	elseif isEnvEvent[event] then
 		ns.UpdateEnv()
 	end
@@ -2497,7 +2529,8 @@ for _, ev in ipairs({ "WEAPON_ENCHANT_CHANGED", "WEAPON_SLOT_CHANGED", "PLAYER_T
 	SafeRegister(ev)
 end
 for _, ev in ipairs({ "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD",
-	"ADDON_RESTRICTION_STATE_CHANGED", "BAG_UPDATE_DELAYED", "PLAYER_EQUIPMENT_CHANGED", "SPELLS_CHANGED" }) do
+	"ADDON_RESTRICTION_STATE_CHANGED", "BAG_UPDATE_DELAYED", "PLAYER_EQUIPMENT_CHANGED", "SPELLS_CHANGED", "CVAR_UPDATE",
+	"PLAYER_LEAVING_WORLD" }) do
 	SafeRegister(ev)
 end
 for _, ev in ipairs(ENV_EVENTS) do SafeRegister(ev) end
@@ -3023,6 +3056,38 @@ if type(StaticPopupDialogs) == "table" then
 		hideOnEscape = true,
 		preferredIndex = 3,
 	}
+end
+
+-- The Cooldown Manager is off: said once a session, as a dialog, out of a fight.
+if type(StaticPopupDialogs) == "table" then
+	StaticPopupDialogs["AURALEDGER_CDM"] = {
+		text = "Aura Ledger\n\n%s",
+		button1 = OKAY or "OK",
+		timeout = 0,
+		whileDead = true,
+		hideOnEscape = true,
+		preferredIndex = 3,
+	}
+end
+ns.CDM_OFF_TEXT = "Aura Ledger draws its icons and bars in the Cooldown Manager's look, which it copies from the manager's own displays. The Cooldown Manager is switched off, so your trackers are drawn with plain stand-ins.\n\nTurn it on under Options, Gameplay, Advanced Options: Enable Cooldown Manager. Aura Ledger picks the look up as soon as the manager is on screen, with no reload."
+-- Switched off after the look was read: it is kept for now, and lost at the next reload.
+ns.CDM_OFF_KEPT_TEXT = "The Cooldown Manager has been switched off. Aura Ledger keeps the look it already copied from it for now, but after a reload your trackers fall back to plain stand-ins unless the manager is on.\n\nIt is under Options, Gameplay, Advanced Options: Enable Cooldown Manager."
+local cdmToldOff = false
+function ns.CheckCooldownManager()
+	local on = ns.CDM.Enabled()
+	local kept = on == false and ns.Display and ns.Display.HaveShape and ns.Display.HaveShape()
+	ns.report["cooldown manager switch"] = (on == true and "on") or (kept and "off: the look read earlier is kept until a reload")
+		or (on == false and "off: the look falls back to plain stand-ins") or "the client will not say"
+	if on ~= false or cdmToldOff then return end
+	if InCombatLockdown and InCombatLockdown() then
+		ns.cdmCheckPending = true
+		return
+	end
+	cdmToldOff = true
+	ns.cdmCheckPending = nil
+	local text = kept and ns.CDM_OFF_KEPT_TEXT or ns.CDM_OFF_TEXT
+	Print((text:gsub("\n\n", " ")))
+	if StaticPopup_Show then pcall(StaticPopup_Show, "AURALEDGER_CDM", text) end
 end
 
 -- stillWrong: called when the fight ends; the advice is dropped when it answers false.

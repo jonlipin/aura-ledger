@@ -18,6 +18,10 @@ Aura Ledger writes down every buff that ever lands on you, so you can find it ag
 
 Cooldowns have so far read the same in a fight as out of one on this client, so a cooldown tracker keeps counting straight through a fight. If the game ever hides one (it may in some restricted fights), the tracker carries on from what it last read and from when you cast the spell, and never claims it is ready when it cannot say.
 
+## Before you start
+
+Turn the game's **Cooldown Manager** on: Options, Gameplay, Advanced Options, **Enable Cooldown Manager**. Aura Ledger draws its icons and bars in the manager's look (the icon shape, its border and shadow, the bar's frame), which it copies from the manager's own displays while they are on screen. With the manager off there is nothing to copy, and every tracker is drawn with plain stand-ins; Aura Ledger says so at login. Once the manager is on, the look is picked up within a few seconds, with no reload.
+
 ## Getting started
 
 1. `/auraledger`, or the minimap button, opens the window.
@@ -44,7 +48,7 @@ Rows a group drawn by the game can follow all through a fight carry a small **co
 
 **Track on**, at the top of a group's settings, says who the group watches: **Me**, **My party** (you and up to four others; in a raid, your own raid group, which is who Blood Pact and Battle Shout reach) or **Everyone in my group** (your party, or every member of a raid, ten to a block by default: **Members before wrapping** sets how many).
 
-Each member gets a row: their name in their class colour, then a cell for each tracker, as an icon or as a bar with the time left draining (**Show as**). Growing right or left, each member is a row with the trackers side by side; growing up or down, each member is a column with them stacked. The game draws each member's buffs in those cells, so the rows stay right all through a fight, and someone joining mid-fight fills in at once. A buff's group version counts too: Prayer of Fortitude for Fortitude, Arcane Brilliance for Arcane Intellect, a Greater Blessing for its Blessing. A new buff put in such a group shows where it is missing.
+Each member gets a row: their name in their class colour, then a cell for each tracker, as an icon or as a bar with the time left draining (**Show as**). Growing right or left, each member is a row with the trackers side by side; growing up or down, each member is a column with them stacked. The game draws each member's buffs in those cells, so the rows stay right all through a fight, and someone joining mid-fight fills in at once. A buff's group version counts too: Prayer of Fortitude for Fortitude, Arcane Brilliance for Arcane Intellect, a Greater Blessing for its Blessing. A new buff put in such a group shows where it is missing. If the group is hidden in a fight (**In combat: Hidden**), the addon reads everyone's buffs out of one, so **Missing** shows only the members who do not have it (and a warn time brings it back as it runs low); shown in a fight, the game draws a buff on everyone who has it, so there Missing behaves like Either. In a battleground or an arena nobody's auras can be read, so there too Missing behaves like Either.
 
 A row also says what the game cannot show you:
 

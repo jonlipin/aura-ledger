@@ -1898,13 +1898,35 @@ local function BuildTrackerPanel(width)
 	b:Cycle("Show the aura when it is", { { "active", "Active" }, { "missing", "Missing" }, { "always", "Either (red when missing)" } },
 		function() local t = T() return t and t.show or "active" end,
 		function(v) local t = T() if t then t.show = v TrackerChanged() b:Sync() end end,
-		"Active: on screen while you have it. Missing: on screen only while you do not. Either: on screen both ways, red while missing. In a group drawn by the game, Missing behaves like Either.")
+		"Active: on screen while you have it. Missing: on screen only while you do not. Either: on screen both ways, red while missing. In a group drawn by the game, Missing behaves like Either, except in a group that watches your party and is hidden in a fight (see the note below).")
 	b:AppliesWhen(function() return TrackerIsAura() and NotDispel() end)
 	b:Cycle("Show the cooldown when it is", { { "active", "Running" }, { "missing", "Ready" }, { "always", "Either" } },
 		function() local t = T() return t and t.show or "active" end,
 		function(v) local t = T() if t then t.show = v TrackerChanged() b:Sync() end end,
 		"Running: on screen while the spell is on cooldown, counting down. Ready: on screen only while it can be cast again. Either: on screen both ways, drained of color while it is on cooldown.")
 	b:AppliesWhen(TrackerIsCooldown)
+	-- A buff with a slot, in a group that watches your party and is hidden in a fight: the only
+	-- trackers the addon takes off members who have them.
+	local function MemberTakes()
+		local t = T()
+		local g = t and ns.FindGroupOf(t)
+		return (g and ns.GroupUnits(g) and g.cond and g.cond.combat == "no" and t.kind ~= "debuff" and not t.dispel
+			and TrackerGetsSlot()) and true or false
+	end
+	b:DynamicNote(function()
+		local t = T()
+		local g = t and ns.FindGroupOf(t)
+		if not (g and ns.GroupUnits(g)) then return "" end
+		if MemberTakes() then
+			return "This group is hidden in a fight, so out of one the addon reads everyone's buffs: Missing shows only the members without it, and brings it back on one whose buff is inside the warn time below. Not in a battleground or an arena, where nobody's auras can be read: there Missing behaves like Either."
+		end
+		return "This group is shown in a fight, where the game draws the aura on everyone who has it, so Missing behaves like Either. Set In combat to Hidden in the group's settings, and Missing shows only the members without it."
+	end)
+	b:AppliesWhen(function()
+		local t = T()
+		local g = t and ns.FindGroupOf(t)
+		return TrackerIsAura() and NotDispel() and g ~= nil and ns.GroupUnits(g) ~= nil
+	end)
 	b:Slider("Show it again before it runs out (seconds, 0 = off)", { min = 0, max = 300, step = 1,
 		get = function() local t = T() return t and (t.warn or 0) end,
 		set = function(v) local t = T() if t then t.warn = (v > 0) and v or nil TrackerChanged() end end,
@@ -1913,7 +1935,17 @@ local function BuildTrackerPanel(width)
 	b:Note("With Missing: brings the tracker back on screen this long before the aura runs out, with a red border, instead of waiting for it to go. With Active or Either: it is on screen already, so the border turns red that early instead.")
 	b:AppliesWhen(function() return TrackerIsAura() and not TrackerGetsSlot() and NotDispel() end)
 	b:Note("This tracker is drawn by the game, which decides when it is on screen, so it cannot be brought back early. Instead its countdown turns red this long before the aura runs out, in combat too. It needs the group's timers on, and takes effect a moment after you stop changing it, out of combat.")
-	b:AppliesWhen(function() return TrackerGetsSlot() and NotDispel() end)
+	b:AppliesWhen(function()
+		local t = T()
+		local g = t and ns.FindGroupOf(t)
+		local reads = t and t.show == "missing" and MemberTakes()
+		return TrackerGetsSlot() and NotDispel() and not reads
+	end)
+	b:Note("Out of a fight this brings the tracker back on a member this long before their buff runs out, its countdown red if the group's timers are on. In a fight the group is hidden.")
+	b:AppliesWhen(function()
+		local t = T()
+		return t ~= nil and t.show == "missing" and MemberTakes()
+	end)
 	b:Check("Glow while it is up", function() local t = T() return t and t.glow end,
 		function(v) local t = T() if t then t.glow = v or nil TrackerChanged() end end,
 		"Plays the action bar's proc glow on this tracker while it is up and on screen. On a buff the game draws for this group, the game plays it, in combat too. Everywhere else (weapons, debuffs, and every group the addon draws) the addon plays it, going by what it shows: in a fight, the reading it is carrying.")
