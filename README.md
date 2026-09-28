@@ -51,9 +51,9 @@ A row also says what the game cannot show you:
 - **Far**: out of view. The game has no auras for them until they are back.
 - **Off**: offline.
 - **(dead)** after the name.
-- **?**: the row changed hands during a fight, because someone left and the rest moved up. It is read afresh when the fight ends. (In a battleground that is when the match ends.)
+- **?**: the row changed hands during a fight (someone left and the rest moved up), or its member came back into view or online during one. It is read afresh when the fight ends. (In a battleground that is when the match ends.)
 
-Everything about these groups is built and laid out out of a fight, a little at a time, so a change made in one waits for it to end. Cooldowns, items, weapons and most debuffs follow only you, so they go into a group of their own beside one that watches your party. Tracker sounds and a tracker's own conditions are for you alone too; the group's conditions still apply. Raid rows carry the first eight trackers across at most two groups that watch a whole raid; the rest show on your party's rows.
+Everything about these groups is built and laid out out of a fight, a little at a time, so a change made in one waits for it to end. Cooldowns, items, weapons and most debuffs follow only you, so they go into a group of their own beside one that watches your party. Tracker sounds and a tracker's own conditions are for you alone too; the group's conditions still apply. At most two groups can watch everyone in a raid, and raid rows carry the first eight trackers across them; the rest show on your party's rows, and only when you are not in a raid.
 
 ## Arranging
 
@@ -70,7 +70,7 @@ In the **Groups and trackers** list, drag a row onto a group to move it there, o
 
 ## Settings
 
-**Per group**: name, who it watches, icons or bars, growth direction, icon size, bar width and height, icon scale on bars, spacing, icons per row, scale, opacity, time text, names on bars, whether to draw the bar border, the bar background and the icon frame, and whether to colour each aura's border by its dispel type. A group that watches your party also has member names on or off, and members per column.
+**Per group**: name, who it watches, icons or bars, growth direction, icon size, bar width and height, icon scale on bars, spacing, icons per row, scale, opacity, time text, names on bars, whether to draw the bar border, the bar background and the icon frame, and whether to colour each aura's border by its dispel type. A group that watches your party also has member names on or off; one that watches everyone in your group also has members per column.
 
 **Per tracker**: what it watches (the buff, or the spell's cooldown); when it shows (Active, Missing, or Either); how long before it runs out or comes back to put it on screen again; match by name or exact spell ID; only when cast by you; a glow while it is up (in a group drawn by the game); a bar label; and a sound when it lands, when it goes, and when the tracker appears.
 
@@ -84,6 +84,8 @@ On this client an addon cannot read your auras during a fight. Nothing gets arou
 - **Drawn by the game**: each tracker is handed to the game as an aura slot for the game to fill, so it is correct the whole way through. Its countdown reads the way the addon's own does, turns red inside the tracker's warn time, and it can glow while the aura is up. The cost is that the game draws these in its own look, and it fills a slot whenever the aura is on you, so they are on screen the whole time the aura is up whatever else you set.
 
 Cooldowns, carried items and your weapons are read by the addon itself, in a fight too.
+
+In a battleground the game hides auras for the whole match, not only in fights. A group drawn by the game is only changed when auras can be read, so in a match already under way (or after a reload in one) it keeps the Where, class and talent conditions it had until the match ends, and a change you make to it waits until then too.
 
 ## Commands
 

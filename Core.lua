@@ -761,6 +761,8 @@ end
 function ns.NewGroupLike(g, x, y)
 	local ng = ns.NewGroup(x or ((g.x or 500) + 30), y or ((g.y or 400) - 60))
 	for _, key in ipairs(ns.GROUP_STYLE_KEYS) do ng[key] = g[key] end
+	-- Only so many groups can watch a whole raid; one more watches your party.
+	if ng.units == "raid" and ns.RaidGroupRoom and not ns.RaidGroupRoom(ng) then ng.units = "party" end
 	-- The look is copied; the shape is not. A new group is a row of its own.
 	ng.cells = nil
 	return ng
@@ -815,6 +817,20 @@ function ns.RemoveTracker(t)
 	ns.Changed()
 end
 
+-- When work that waits can be done: after the fight, or, where the game hides auras outside one
+-- (a battleground), when it stops.
+function ns.WhenFreeWords()
+	if InCombatLockdown and InCombatLockdown() then return "once the fight is over" end
+	return "once the game stops hiding auras (in a battleground, when the match ends)"
+end
+
+-- Room for another group that watches everyone in a raid (there can be ns.RAID_GROUP_CAP).
+function ns.RaidGroupRoom(g)
+	local n = 0
+	for _, other in ipairs(ns.profile.groups) do if other ~= g and ns.GroupUnits(other) == "raid" then n = n + 1 end end
+	return n < (ns.RAID_GROUP_CAP or 2)
+end
+
 -- Who a group watches. Refused in a fight (the game's containers cannot be made or put away then),
 -- and when nothing in the group could be followed on anyone else. What the group cannot hold
 -- goes into a group of its own beside it. The look is left as it is, so switching back to you alone
@@ -823,7 +839,7 @@ function ns.SetGroupUnits(g, units)
 	if units ~= "party" and units ~= "raid" then units = nil end
 	if not g or ns.GroupUnits(g) == units then return true end
 	if (InCombatLockdown and InCombatLockdown()) or AurasSecret() then
-		Print("Change who a group watches once the fight is over.")
+		Print("Change who a group watches " .. ns.WhenFreeWords() .. ".")
 		return false
 	end
 	local canHold = ns.Display and ns.Display.MemberCanHold
@@ -835,15 +851,15 @@ function ns.SetGroupUnits(g, units)
 			return false
 		end
 	end
-	if units == "raid" then
-		local n = 0
-		for _, other in ipairs(ns.profile.groups) do if other ~= g and ns.GroupUnits(other) == "raid" then n = n + 1 end end
-		if n >= (ns.RAID_GROUP_CAP or 2) then
-			Print(("At most %d groups can watch everyone in a raid. This one can watch your party."):format(ns.RAID_GROUP_CAP or 2))
-			return false
-		end
+	if units == "raid" and not ns.RaidGroupRoom(g) then
+		Print(("At most %d groups can watch everyone in a raid. This one can watch your party."):format(ns.RAID_GROUP_CAP or 2))
+		return false
 	end
 	g.units = units
+	-- Back to you alone: a dispel tracker needs the game to draw it, so the group stays drawn by it.
+	if not units then
+		for _, t in ipairs(g.trackers) do if t.dispel then g.gameDrawn = true end end
+	end
 	if units and canHold then
 		local out
 		for i = #g.trackers, 1, -1 do
@@ -902,6 +918,7 @@ function ns.MakePreset(class, x, y)
 	return g
 end
 
+local lastRedirect = {}
 -- A tracker a group cannot hold goes into a new group beside it, with one line saying so: one that
 -- follows only you (a cooldown, an item, a weapon, a debuff the game hides) put in a group that
 -- watches your party, or a dispel tracker, which only the game can draw, put in a group the addon
@@ -917,19 +934,33 @@ function ns.Redirect(t, g)
 	if not why then return g end
 	for i, tr in ipairs(g.trackers) do
 		if tr == t then
-			if g.cells and g.cells[i] then table.remove(g.cells, i) end
+			-- Only its own cell goes: one just put in has none yet, and the one at its place is another's.
+			if g.cells and #g.cells == #g.trackers and g.cells[i] then table.remove(g.cells, i) end
 			table.remove(g.trackers, i)
 			break
 		end
 	end
-	local ng = ns.NewGroupLike(g)
-	ng.units, ng.memberNames, ng.perColumn = nil, nil, nil
-	if t.dispel then ng.gameDrawn = true end
+	-- Several sent off the same group at once (an import, a marked drop) go into one group together.
+	local reason = t.dispel and "dispel" or "mine"
+	local now = GetTime and GetTime() or 0
+	local ng = (lastRedirect.from == g and lastRedirect.reason == reason and lastRedirect.at == now) and lastRedirect.to or nil
+	if ng then
+		local alive = false
+		for _, other in ipairs(ns.profile.groups) do if other == ng then alive = true break end end
+		if not alive then ng = nil end
+	end
+	local fresh = ng == nil
+	if fresh then
+		ng = ns.NewGroupLike(g)
+		ng.units, ng.memberNames, ng.perColumn = nil, nil, nil
+		if t.dispel then ng.gameDrawn = true end
+	end
 	table.insert(ng.trackers, t)
+	lastRedirect = { from = g, reason = reason, at = now, to = ng }
 	if #g.trackers == 0 then
 		for i, other in ipairs(ns.profile.groups) do if other == g then table.remove(ns.profile.groups, i) break end end
 	end
-	Print((t.label or t.name or ("Spell " .. tostring(t.id))) .. " " .. why)
+	if fresh then Print((t.label or t.name or ("Spell " .. tostring(t.id))) .. " " .. why) end
 	if ns.selected and ns.selected.tracker == t then ns.selected.group = ng end
 	return ng
 end
@@ -2780,6 +2811,10 @@ function ns.Import(text)
 		end
 		if #g.trackers == 0 then ns.DeleteGroup(g) return nil, "That group had no trackers in it." end
 		ns.CleanMemberFields(g)
+		if g.units == "raid" and not ns.RaidGroupRoom(g) then
+			g.units = "party"
+			Print(("At most %d groups can watch everyone in a raid, so this one watches your party."):format(ns.RAID_GROUP_CAP or 2))
+		end
 		-- What a group watching your party cannot hold goes beside it, as when it is dropped there.
 		for i = #g.trackers, 1, -1 do ns.Redirect(g.trackers[i], g) end
 		if #g.trackers == 0 then

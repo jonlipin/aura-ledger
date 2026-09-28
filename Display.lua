@@ -2953,6 +2953,10 @@ end
 -- laid out out of a fight, a little each frame; in a fight the addon only shows and hides its own
 -- frames (a row, its name, its veil) and repaints them.
 -- ------------------------------------------------------------------
+-- The section is a block of its own, so its helpers go out of scope at its end: a Lua chunk may hold
+-- no more than 200 locals at once. What the rest of the file needs from it is declared here.
+local ReleaseMembers
+do
 ns.RAID_TRACKER_CAP = 8   -- trackers across every group that watches a whole raid
 ns.RAID_GROUP_CAP = 2     -- groups that watch a whole raid
 -- Whether a member's slots fill again when they come back into view during a fight. Until that is
@@ -3004,11 +3008,11 @@ end
 -- Everything that changes what a member group has to build or lay out.
 local function MemberSig(g)
 	local parts = { MemberLookKey(g), tostring(g.units), tostring(g.memberNames), tostring(g.perColumn), tostring(g.grow),
-		tostring(g.spacing), tostring(g.alpha) }
+		tostring(g.spacing), tostring(g.alpha), tostring(g.cond and g.cond.never) }
 	for _, t in ipairs(g.trackers) do
 		parts[#parts + 1] = table.concat({ tostring(t.uid), tostring(t.show), tostring(t.dispel), tostring(t.mine), tostring(t.matchId),
 			tostring(t.name), tostring(t.id), tostring(t.glow), tostring(t.warn), tostring(t.cond and t.cond.never), tostring(t.kind),
-			tostring(t.icon) }, "|")
+			tostring(t.icon), tostring(t.cd), tostring(t.item), tostring(t.enchant), tostring(t.swing) }, "|")
 	end
 	return table.concat(parts, ";")
 end
@@ -3018,7 +3022,8 @@ end
 local function RaidAllowance()
 	local out, groups, trackers = {}, 0, 0
 	for _, g in ipairs(ns.profile.groups) do
-		if ns.GroupUnits(g) == "raid" then
+		-- A group that is switched off takes nothing from the others.
+		if ns.GroupUnits(g) == "raid" and not (g.cond and g.cond.never) then
 			groups = groups + 1
 			local allowed = {}
 			if groups <= ns.RAID_GROUP_CAP then
@@ -3043,7 +3048,9 @@ Display.RaidAllowance = RaidAllowance
 local function MemberPlan(g)
 	local units = ns.GroupUnits(g)
 	local plan = { units = units, trackers = {}, raidTrackers = {}, byUid = {}, capped = false }
-	local allowed = (units == "raid") and (RaidAllowance())[g] or nil
+	local allowed = (units == "raid") and ((RaidAllowance())[g] or {}) or nil
+	-- A group that is switched off builds nothing.
+	if g.cond and g.cond.never then return plan end
 	for _, t in ipairs(g.trackers) do
 		if Display.MemberCanHold(t) and not (t.cond and t.cond.never) then
 			local item = { t = t, spec = SlotSpec(t, g) }
@@ -3106,7 +3113,7 @@ local STATE_SENTENCE = {
 	off = "Offline.",
 	dead = "Dead.",
 	far = "Out of view: the game has no auras to show for them until they are back.",
-	stale = "Changed places in the group during this fight. The row is read afresh when the fight ends.",
+	stale = "Changed hands during this fight, or came back into view or online. The row is read afresh when the fight ends (in a battleground, when the match ends).",
 	absent = "Nobody here yet. When someone joins, their row fills in, in a fight too.",
 }
 local VEIL_WORD = { wait = "...", off = "Off", far = "Far", stale = "?" }
@@ -3238,9 +3245,15 @@ local function QueueJob(f, g, token, uid)
 	local k = tostring(g.uid) .. ":" .. token .. ":" .. tostring(uid or "c")
 	if jobIndex[k] then return end
 	jobIndex[k] = true
+	local m = f.members
+	if m then
+		m.pending = m.pending or {}
+		m.pending[token] = (m.pending[token] or 0) + 1
+	end
 	local jobs = Display.memberJobs
-	jobs[#jobs + 1] = { f = f, g = g, token = token, uid = uid, k = k }
+	jobs[#jobs + 1] = { f = f, g = g, token = token, uid = uid, k = k, m = m }
 end
+local function Pending(m, token) return m and m.pending and (m.pending[token] or 0) or 0 end
 
 -- One step of building: a member's container and row, or one slot in it.
 local function RunJob(job)
@@ -3257,8 +3270,10 @@ local function RunJob(job)
 		local c = SlotContainer(f, g, token, MemberDriver(plan, token), true)
 		if not c then return end
 		PlaceRow(f, g, row, geo)
-		row.guid = Ask(UnitGUID, token)
-		row.built = true
+		if Pending(m, token) == 0 then
+			row.guid = Ask(UnitGUID, token)
+			row.built = true
+		end
 		return
 	end
 	local item = plan.byUid[job.uid]
@@ -3277,6 +3292,11 @@ local function RunJob(job)
 	local cell = MemberCell(f, row, item.t)
 	AnchorSlot(frame, cell)
 	LevelRow(f, row, cell, frame)
+	-- The last step for this member: the row is ready, and whoever is in it now is what the game read.
+	if not row.built and Pending(m, token) == 0 then
+		row.guid = Ask(UnitGUID, token)
+		row.built = true
+	end
 end
 
 -- A row the game has to read afresh: after a fight in which its member changed, or came back into
@@ -3343,6 +3363,27 @@ local function ShowRow(row, g, state, placeholder)
 	end
 end
 
+-- The group's size: every row of the set on show, so the anchor corner never moves. Out of a fight
+-- only (in one, a new size would move the game's slots with the cells).
+local function SizeMembers(f, g, plan, set)
+	if ManagerUnsafe() then return end
+	local geo = MemberGeom(g, plan, set)
+	local rowsCount = (set == "raid") and 40 or 5
+	local cols = ceil(rowsCount / geo.perCol)
+	local along = (cols - 1) * geo.blockLen + geo.L + max(1, geo.T * geo.step - geo.sp)
+	local across = (min(rowsCount, geo.perCol) - 1) * geo.P + geo.size
+	if geo.horiz then f:SetSize(max(1, along), max(1, across)) else f:SetSize(max(1, across), max(1, along)) end
+	f.members.sizedFor = set
+end
+
+-- A row the game is not showing (the group's conditions hide it, or it belongs to the other set):
+-- when it shows again the game reads it afresh, so what the addon remembers of it is let go.
+local function Unseen(row)
+	HideRow(row)
+	row.wasAbsent = true
+	row.state = "absent"
+end
+
 -- Which rows are on screen and what they say. Cheap, and safe at any time: it only shows and hides
 -- the addon's own frames. Returns true when a row wants reading afresh now.
 local function PaintStates(f, g)
@@ -3355,11 +3396,17 @@ local function PaintStates(f, g)
 		local inRaid = Ask(IsInRaid)
 		if inRaid == true then set = "raid" elseif inRaid == nil then set = m.set or "party" end
 	end
-	m.set = set
+	if m.set ~= set then
+		m.set = set
+		-- Joining or leaving a raid swaps the rows on show; the group is sized for the new ones when it can be.
+		if m.sizedFor and m.sizedFor ~= set and not unlocked then
+			if unsafe then m.dirty = true else SizeMembers(f, g, m.plan, set) end
+		end
+	end
 	local bounce = false
 	for token, row in pairs(m.rows) do
 		if not row.inPlan or row.set ~= set then
-			HideRow(row)
+			Unseen(row)
 		else
 			local exists = (token == "player") or Ask(UnitExists, token)
 			if exists == nil then exists = row.shown end
@@ -3399,7 +3446,7 @@ local function PaintStates(f, g)
 end
 
 -- Gives up a group's member rows: the frame is going to another group, or back to watching you.
-local function ReleaseMembers(f)
+function ReleaseMembers(f)
 	local m = f.members
 	if not m then return end
 	for _, row in pairs(m.rows) do HideRow(row) end
@@ -3446,6 +3493,8 @@ function Display:RefreshMembers(g)
 			if m.lookKey then Display.lookChangedAt = GetTime() end
 			m.lookKey = lookKey
 		end
+		-- A slider being moved (size, warn time) changes what is built at every step: wait for it to stop.
+		if unlocked then Display.lookChangedAt = GetTime() end
 		local tokens = PlanTokens(plan)
 		local keep = {}
 		for _, e in ipairs(tokens) do keep["m:" .. e.token] = true end
@@ -3458,8 +3507,9 @@ function Display:RefreshMembers(g)
 			local c = f.slotC and f.slotC["m:" .. e.token]
 			local row = m.rows[e.token]
 			if not row and (e.set == "party" or c) then row = MemberRow(f, e.token, e.set) end
-			-- A container kept from before (the rows were given up, the containers cannot be) is built.
-			if row and c and c.alKey == "member" then row.built = true end
+			-- A container kept from before (the rows were given up, the containers cannot be) is built,
+			-- once nothing more is waiting to be made for it.
+			if row and c and c.alKey == "member" and Pending(m, e.token) == 0 then row.built = true end
 			if row then
 				row.inPlan = true
 				PlaceRow(f, g, row, geo)
@@ -3482,6 +3532,12 @@ function Display:RefreshMembers(g)
 							end
 						else
 							QueueJob(f, g, e.token, item.t.uid)
+							-- The slot it replaces (an old look, an old warn time) stays on until it is made,
+							-- so a fight starting in between still has the game drawing this tracker.
+							local prefix = tostring(item.t.uid) .. ":"
+							for key in pairs(c.alSlots) do
+								if key:sub(1, #prefix) == prefix and c.alOn and c.alOn[key] then wanted[key] = true end
+							end
 						end
 					end
 				end
@@ -3500,13 +3556,7 @@ function Display:RefreshMembers(g)
 				end
 			end
 		end
-		-- The group's size: every row of the set on show, so the anchor corner never moves.
-		local geo = (plan.raid and (unlocked or m.set == "raid")) and geos.raid or geos.party
-		local rowsCount = (geo == geos.raid) and 40 or 5
-		local cols = ceil(rowsCount / geo.perCol)
-		local along = (cols - 1) * geo.blockLen + geo.L + max(1, geo.T * geo.step - geo.sp)
-		local across = (min(rowsCount, geo.perCol) - 1) * geo.P + geo.size
-		if geo.horiz then f:SetSize(max(1, along), max(1, across)) else f:SetSize(max(1, across), max(1, along)) end
+		SizeMembers(f, g, plan, (plan.raid and (unlocked or m.set == "raid")) and "raid" or "party")
 	end
 	f.chrome:SetShown(unlocked)
 	if unlocked then
@@ -3539,6 +3589,7 @@ function Display:PumpMembers()
 	while #jobs > 0 do
 		local job = table.remove(jobs, 1)
 		jobIndex[job.k] = nil
+		if job.m and job.m.pending and job.m.pending[job.token] then job.m.pending[job.token] = max(0, job.m.pending[job.token] - 1) end
 		local ok, err = pcall(RunJob, job)
 		if not ok then ns.report["members"] = "a build step failed: " .. tostring(err) end
 		n = n + 1
@@ -3566,7 +3617,14 @@ function Display:PollMembers()
 	if not ready then return end
 	for _, f in pairs(active) do
 		local g = f.group
-		if g and f.members and ns.GroupUnits(g) and f.gate and f.gate:IsShown() then PaintStates(f, g) end
+		if g and f.members and ns.GroupUnits(g) and f.gate then
+			if f.gate:IsShown() then
+				PaintStates(f, g)
+			else
+				-- Hidden by its conditions: its containers are hidden too, and are read afresh when shown.
+				for _, row in pairs(f.members.rows) do Unseen(row) end
+			end
+		end
 	end
 end
 
@@ -3668,6 +3726,8 @@ function Display:MembersDirty()
 	for _, f in pairs(active) do if f.members then f.members.dirty = true end end
 end
 
+end
+
 local function LayoutGroup(f, g, visible, unlocked)
 	local n = #visible
 	local w, h
@@ -3745,78 +3805,86 @@ local function LayoutGroup(f, g, visible, unlocked)
 			f.widgets[k] = widget
 		end
 		local item = visible[k]
-		widget.underSlot = (slots and item.slots) and true or nil
-		-- The cell under a slot is painted with no aura, so that it shows the missing look when the
-		-- game stops drawing. What the group actually knows is kept here, for the frame.
-		widget.auraKnown = (item.entry ~= nil) or nil
-		widget:SetAlpha(1)
-		if widget:GetParent() ~= cellParent then widget:SetParent(cellParent) end
-		if slots and item.slots then
-			-- The addon draws only the missing state under a game-drawn slot; the game covers it
-			-- while the aura is present. "Show when active" leaves the cell empty underneath.
-			PaintWidget(widget, g, item.t, nil, false, false)
-			if item.t.show == "active" then widget:SetAlpha(0) end
-			for _, sl in ipairs(item.slots) do
-				sl.c.alWant[sl.key] = true
-				if not ManagerUnsafe() or sl.frame.alAnchor ~= k then
-					local ok = pcall(function()
-						sl.frame:ClearAllPoints()
-						sl.frame:SetPoint("TOPLEFT", widget, "TOPLEFT", 0, 0)
-						sl.frame:SetPoint("BOTTOMRIGHT", widget, "BOTTOMRIGHT", 0, 0)
-					end)
-					if ok then sl.frame.alAnchor = k end
-				end
-				-- The game's icon has to cover the cell underneath, edge and all. The button is the
-				-- game's own and may refuse to be read at all, so nothing is asked of it unguarded.
-				local okL, lvl = pcall(function() return sl.frame:GetFrameLevel() end)
-				lvl = okL and ns.Clean(lvl) or nil
-				if type(lvl) == "number" then
-					SetCellLevel(widget, lvl - 6)
-				else
-					-- In combat the game refuses to say where its own frame sits. The gate the slots
-					-- hang on is the addon's own and always answers, and a slot is three levels above
-					-- it, so the cell goes far enough below the gate that all of it stays under.
-					local okG, glvl = pcall(function() return (f.gate or f):GetFrameLevel() end)
-					if okG and type(glvl) == "number" then SetCellLevel(widget, glvl - 3) end
-				end
-				-- A cooldown makes its textures the first time it runs, and the game runs these, so
-				-- the mask is asked for again here rather than only when the slot was built.
-				if sl.frame.alW then
-					ShapeCooldownsOn(sl.frame.alW, sl.frame, sl.frame.alCdSize or g.size or 40, g.iconFrame ~= false)
-				end
-			end
+		if item.placeholder then
+			-- Held open in a fight: see HeldOrder.
+			widget:Hide()
+			WidgetGlow(widget, g, false)
+			widget.tracker, widget.entry, widget.timed, widget.underSlot = nil, nil, false, nil
+			widget.cellC, widget.cellR = rawA[k], rawB[k]
 		else
-			SetCellLevel(widget, widget.alBaseLevel)
-			PaintWidget(widget, g, item.t, item.entry, unlocked, item.expiring)
-		end
-		widget.cellC, widget.cellR = rawA[k], rawB[k]
-		PointAtCell(widget, f, flow, cellA[k], cellB[k], stepX, stepY)
-		-- Marked to be moved with the others: a ring in a color nothing else here uses.
-		if unlocked and Display:IsMarked(item.t) then
-			if not widget.markRing then
-				widget.markRing = {}
-				for i = 1, 4 do
-					local line = widget:CreateTexture(nil, "OVERLAY")
-					line:SetColorTexture(0.4, 0.85, 1, 0.95)
-					widget.markRing[i] = line
+			widget.underSlot = (slots and item.slots) and true or nil
+			-- The cell under a slot is painted with no aura, so that it shows the missing look when the
+			-- game stops drawing. What the group actually knows is kept here, for the frame.
+			widget.auraKnown = (item.entry ~= nil) or nil
+			widget:SetAlpha(1)
+			if widget:GetParent() ~= cellParent then widget:SetParent(cellParent) end
+			if slots and item.slots then
+				-- The addon draws only the missing state under a game-drawn slot; the game covers it
+				-- while the aura is present. "Show when active" leaves the cell empty underneath.
+				PaintWidget(widget, g, item.t, nil, false, false)
+				if item.t.show == "active" then widget:SetAlpha(0) end
+				for _, sl in ipairs(item.slots) do
+					sl.c.alWant[sl.key] = true
+					if not ManagerUnsafe() then
+						local ok = pcall(function()
+							sl.frame:ClearAllPoints()
+							sl.frame:SetPoint("TOPLEFT", widget, "TOPLEFT", 0, 0)
+							sl.frame:SetPoint("BOTTOMRIGHT", widget, "BOTTOMRIGHT", 0, 0)
+						end)
+						if ok then sl.frame.alAnchor = k end
+					end
+					-- The game's icon has to cover the cell underneath, edge and all. The button is the
+					-- game's own and may refuse to be read at all, so nothing is asked of it unguarded.
+					local okL, lvl = pcall(function() return sl.frame:GetFrameLevel() end)
+					lvl = okL and ns.Clean(lvl) or nil
+					if type(lvl) == "number" then
+						SetCellLevel(widget, lvl - 6)
+					else
+						-- In combat the game refuses to say where its own frame sits. The gate the slots
+						-- hang on is the addon's own and always answers, and a slot is three levels above
+						-- it, so the cell goes far enough below the gate that all of it stays under.
+						local okG, glvl = pcall(function() return (f.gate or f):GetFrameLevel() end)
+						if okG and type(glvl) == "number" then SetCellLevel(widget, glvl - 3) end
+					end
+					-- A cooldown makes its textures the first time it runs, and the game runs these, so
+					-- the mask is asked for again here rather than only when the slot was built.
+					if sl.frame.alW then
+						ShapeCooldownsOn(sl.frame.alW, sl.frame, sl.frame.alCdSize or g.size or 40, g.iconFrame ~= false)
+					end
 				end
-				local mt, mb, ml, mr = widget.markRing[1], widget.markRing[2], widget.markRing[3], widget.markRing[4]
-				mt:SetPoint("TOPLEFT", -2, 2) mt:SetPoint("TOPRIGHT", 2, 2) mt:SetHeight(2)
-				mb:SetPoint("BOTTOMLEFT", -2, -2) mb:SetPoint("BOTTOMRIGHT", 2, -2) mb:SetHeight(2)
-				ml:SetPoint("TOPLEFT", -2, 2) ml:SetPoint("BOTTOMLEFT", -2, -2) ml:SetWidth(2)
-				mr:SetPoint("TOPRIGHT", 2, 2) mr:SetPoint("BOTTOMRIGHT", 2, -2) mr:SetWidth(2)
+			else
+				SetCellLevel(widget, widget.alBaseLevel)
+				PaintWidget(widget, g, item.t, item.entry, unlocked, item.expiring)
 			end
-			for _, line in ipairs(widget.markRing) do line:Show() end
-		elseif widget.markRing then
-			for _, line in ipairs(widget.markRing) do line:Hide() end
+			widget.cellC, widget.cellR = rawA[k], rawB[k]
+			PointAtCell(widget, f, flow, cellA[k], cellB[k], stepX, stepY)
+			-- Marked to be moved with the others: a ring in a color nothing else here uses.
+			if unlocked and Display:IsMarked(item.t) then
+				if not widget.markRing then
+					widget.markRing = {}
+					for i = 1, 4 do
+						local line = widget:CreateTexture(nil, "OVERLAY")
+						line:SetColorTexture(0.4, 0.85, 1, 0.95)
+						widget.markRing[i] = line
+					end
+					local mt, mb, ml, mr = widget.markRing[1], widget.markRing[2], widget.markRing[3], widget.markRing[4]
+					mt:SetPoint("TOPLEFT", -2, 2) mt:SetPoint("TOPRIGHT", 2, 2) mt:SetHeight(2)
+					mb:SetPoint("BOTTOMLEFT", -2, -2) mb:SetPoint("BOTTOMRIGHT", 2, -2) mb:SetHeight(2)
+					ml:SetPoint("TOPLEFT", -2, 2) ml:SetPoint("BOTTOMLEFT", -2, -2) ml:SetWidth(2)
+					mr:SetPoint("TOPRIGHT", 2, 2) mr:SetPoint("BOTTOMRIGHT", 2, -2) mr:SetWidth(2)
+				end
+				for _, line in ipairs(widget.markRing) do line:Show() end
+			elseif widget.markRing then
+				for _, line in ipairs(widget.markRing) do line:Hide() end
+			end
+			widget:EnableMouse(unlocked)
+			-- Motion without clicks: a tooltip on hover during play, with clicks still going past to
+			-- whatever is behind, which is where they belong while the window is shut. A cell under a
+			-- slot leaves the mouse alone: the game's own slot is over it and gives the aura's tooltip,
+			-- and both answering would give two tooltips at once.
+			if widget.SetMouseMotionEnabled then pcall(widget.SetMouseMotionEnabled, widget, not widget.underSlot) end
+			widget:Show()
 		end
-		widget:EnableMouse(unlocked)
-		-- Motion without clicks: a tooltip on hover during play, with clicks still going past to
-		-- whatever is behind, which is where they belong while the window is shut. A cell under a
-		-- slot leaves the mouse alone: the game's own slot is over it and gives the aura's tooltip,
-		-- and both answering would give two tooltips at once.
-		if widget.SetMouseMotionEnabled then pcall(widget.SetMouseMotionEnabled, widget, not widget.underSlot) end
-		widget:Show()
 	end
 	for k = n + 1, #f.widgets do
 		local widget = f.widgets[k]
@@ -3856,7 +3924,17 @@ local function LayoutGroup(f, g, visible, unlocked)
 			if sel then f.chrome:SetBackdropBorderColor(0.3, 1, 0.4, 1) else f.chrome:SetBackdropBorderColor(1, 0.82, 0, 0.9) end
 		end
 	end
-	if slots then f:Show() else f:SetShown(n > 0) end
+	-- Containers that could not be put away yet (the gate stays while auras are hidden) must not be
+	-- hidden with the group: that is a hide of the game's frames. Faded instead, until they can be.
+	local live = not slots and f.gate and not f.gate.alDropped and f.slotC and next(f.slotC) ~= nil
+	if slots then
+		f:Show()
+	elseif live then
+		f:Show()
+		f:SetAlpha(n > 0 and (g.alpha or 1) or 0)
+	else
+		f:SetShown(n > 0)
+	end
 end
 
 -- Is the aura inside the tracker's "warn before it runs out" window?
@@ -3939,6 +4017,21 @@ function Display:ActiveFrame(uid)
 	return active[uid]
 end
 
+-- In a game-drawn group, while auras are hidden the order laid out last is held: a tracker the addon
+-- draws that goes quiet keeps its place empty, and one that appears goes on the end, so no slot has
+-- to move (the game refuses to have its slots moved then).
+local function HeldOrder(f, visible)
+	local byT = {}
+	for _, it in ipairs(visible) do byT[it.t] = it end
+	local out, used = {}, {}
+	for _, t in ipairs(f.safeOrder) do
+		local it = byT[t]
+		if it then out[#out + 1] = it used[t] = true else out[#out + 1] = { t = t, placeholder = true } end
+	end
+	for _, it in ipairs(visible) do if not used[it.t] then out[#out + 1] = it end end
+	return out
+end
+
 function Display:RefreshGroup(g)
 	-- A group that watches your party has its own pass; its look is always icons.
 	if ns.GroupUnits(g) then return self:RefreshMembers(g) end
@@ -3975,6 +4068,16 @@ function Display:RefreshGroup(g)
 		elseif show then
 			visible[#visible + 1] = { t = t, entry = entry, expiring = expiring }
 		end
+	end
+	if g.gameDrawn and not unlocked then
+		if not ManagerUnsafe() then
+			f.safeOrder = {}
+			for i, it in ipairs(visible) do f.safeOrder[i] = it.t end
+		elseif f.safeOrder then
+			visible = HeldOrder(f, visible)
+		end
+	else
+		f.safeOrder = nil
 	end
 	LayoutGroup(f, g, visible, unlocked)
 end
@@ -4802,7 +4905,7 @@ function Display:GroupDragStart(f)
 	if not g or not self:IsUnlocked() then return end
 	-- The game's containers ride on it, and are not moved in a fight.
 	if ns.GroupUnits(g) and ManagerUnsafe() then
-		ns.Print("A group that watches your party can be moved once the fight is over.")
+		ns.Print("A group that watches your party can be moved " .. ns.WhenFreeWords() .. ".")
 		return
 	end
 	f.moving = true

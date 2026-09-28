@@ -1551,6 +1551,8 @@ local function SyncOptions()
 		trackerTitle.name:SetText(t.name or ("Spell " .. tostring(t.id)))
 		local _, dimC = InkCodes()
 		local what = (t.enchant ~= nil or t.swing ~= nil) and "Your weapon"
+			or (t.dispel == "any" and "Matches anything you can remove")
+			or (t.dispel and ("Matches any " .. t.dispel .. " debuff"))
 			or t.item and ("Item ID " .. t.item) or (t.id and ("Spell ID " .. t.id) or "No spell ID known yet")
 		trackerTitle.sub:SetText(what .. "  " .. dimC .. "in " .. ns.GroupName(g) .. "|r")
 		trackerBuilder:Sync()
@@ -1613,6 +1615,8 @@ local function BuildGroupPanel(width)
 	local function IsRaidScope() local g = G() return (g and ns.GroupUnits(g) == "raid") and true or false end
 	-- A group that watches your party is drawn as icons whatever its saved look.
 	local function IsBars() local g = G() return (g and g.style == "bars" and not ns.GroupUnits(g)) and true or false end
+	-- Only the game can draw a dispel tracker, so a group holding one stays drawn by the game.
+	local function HasDispel() local g = G() for _, t in ipairs(g and g.trackers or {}) do if t.dispel then return true end end return false end
 	b:Header("Group")
 	b:Note("On this client an addon cannot read your auras during a fight. A group drawn by the addon shows its last reading until the fight ends; a group drawn by the game stays correct throughout.")
 	b:Edit("Name", function() local g = G() return g and g.name or "" end,
@@ -1632,7 +1636,7 @@ local function BuildGroupPanel(width)
 	b:DynamicNote(function()
 		local g = G()
 		if g and ns.GroupUnits(g) then
-			local text = "The game draws each member's trackers, so they stay right all through a fight. A dimmed row is one the game cannot see right now: Far (out of view) or Off (offline). A ? means that row changed hands during a fight; it is read afresh when the fight ends. Changes to this group wait until you are out of a fight."
+			local text = "The game draws each member's trackers, so they stay right all through a fight. A dimmed row is one the game cannot see right now: Far (out of view) or Off (offline). A ? means the row changed hands during a fight, or its member came back into view or online; it is read afresh when the fight ends. Changes to this group wait until you are out of a fight (in a battleground, until the match ends)."
 			if ns.GroupUnits(g) == "raid" then
 				text = text .. " In a raid that is up to 40 rows, so a smaller icon size keeps them on screen. In a battleground the rows are right until the raid changes, and put right when the match ends."
 				if ns.Display.RaidCapped and ns.Display.RaidCapped(g) then
@@ -1734,12 +1738,12 @@ local function BuildGroupPanel(width)
 
 	b:Header("Only show this group when")
 	b:Conditions(function() local g = G() return g and g.cond end, TrackerChanged, {
-		available = NotMembers,
+		available = function() return NotMembers() and not HasDispel() end,
 		get = function() local g = G() return g and g.gameDrawn end,
 		set = function(v)
 			local g = G()
 			if not g then return end
-			g.gameDrawn = v or nil
+			g.gameDrawn = (v or HasDispel()) and true or nil
 			GroupChanged()
 		end,
 	})
@@ -1873,11 +1877,17 @@ local function BuildTrackerPanel(width)
 			if not t then return end
 			if v and not (t.id or t.name) then ns.Print("Nothing is known about this spell yet, so its cooldown cannot be read.") return end
 			t.cd = v or nil
+			-- A cooldown is yours alone: in a group that watches your party it goes beside it.
+			local g = ns.FindGroupOf(t)
+			if g and ns.GroupUnits(g) then
+				ns.Redirect(t, g)
+				ns.Changed()
+			end
 			TrackerChanged()
 			b:Sync()
 		end,
 		"A cooldown is not hidden from addons the way an aura is, so a cooldown tracker keeps counting through a fight, and the addon always draws it itself.")
-	b:AppliesWhen(TrackerIsSpell)
+	b:AppliesWhen(function() return TrackerIsSpell() and not InMembers() end)
 	b:Note("This tracker follows an item's cooldown. An item has no aura of its own to watch, so there is nothing to choose: to watch the buff it gives, add that buff by name from the book.")
 	b:AppliesWhen(TrackerIsItem)
 	b:Note("This tracker follows your weapon's temporary enchant: an oil, stone, poison or imbue. It is not an aura, so the addon reads it from the weapon itself, in a fight too.")
