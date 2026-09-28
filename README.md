@@ -34,7 +34,7 @@ Turn the game's **Cooldown Manager** on: Options, Gameplay, Advanced Options, **
 The left side is laid out like the spellbook and borrows its art when the client provides it.
 
 - **Ledger**: everything that has ever been on you, with how often and how recently.
-- **A chapter for every class**: the buffs that class can cast, so you can track Fortitude or Mark of the Wild before anyone has cast it on you.
+- **A chapter for every class**: the buffs that class can cast, so you can track Fortitude or Mark of the Wild before anyone has cast it on you. Your own class's chapter goes on to list every spell you know that has a cooldown, read from your spellbook (Death Coil, Shadowburn, Shield Wall...), and the Racials chapter your racials with one; double-click or drag one to track its cooldown.
 - **Party and raid**, right after your own class: the dispel trackers, the buffs worth watching on everyone, Soulstone Resurrection, and **Party buffs for my class**, which sets up a whole party group in one double-click.
 - **Racials**: including the ones read straight out of this client's own spellbook, so a racial the written list never heard of is there anyway.
 - **What you are carrying**: your weapons' enchants and swings, then everything in your bags or worn that has a use on it.
@@ -48,7 +48,7 @@ Rows a group drawn by the game can follow all through a fight carry a small **co
 
 **Track on**, at the top of a group's settings, says who the group watches: **Me**, **My party** (you and up to four others; in a raid, your own raid group, which is who Blood Pact and Battle Shout reach) or **Everyone in my group** (your party, or every member of a raid, ten to a block by default: **Members before wrapping** sets how many).
 
-Each member gets a row: their name in their class colour, then a cell for each tracker, as an icon or as a bar with the time left draining (**Show as**). Growing right or left, each member is a row with the trackers side by side; growing up or down, each member is a column with them stacked. The game draws each member's buffs in those cells, so the rows stay right all through a fight, and someone joining mid-fight fills in at once. A buff's group version counts too: Prayer of Fortitude for Fortitude, Arcane Brilliance for Arcane Intellect, a Greater Blessing for its Blessing. A new buff put in such a group shows where it is missing. If the group is hidden in a fight (**In combat: Hidden**), the addon reads everyone's buffs out of one, so **Missing** shows only the members who do not have it (and a warn time brings it back as it runs low); shown in a fight, the game draws a buff on everyone who has it, so there Missing behaves like Either. In a battleground or an arena nobody's auras can be read, so there too Missing behaves like Either.
+Each member gets a row: their name in their class colour, then a cell for each tracker, as an icon or as a bar with the time left draining (**Show as**). Growing right or left, each member is a row with the trackers side by side; growing up or down, each member is a column with them stacked. The game draws each member's buffs in those cells, so the rows stay right all through a fight, and someone joining mid-fight fills in at once. A buff's group version counts too: Prayer of Fortitude for Fortitude, Arcane Brilliance for Arcane Intellect, a Greater Blessing for its Blessing. A new buff put in such a group shows where it is missing. If the group is hidden in a fight (**In combat: Hidden**), the addon reads everyone's buffs out of one, so **Missing** shows only the members who do not have it (and a warn time brings it back as it runs low), and the list closes up: a member with nothing to show (every buff you track, and nothing an Active or a dispel tracker would show) drops out, name and all, and the rest move up; shown in a fight, the game draws a buff on everyone who has it, so there Missing behaves like Either. In a battleground or an arena nobody's auras can be read, so there too Missing behaves like Either.
 
 A row also says what the game cannot show you:
 
@@ -107,6 +107,7 @@ In a battleground the game hides auras for the whole match, not only in fights. 
 | `/auraledger debug` | what this client let the addon read |
 | `/auraledger debug cdread` | everything the game says about each cooldown tracker |
 | `/auraledger debug members` | every group that watches your party, row by row |
+| `/auraledger debug spellcd` | your spells with a cooldown, as the book reads them (`all` adds every spell left out, and why) |
 
 Aura Ledger also has a page in the game's own Options, under AddOns, with a button that opens it.
 

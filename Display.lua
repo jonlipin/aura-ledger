@@ -3097,6 +3097,17 @@ local function RaidAllowance()
 end
 Display.RaidAllowance = RaidAllowance
 
+-- Whether a member's auras can say a tracker has nothing to show on them, so that it is taken off:
+-- a buff set to show when it is missing, while they have it; a tracker the game draws only while its
+-- aura is there (Active, or one for something you can remove), while there is none.
+local function Takes(item)
+	local t, spec = item.t, item.spec
+	if not spec then return false end
+	if t.dispel then return true end
+	if t.show == "missing" then return spec.filter == "HELPFUL" end
+	return t.show == "active" and spec.filters ~= nil and spec.filters.includeSpellIDs ~= nil
+end
+
 -- What a member group shows: its trackers in order, each with its slot's spec (nil for one the game
 -- cannot follow here, which keeps its place with a question mark), and those the raid set carries.
 -- A tracker's own conditions do not apply to members, bar switching it off: a condition read out
@@ -3119,9 +3130,13 @@ local function MemberPlan(g)
 		end
 	end
 	plan.raid = units == "raid" and #plan.raidTrackers > 0
-	-- Whether any tracker here can be taken off a member (a buff set to show when missing).
+	-- Whether any tracker here can be taken off a member, and which of their auras are read to say so.
+	plan.filters = {}
 	for _, item in ipairs(plan.trackers) do
-		if item.t.show == "missing" and item.spec and item.spec.filter == "HELPFUL" then plan.takes = true end
+		if Takes(item) then
+			plan.takes = true
+			plan.filters[item.spec.filter] = (item.spec.filter == "HELPFUL") and "buff" or "debuff"
+		end
 	end
 	return plan
 end
@@ -3264,6 +3279,7 @@ end
 
 -- Where a row's name, veil and cells go. Out of a fight only.
 local function PlaceRow(f, g, row, geo)
+	row.packed = nil
 	local q, r = floor(row.index / geo.perCol), row.index % geo.perCol
 	local base = q * geo.blockLen
 	PointAtCellPx(row.hit, f, geo.flow, base, r * geo.P)
@@ -3364,18 +3380,26 @@ local function MatchAura(entries, t, spec)
 	return best
 end
 
--- Whether a tracker can be taken off a member: a buff set to show when it is missing. (Only buffs:
--- what is read is a member's buffs.)
-local function Takes(item)
-	return item.t.show == "missing" and item.spec ~= nil and item.spec.filter == "HELPFUL"
-end
--- Whether a Missing tracker is taken off a member now: they have the aura, and it is not about to go.
+-- Whether a tracker is taken off a member now. A Missing buff: they have it, and it is not about to
+-- go. An Active one: they do not have it. One for something you can remove: they have nothing of
+-- the kind (any debuff the game would show for it, or one of its type). Not while unread.
 local function Suppressed(row, item, now)
-	if not Takes(item) or not row.auras then return false end
-	local e = MatchAura(row.auras, item.t, item.spec)
+	if not Takes(item) then return false end
+	local entries = row.read and row.read[item.spec.filter]
+	if not entries then return false end
+	local t = item.t
+	if t.dispel then
+		local types = item.spec.filters and item.spec.filters.includeDispelTypes
+		for _, e in pairs(entries) do
+			if not types or (e.dispel and types[e.dispel]) then return false end
+		end
+		return true
+	end
+	local e = MatchAura(entries, t, item.spec)
+	if e and e.expires > 0 and e.expires <= now then e = nil end
+	if t.show ~= "missing" then return e == nil end
 	if not e then return false end
-	if e.expires > 0 and e.expires <= now then return false end
-	local warn = tonumber(item.t.warn) or 0
+	local warn = tonumber(t.warn) or 0
 	if warn > 0 and e.expires > 0 and e.expires - now <= warn then return false end
 	return true
 end
@@ -3437,6 +3461,8 @@ local function RunJob(job)
 	if not frame then return end
 	c.alOn = c.alOn or {}
 	c.alOn[key] = true
+	-- Made for a member it is taken off: the game makes it switched on, so it goes off at once.
+	if c.alSuppress and c.alSuppress[key] and pcall(c.SetAuraSlotEnabled, c, key, false) then c.alOn[key] = false end
 	local cell = MemberCell(f, row, item.t)
 	AnchorSlot(frame, cell)
 	LevelRow(f, row, cell, frame)
@@ -3509,6 +3535,81 @@ local function ShowRow(row, g, state, placeholder)
 	else
 		row.veil:Hide()
 	end
+	if row.collapsed then
+		row.hit:Hide()
+		row.veil:Hide()
+		for _, cell in pairs(row.cells) do cell:Hide() end
+	end
+end
+
+-- A row's name, veil and cells put at a place in the list: the given trackers side by side from the
+-- start of the row. Moves only the addon's own frames; the game's slots are anchored to the cells and
+-- follow them.
+local function PositionRow(f, row, geo, at, items)
+	local q, r = floor(at / geo.perCol), at % geo.perCol
+	local base = q * geo.blockLen
+	PointAtCellPx(row.hit, f, geo.flow, base, r * geo.P)
+	PointAtCellPx(row.veil, f, geo.flow, base + geo.L, r * geo.P)
+	local span = max(1, #items * geo.step - geo.sp)
+	if geo.horiz then row.veil:SetSize(span, geo.across) else row.veil:SetSize(geo.across, span) end
+	for k, item in ipairs(items) do
+		local cell = row.cells[item.t.uid]
+		if cell then PointAtCellPx(cell, f, geo.flow, base + geo.L + (k - 1) * geo.step, r * geo.P) end
+	end
+end
+
+-- A row back in its own place with all its trackers, and on show again if it was closed up.
+local function HomeRow(f, g, row, geo)
+	if row.collapsed then
+		row.collapsed = nil
+		if row.shown then ShowRow(row, g, row.state, row.state == "absent") end
+	end
+	if row.packed then
+		row.packed = nil
+		PositionRow(f, row, geo, row.index, geo.list)
+	end
+end
+
+-- The list closes up round what was taken off: a row with nothing left goes, name and all, the rows
+-- after it move up, and in each row the trackers still shown sit side by side. With nothing taken
+-- off, every row goes home. Out of a fight only, like everything that moves the cells.
+local function PackRows(f, g, m, anyTaken)
+	local geos = { party = MemberGeom(g, m.plan, "party"), raid = MemberGeom(g, m.plan, "raid") }
+	local rows = {}
+	for _, row in pairs(m.rows) do
+		if anyTaken and row.inPlan and row.shown and row.set == m.set then rows[#rows + 1] = row
+		else HomeRow(f, g, row, geos[row.set]) end
+	end
+	table.sort(rows, function(a, b) return a.index < b.index end)
+	local at = 0
+	for _, row in ipairs(rows) do
+		local geo = geos[row.set]
+		local items = {}
+		for _, item in ipairs(geo.list) do
+			local cell = row.cells[item.t.uid]
+			if not (cell and cell.alSuppressed) then items[#items + 1] = item end
+		end
+		if #items == 0 and #geo.list > 0 then
+			row.collapsed = true
+			row.hit:Hide()
+			row.veil:Hide()
+			for _, cell in pairs(row.cells) do cell:Hide() end
+		else
+			if row.collapsed then
+				row.collapsed = nil
+				ShowRow(row, g, row.state, false)
+			end
+			if at ~= row.index or #items < #geo.list then
+				row.packed = (at ~= row.index) and "moved" or "cells"
+				PositionRow(f, row, geo, at, items)
+			elseif row.packed then
+				row.packed = nil
+				PositionRow(f, row, geo, row.index, geo.list)
+			end
+			at = at + 1
+		end
+	end
+	m.compacted = anyTaken or nil
 end
 
 -- The group's size: every row of the set on show, so the anchor corner never moves. Out of a fight
@@ -3610,7 +3711,7 @@ local function ApplyPresence(f, g)
 	local m = f.members
 	if not (m and m.plan) or ManagerUnsafe() then return end
 	local reads = ReadsMembers(g) and m.plan.takes and not Display:IsUnlocked()
-	if not reads and not m.anyTaken then return end
+	if not reads and not m.anyTaken and not m.compacted then return end
 	local now = GetTime()
 	-- Each tracker's slot name, once: it is the same in every member's container.
 	local keys = {}
@@ -3622,14 +3723,19 @@ local function ApplyPresence(f, g)
 		if row.inPlan then
 			if reads and row.shown and row.set == m.set and Ask(UnitIsVisible, token) ~= false then
 				local guid = Ask(UnitGUID, token)
-				if row.auraGen ~= (auraGen[token] or 0) or row.auraGuid ~= guid or not row.auraAt or now - row.auraAt > 10 then
-					local out = {}
-					local bad = ns.ReadAuras and ns.ReadAuras(token, "HELPFUL", "buff", out)
-					row.auras = (bad == 0) and out or nil
+				-- Read again when their auras change, someone else is in their place, the trackers (and so
+				-- what has to be read) change, and now and then anyway.
+				if row.auraGen ~= (auraGen[token] or 0) or row.auraGuid ~= guid or row.readPlan ~= m.plan or not row.auraAt or now - row.auraAt > 10 then
+					row.read, row.readPlan = {}, m.plan
+					for filter, kind in pairs(m.plan.filters or {}) do
+						local out = {}
+						local bad = ns.ReadAuras and ns.ReadAuras(token, filter, kind, out)
+						row.read[filter] = (bad == 0) and out or nil
+					end
 					row.auraAt, row.auraGen, row.auraGuid = now, auraGen[token] or 0, guid
 				end
 			else
-				row.auras, row.auraAt = nil, nil
+				row.read, row.auraAt = nil, nil
 			end
 			local c = f.slotC and f.slotC["m:" .. token]
 			local list = (row.set == "raid") and m.plan.raidTrackers or m.plan.trackers
@@ -3646,7 +3752,9 @@ local function ApplyPresence(f, g)
 					c.alSuppress = c.alSuppress or {}
 					c.alSuppress[key] = off or nil
 					c.alOn = c.alOn or {}
-					if c.alSlots[key] and c.alWanted and c.alWanted[key] then
+					-- Off at once, even while the member's slots are still being built; back on only
+					-- once the build pass has said the slot is wanted.
+					if c.alSlots[key] and (off or (c.alWanted and c.alWanted[key])) then
 						local on = not off
 						if c.alOn[key] ~= on and pcall(c.SetAuraSlotEnabled, c, key, on) then c.alOn[key] = on end
 					end
@@ -3655,6 +3763,7 @@ local function ApplyPresence(f, g)
 		end
 	end
 	m.anyTaken = anyTaken
+	if anyTaken or m.compacted then PackRows(f, g, m, anyTaken) end
 end
 Display.ApplyPresence = ApplyPresence
 
@@ -3664,9 +3773,9 @@ function Display.DropPresence()
 	if ManagerUnsafe() then return end
 	for _, f in pairs(active) do
 		local m = f.members
-		if m and m.anyTaken then
+		if m and (m.anyTaken or m.compacted) then
 			for token, row in pairs(m.rows) do
-				row.auras, row.auraAt = nil, nil
+				row.read, row.auraAt = nil, nil
 				for _, cell in pairs(row.cells) do
 					if cell.alSuppressed then
 						cell.alSuppressed = false
@@ -3684,6 +3793,8 @@ function Display.DropPresence()
 				end
 			end
 			m.anyTaken = false
+			if m.plan and f.group then PackRows(f, f.group, m, false) end
+			m.compacted = nil
 		end
 	end
 end
@@ -3694,6 +3805,7 @@ function ReleaseMembers(f)
 	if not m then return end
 	for _, row in pairs(m.rows) do
 		HideRow(row)
+		row.collapsed, row.packed = nil, nil
 		for _, cell in pairs(row.cells) do cell.alSuppressed = nil end
 	end
 	-- What was taken off members goes with the rows: the next pass switches slots on by what it wants.
@@ -3959,7 +4071,8 @@ function Display:MembersReport(emit, rest)
 				end
 				if row.inPlan then
 					emit(("  %s %s: %s%s%s%s, container %s, slots %d (%d on)"):format(token, tostring(row.name or row.fallback), tostring(row.state or "-"),
-						row.guid and "" or ", not yet read", row.stale and ", marked" or "", row.needsBounce and ", to be read afresh" or "",
+						(row.guid and "" or ", not yet read") .. (row.collapsed and ", closed up (nothing to show)" or row.packed == "moved" and ", moved up" or row.packed and ", trackers closed up" or ""),
+						row.stale and ", marked" or "", row.needsBounce and ", to be read afresh" or "",
 						c and S(c.alMacro) or "none", n, on))
 				end
 			end

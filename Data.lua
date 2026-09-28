@@ -519,19 +519,31 @@ ns.racialStats = { api = "none", line = "none", lines = 0, scanned = 0, found = 
 
 local function SpellBookGeneral()
 	-- Returns a list of { name, id }, and the name of the call that worked.
+	-- Each entry also says whether it is a spell you have learned (itemType 1), passive, off your
+	-- spec, a lower rank of one you know, and whether its line is one the book should skip (hidden,
+	-- a guild line, an off-spec line). None of it is ever hidden from addons; it is cleaned anyway.
 	local out = {}
+	local C = ns.Clean
 	if C_SpellBook and C_SpellBook.GetNumSpellBookSkillLines and C_SpellBook.GetSpellBookItemInfo then
+		local bank = Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player or 0
 		local okN, lines = pcall(C_SpellBook.GetNumSpellBookSkillLines)
 		if okN and type(lines) == "number" then
 			ns.racialStats.lines = lines
 			for line = 1, lines do
 				local okL, info = pcall(C_SpellBook.GetSpellBookSkillLineInfo, line)
 				if okL and type(info) == "table" and info.itemIndexOffset and info.numSpellBookItems then
+					local skip = C(info.shouldHide) == true or C(info.isGuild) == true or C(info.offSpecID) ~= nil
 					for i = info.itemIndexOffset + 1, info.itemIndexOffset + info.numSpellBookItems do
-						local okI, item = pcall(C_SpellBook.GetSpellBookItemInfo, i,
-							Enum and Enum.SpellBookSpellBank and Enum.SpellBookSpellBank.Player or 0)
+						local okI, item = pcall(C_SpellBook.GetSpellBookItemInfo, i, bank)
 						if okI and type(item) == "table" and item.name and item.spellID then
-							out[#out + 1] = { name = item.name, id = item.spellID, line = info.name }
+							local low = false
+							if C_SpellBook.IsSpellBookItemLowRank then
+								local okLo, v = pcall(C_SpellBook.IsSpellBookItemLowRank, i, bank)
+								low = okLo and C(v) == true
+							end
+							out[#out + 1] = { name = item.name, id = item.spellID, line = info.name, lineIndex = line,
+								icon = C(item.iconID), itemType = C(item.itemType), passive = C(item.isPassive) == true,
+								offSpec = C(item.isOffSpec) == true, low = low, lineSkip = skip }
 						end
 					end
 				end
@@ -548,8 +560,11 @@ local function SpellBookGeneral()
 				if okT and type(offset) == "number" and type(count) == "number" then
 					for i = offset + 1, offset + count do
 						local okI, name = pcall(GetSpellBookItemName, i, "spell")
-						local _, id = pcall(GetSpellBookItemInfo, i, "spell")
-						if okI and name then out[#out + 1] = { name = name, id = tonumber(id), line = tabName } end
+						local okT, kind, id = pcall(GetSpellBookItemInfo, i, "spell")
+						if okI and name then
+							out[#out + 1] = { name = name, id = okT and tonumber(id) or nil, line = tabName,
+								itemType = (kind == "SPELL" and 1) or (kind == "FUTURESPELL" and 2) or nil }
+						end
 					end
 				end
 			end
@@ -565,10 +580,41 @@ local function BookKnows(pages)
 	local known = {}
 	for _, list in pairs(pages) do
 		for _, item in ipairs(list) do
-			if item.name then known[item.name:lower()] = true end
+			if item.name and not item.spellCd then known[item.name:lower()] = true end
 		end
 	end
 	return known
+end
+
+-- The order of a chapter: the written rows as they are, then rows read from the client by name, the
+-- cooldown rows last.
+local function BookOrder(a, b)
+	local ac, bc = a.spellCd and 1 or 0, b.spellCd and 1 or 0
+	if ac ~= bc then return ac < bc end
+	local an, bn = (a.name or ""):lower(), (b.name or ""):lower()
+	if an ~= bn then return an < bn end
+	return (a.listId or 0) < (b.listId or 0)
+end
+
+local function PlayerRace()
+	if UnitRace then
+		local okR, localized = pcall(UnitRace, "player")
+		localized = okR and ns.Clean(localized) or nil
+		if type(localized) == "string" then return localized end
+	end
+	return "Yours"
+end
+
+-- Only one line of the spellbook holds the racials: the one named after your race, or the general
+-- one. Everything else is class spells. If neither name turns up, the first line is the general one
+-- on every layout seen so far. Returns the line, and whether it was found by name.
+local function RacialLine(spells, race)
+	for _, spell in ipairs(spells) do
+		if spell.line and (spell.line == race or spell.line == "General" or (GENERAL and spell.line == GENERAL)) then
+			return spell.line, "named"
+		end
+	end
+	return spells[1] and spells[1].line, "first"
 end
 
 -- Names that turn up in the same part of the spellbook as the racials but are not racials.
@@ -590,29 +636,15 @@ function ns.LearnRacials()
 	ns.racialStats.api = api
 	ns.racialStats.scanned = #spells
 	local known = BookKnows(pages)
-	local race = "Yours"
-	if UnitRace then
-		local okR, localized = pcall(UnitRace, "player")
-		if okR and localized then race = localized end
-	end
-	-- Only one line of the spellbook holds the racials: the one named after your race, or the
-	-- general one. Everything else is class spells, which the book has chapters of already. If
-	-- neither name turns up, the first line is the general one on every layout seen so far.
-	local wanted
-	for _, spell in ipairs(spells) do
-		if spell.line and (spell.line == race or spell.line == "General" or (GENERAL and spell.line == GENERAL)) then
-			wanted = spell.line
-			break
-		end
-	end
-	if not wanted and spells[1] then wanted = spells[1].line end
+	local race = PlayerRace()
+	local wanted = RacialLine(spells, race)
 	ns.racialStats.line = wanted or "none"
 	local found, added = 0, 0
 	for _, spell in ipairs(spells) do
 		local low = spell.name:lower()
 		-- A racial is on that line, is not one of the handful of things that are never racials, and
 		-- is not something the book already offers.
-		if spell.line == wanted and not NOT_RACIAL[low] and not low:find("language", 1, true) then
+		if spell.line == wanted and spell.itemType ~= 2 and not NOT_RACIAL[low] and not low:find("language", 1, true) then
 			found = found + 1
 			if not known[low] then
 				known[low] = true
@@ -626,7 +658,297 @@ function ns.LearnRacials()
 		end
 	end
 	ns.racialStats.found, ns.racialStats.added = found, added
-	table.sort(racials, function(a, b) return (a.name or "") < (b.name or "") end)
+	table.sort(racials, BookOrder)
+end
+
+-- ------------------------------------------------------------------
+-- Your spells with a cooldown
+-- ------------------------------------------------------------------
+-- Read from your own spellbook: every spell you have learned that has a cooldown longer than the
+-- global one, as a row in your class chapter (racials in the Racials chapter) that makes a cooldown
+-- tracker. This client has no documented call for a spell's cooldown length, so it is taken from the
+-- first of these that knows: the base-cooldown call if the client has one, the spell's own tooltip
+-- (in the client's own words for a cooldown), its charges, a length read before while tracking it,
+-- and the Cooldown Manager's own list of your cooldowns (which gives no length).
+local GCD = 1.5
+local cdInfo, tipTries = {}, {}
+-- A spell's text has arrived: one given up on for want of it is read again.
+function ns.SpellTextArrived(id)
+	if type(id) == "number" and cdInfo[id] == false and tipTries[id] then
+		cdInfo[id], tipTries[id] = nil, nil
+		return true
+	end
+	return false
+end
+function ns.ForgetSpellCooldownEvidence()
+	for k in pairs(cdInfo) do cdInfo[k] = nil end
+	for k in pairs(tipTries) do tipTries[k] = nil end
+end
+
+local function BaseCooldown(id)
+	local fn = _G.GetSpellBaseCooldown or (C_Spell and C_Spell.GetSpellBaseCooldown)
+	if type(fn) ~= "function" then return nil end
+	local ok, ms = pcall(fn, id)
+	ms = ok and ns.Clean(ms) or nil
+	if type(ms) ~= "number" or ms <= 0 then return nil end
+	return ms / 1000
+end
+
+-- The client's own wording for a cooldown on a spell's tooltip, as patterns that match a whole line.
+local recastPatterns
+local function RecastPatterns()
+	if recastPatterns then return recastPatterns end
+	recastPatterns = {}
+	local defs = {
+		{ "SPELL_RECAST_TIME_SEC", "%s sec cooldown", 1 }, { "SPELL_RECAST_TIME_MIN", "%s min cooldown", 60 },
+		{ "SPELL_RECAST_TIME_HOURS", "%s hr cooldown", 3600 }, { "SPELL_RECAST_TIME_DAYS", "%s day cooldown", 86400 },
+		{ "SPELL_RECAST_TIME_CHARGES_SEC", nil, 1 }, { "SPELL_RECAST_TIME_CHARGES_MIN", nil, 60 },
+	}
+	for _, d in ipairs(defs) do
+		local fmt = _G[d[1]]
+		if type(fmt) ~= "string" then fmt = d[2] end
+		if fmt then
+			local p = fmt:gsub("%%%d*%$?[%-%d%.]*[sdfg]", "\001")
+			p = p:gsub("[%(%)%.%%%+%-%*%?%[%]%^%$]", "%%%0")
+			p = p:gsub("\001", "([%%d%%.,]+)")
+			recastPatterns[#recastPatterns + 1] = { pattern = "^%s*" .. p .. "%s*$", unit = d[3] }
+		end
+	end
+	return recastPatterns
+end
+ns.ForgetRecastPatterns = function() recastPatterns = nil end
+
+local function TooltipCooldown(id)
+	local T = C_TooltipInfo
+	if not (T and T.GetSpellByID) then return nil, "noapi" end
+	local ok, data = pcall(T.GetSpellByID, id)
+	data = ok and ns.Clean(data) or nil
+	local lines = type(data) == "table" and ns.Clean(data.lines) or nil
+	if type(lines) ~= "table" or #lines < 2 then
+		if C_Spell and C_Spell.RequestLoadSpellData then pcall(C_Spell.RequestLoadSpellData, id) end
+		return nil, "wait"
+	end
+	local pats = RecastPatterns()
+	for i = 1, math.min(#lines, 8) do
+		local line = ns.Clean(lines[i])
+		if type(line) == "table" then
+			for _, key in ipairs({ "rightText", "leftText" }) do
+				local text = ns.Clean(line[key])
+				if type(text) == "string" then
+					for _, p in ipairs(pats) do
+						local num = text:match(p.pattern)
+						local v = num and tonumber((num:gsub(",", ".")))
+						if v then return v * p.unit end
+					end
+				end
+			end
+		end
+	end
+	return nil, "none"
+end
+
+local function ChargesCooldown(id)
+	if not (C_Spell and C_Spell.GetSpellCharges) then return nil end
+	local ok, info = pcall(C_Spell.GetSpellCharges, id)
+	info = ok and ns.Clean(info) or nil
+	if type(info) ~= "table" then return nil end
+	local most, len = ns.Clean(info.maxCharges), ns.Clean(info.cooldownDuration)
+	if type(most) == "number" and most >= 1 and type(len) == "number" then return len end
+end
+
+-- The Cooldown Manager's list of your cooldowns, by spell id and by name.
+local managerSet
+function ns.ForgetManagerCooldowns() managerSet = nil end
+local function ManagerSet()
+	if managerSet then return managerSet end
+	managerSet = { ids = {}, names = {} }
+	local V = C_CooldownViewer
+	local cats = Enum and Enum.CooldownViewerCategory
+	if not (V and V.GetCooldownViewerCategorySet and V.GetCooldownViewerCooldownInfo and cats) then return managerSet end
+	local function add(sid)
+		sid = ns.Clean(sid)
+		if type(sid) ~= "number" then return end
+		managerSet.ids[sid] = true
+		local n = ns.SpellInfo(sid)
+		if type(n) == "string" then managerSet.names[n:lower()] = true end
+	end
+	for _, key in ipairs({ "Essential", "Utility", "SpecAgnosticEssential" }) do
+		local cat = cats[key]
+		if cat ~= nil then
+			local ok, set = pcall(V.GetCooldownViewerCategorySet, cat, false)
+			set = ok and ns.Clean(set) or nil
+			for _, cid in ipairs(type(set) == "table" and set or {}) do
+				local okI, info = pcall(V.GetCooldownViewerCooldownInfo, cid)
+				info = okI and ns.Clean(info) or nil
+				if type(info) == "table" then
+					add(info.spellID)
+					add(info.overrideSpellID)
+					local linked = ns.Clean(info.linkedSpellIDs)
+					for _, sid in ipairs(type(linked) == "table" and linked or {}) do add(sid) end
+				end
+			end
+		end
+	end
+	return managerSet
+end
+
+-- A spell's cooldown: its length and where that came from, or nil and why not.
+local function SpellCooldown(s)
+	local low = s.name:lower()
+	local c = cdInfo[s.id]
+	if c then return c.len, c.src end
+	if c == nil then
+		-- The tooltip first: it states the cooldown as it is now, talents and all. The base call gives
+		-- the spell's own, unchanged length, so it is asked only once the tooltip has had its say.
+		local len, src
+		local tip, why = TooltipCooldown(s.id)
+		if tip and tip > GCD then len, src = tip, "tooltip" end
+		if not len then
+			local ch = ChargesCooldown(s.id)
+			if ch and ch > GCD then len, src = ch, "charges" end
+		end
+		if not len and why == "wait" then
+			tipTries[s.id] = (tipTries[s.id] or 0) + 1
+			if tipTries[s.id] < 3 then return nil, "wait" end
+		end
+		if not len then
+			local base = BaseCooldown(s.id)
+			if base and base > GCD then len, src = base, "base" end
+		end
+		if len then
+			cdInfo[s.id] = { len = len, src = src }
+			return len, src
+		end
+		cdInfo[s.id] = false
+	end
+	-- Nothing said so: a length read while tracking it, or the manager listing it, still counts.
+	local learned = ns.profile and ns.profile.cdLen and tonumber(ns.profile.cdLen[low])
+	if learned and learned > GCD then return learned, "learned" end
+	local set = ManagerSet()
+	if set.ids[s.id] or set.names[low] then return nil, "manager" end
+	return nil, "none"
+end
+
+-- "2 min cooldown", "1 min 30 sec cooldown", "10 sec cooldown"; plain "Cooldown" with no length.
+local function CooldownWords(len)
+	if not len then return "Cooldown" end
+	local function num(v) if v == math.floor(v) then return tostring(math.floor(v)) end return ("%.1f"):format(v) end
+	if len < 60 then return num(len) .. " sec cooldown" end
+	if len < 3600 then
+		local m, s = math.floor(len / 60), math.floor(len % 60 + 0.5)
+		if s == 60 then m, s = m + 1, 0 end
+		return m .. " min" .. (s > 0 and (" " .. s .. " sec") or "") .. " cooldown"
+	end
+	local h, m = math.floor(len / 3600), math.floor((len % 3600) / 60 + 0.5)
+	if m == 60 then h, m = h + 1, 0 end
+	return h .. " hr" .. (m > 0 and (" " .. m .. " min") or "") .. " cooldown"
+end
+ns.CooldownWords = CooldownWords
+
+ns.cdBookStats = {}
+local cdSig
+function ns.LearnSpellCooldowns()
+	local pages = ns.BookPages()
+	local class = ns.PlayerClass()
+	local spells, api = SpellBookGeneral()
+	local st = { api = api, scanned = #spells, candidates = 0, rows = 0, class = 0, racial = 0, pending = 0, src = {},
+		baseApi = type(_G.GetSpellBaseCooldown) == "function" or (C_Spell and type(C_Spell.GetSpellBaseCooldown) == "function") or false,
+		tipApi = (C_TooltipInfo and C_TooltipInfo.GetSpellByID) and true or false, skipped = {} }
+	ns.cdBookStats = st
+	-- An early or failed read keeps what is there, as for the racials.
+	if #spells == 0 then return end
+	local race = PlayerRace()
+	local racialLine, how = RacialLine(spells, race)
+	local usable, nLines = {}, 0
+	for _, s in ipairs(spells) do
+		if not s.lineSkip and s.line and not usable[s.line] then usable[s.line] = true nLines = nLines + 1 end
+	end
+	-- A single line holds everything: nothing is taken for a racial.
+	if how == "first" and nLines < 2 then racialLine = nil end
+	st.racialLine = racialLine
+	local keep, order = {}, {}
+	for _, s in ipairs(spells) do
+		local low = s.name:lower()
+		local why = (s.itemType ~= nil and s.itemType ~= 1 and "not learned yet") or (s.passive and "passive")
+			or (s.offSpec and "off your spec") or (s.low and "a lower rank") or (s.lineSkip and "on a hidden line")
+			or ((NOT_RACIAL[low] or low:find("language", 1, true)) and "not a spell to track") or nil
+		if why then
+			st.skipped[#st.skipped + 1] = s.name .. ": " .. why
+		else
+			st.candidates = st.candidates + 1
+			local token = (racialLine and s.line == racialLine) and "RACIAL" or class
+			if token and pages[token] then
+				local key = token .. "\0" .. low
+				if not keep[key] then order[#order + 1] = key end
+				-- Ranks come lowest first: the last one seen is the one to follow.
+				keep[key] = { s = s, token = token }
+			end
+		end
+	end
+	local rows, sig = {}, { tostring(class) }
+	for _, key in ipairs(order) do
+		local e = keep[key]
+		local len, src = SpellCooldown(e.s)
+		st.src[src] = (st.src[src] or 0) + 1
+		if src == "wait" then
+			st.pending = st.pending + 1
+		elseif len or src == "manager" then
+			local s = e.s
+			rows[#rows + 1] = {
+				name = s.name, id = s.id, listId = s.id, icon = s.icon or select(2, ns.SpellInfo(s.id)),
+				kind = "buff", cd = true, spellCd = true, cdLength = len, cdSource = src,
+				note = (e.token == "RACIAL" and (race .. ", ") or "") .. CooldownWords(len),
+				prebuilt = true, fromClient = true, class = e.token, resolved = true,
+			}
+			sig[#sig + 1] = e.token .. "|" .. s.name:lower() .. "|" .. tostring(s.id) .. "|" .. tostring(len)
+		else
+			st.skipped[#st.skipped + 1] = e.s.name .. ": no cooldown found"
+		end
+	end
+	st.rows = #rows
+	for _, r in ipairs(rows) do
+		if r.class == "RACIAL" then st.racial = st.racial + 1 else st.class = st.class + 1 end
+	end
+	table.sort(sig)
+	local sigText = table.concat(sig, ";")
+	if sigText ~= cdSig then
+		cdSig = sigText
+		-- The rows read before go, and the new ones take their place after the written rows.
+		local tokens = { "RACIAL" }
+		if class then tokens[2] = class end
+		for _, token in ipairs(tokens) do
+			local list = pages[token]
+			if list then
+				for i = #list, 1, -1 do if list[i].spellCd then table.remove(list, i) end end
+			end
+		end
+		table.sort(rows, BookOrder)
+		for _, r in ipairs(rows) do
+			local list = pages[r.class]
+			list[#list + 1] = r
+		end
+		if pages.RACIAL then table.sort(pages.RACIAL, BookOrder) end
+		if ns.UI and ns.UI.RefreshHistory then ns.UI:RefreshHistory() end
+	end
+	-- Spell text that had not loaded yet is asked for again shortly, a few times.
+	if st.pending > 0 and (ns.cdRetry or 0) < 3 then
+		ns.cdRetry = (ns.cdRetry or 0) + 1
+		ns.QueueSpellCooldownRows(2)
+	elseif st.pending == 0 then
+		ns.cdRetry = 0
+	end
+end
+
+-- Read again, soon and once: bursts of spellbook changes (a stance or a form change fires them too)
+-- come to one read. Never in a fight.
+function ns.QueueSpellCooldownRows(delay)
+	if ns.cdQueued then return end
+	ns.cdQueued = true
+	local function go()
+		ns.cdQueued = false
+		if ns.WhenFree then ns.WhenFree("spell cooldown rows", function() pcall(ns.LearnSpellCooldowns) end) end
+	end
+	if C_Timer and C_Timer.After then C_Timer.After(delay or 0.5, go) else go() end
 end
 
 -- Look the spell up in the client. Cheap to call again; stops once it has an answer.
@@ -668,8 +990,8 @@ function ns.BookStats()
 	local total, exact, iconOnly, unknown = 0, 0, 0, 0
 	for _, list in pairs(ns.BookPages()) do
 		for _, item in ipairs(list) do
-			-- Weapon, dispel and preset rows are not spells: nothing about them resolves.
-			if item.enchant == nil and item.swing == nil and not item.matchDispel and not item.preset then
+			-- Weapon, dispel and preset rows are not spells, and cooldown rows are counted apart.
+			if item.enchant == nil and item.swing == nil and not item.matchDispel and not item.preset and not item.spellCd then
 			ns.ResolveBookItem(item)
 			total = total + 1
 			if item.id then exact = exact + 1 elseif item.resolved then iconOnly = iconOnly + 1 else unknown = unknown + 1 end

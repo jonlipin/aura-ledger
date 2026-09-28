@@ -756,11 +756,14 @@ local function ClassLabel(token)
 	return (LOCALIZED_CLASS_NAMES_MALE and LOCALIZED_CLASS_NAMES_MALE[token]) or (token:sub(1, 1) .. token:sub(2):lower())
 end
 
+-- A tracker, or a book row, by what it follows: a cooldown (or an item) apart from the buff of the
+-- same name, so each marks only its own row.
+local function TrackKey(x) return ((x.cd or x.item) and "cd:" or "") .. strlower(x.name or "") end
 local function TrackedNames()
 	local set = {}
 	for _, g in ipairs(ns.profile.groups) do
 		for _, t in ipairs(g.trackers) do
-			if t.name then set[strlower(t.name)] = true end
+			if t.name then set[TrackKey(t)] = true end
 		end
 	end
 	return set
@@ -791,6 +794,12 @@ local function BookTooltip(b)
 		GameTooltip:AddLine((h.note or "Your weapon") .. ". The addon reads it itself, in a fight too.", 0.6, 0.8, 1, true)
 	elseif h.item then
 		GameTooltip:AddLine((h.note or "In your bags") .. ": its cooldown, which this client lets an addon read straight through a fight.", 0.6, 0.8, 1, true)
+	elseif h.spellCd then
+		local len = h.cdLength and ns.CooldownWords(h.cdLength):gsub(" cooldown$", "") or nil
+		local whose = (h.class == "RACIAL") and "Your racial's cooldown" or "Your spell's cooldown"
+		GameTooltip:AddLine(whose .. (len and (": " .. len .. ".") or ", its length not read yet."), 0.6, 0.8, 1, true)
+		GameTooltip:AddLine("A tracker made from this row follows the spell's cooldown, not any buff it gives. It shows while the cooldown is running; set Show the cooldown when it is to Ready to see it when the spell can be cast instead.", 0.6, 0.8, 1, true)
+		GameTooltip:AddLine("The addon reads it itself and keeps it counting through a fight.", 0.6, 0.8, 1, true)
 	elseif h.prebuilt then
 		local ranks = ns.RankIds and ns.RankIds(h.name)
 		local n = 0
@@ -832,6 +841,10 @@ local function BookTooltip(b)
 	if not h.prebuilt then GameTooltip:AddLine("Shift-right-click: forget this entry", 0.7, 0.7, 0.7) end
 	GameTooltip:Show()
 end
+
+-- For the harness: the book tooltip for a row, and what the book counts as tracked.
+UI.BookTooltipForTest = function(b) BookTooltip(b) end
+UI.TrackedNamesForTest = function() return TrackedNames() end
 
 local function CreateBookButton(parent, onParchment, art)
 	local b = CreateFrame("Button", nil, parent)
@@ -976,7 +989,7 @@ local function UpdateBookButton(b, h, tracked)
 		b.typeBorder:Hide()
 	end
 	local name = h.name or ("Spell " .. tostring(h.id))
-	local isTracked = h.name and tracked[strlower(h.name)]
+	local isTracked = h.name and tracked[TrackKey(h)]
 	if b.onParchment then
 		b.name:SetTextColor(0.18, 0.11, 0.06)
 		b.name:SetShadowColor(0, 0, 0, 0)
@@ -1017,13 +1030,20 @@ local function BookItems()
 		for _, token in ipairs(ns.BOOK_ORDER) do
 			for _, item in ipairs(ns.BookPages()[token] or {}) do
 				local l = strlower(item.name)
-				if not have[l] and not item.unknown and (l .. " " .. tostring(item.listId or "") .. " " .. strlower(item.note or "")):find(query, 1, true) then
-					have[l] = true
+				local k = TrackKey(item)
+				if not have[k] and not item.unknown and (l .. " " .. tostring(item.listId or "") .. " " .. strlower(item.note or "")):find(query, 1, true) then
+					have[k] = true
 					list[#list + 1] = item
 				end
 			end
 		end
-		table.sort(list, function(a, b) return strlower(a.name or "") < strlower(b.name or "") end)
+		table.sort(list, function(a, b)
+			local an, bn = strlower(a.name or ""), strlower(b.name or "")
+			if an ~= bn then return an < bn end
+			local ac, bc = (a.cd and 1 or 0), (b.cd and 1 or 0)
+			if ac ~= bc then return ac < bc end
+			return (a.listId or 0) < (b.listId or 0)
+		end)
 		return list, "Search results"
 	end
 	if book.tab ~= "HISTORY" then
@@ -1283,7 +1303,7 @@ local function CreateBookTab(holder, pane, token, index)
 			GameTooltip:AddLine("Everything in your bags or worn that has a use on it. A tracker made from one of these follows the item's cooldown, which this client lets an addon read straight through a fight.", 0.8, 0.8, 0.8, true)
 		elseif token == "RACIAL" then
 			GameTooltip:SetText("Racials", 1, 1, 1)
-			GameTooltip:AddLine("The buffs your race gives you, labelled by race.", nil, nil, nil, true)
+			GameTooltip:AddLine("The buffs your race gives you, labelled by race, and your own racials that have a cooldown.", nil, nil, nil, true)
 		elseif token == "ITEMS" then
 			GameTooltip:SetText("Items", 1, 1, 1)
 			GameTooltip:AddLine("Flasks, elixirs, potions, scrolls, world buffs and trinket effects.", nil, nil, nil, true)
@@ -1293,6 +1313,9 @@ local function CreateBookTab(holder, pane, token, index)
 		else
 			GameTooltip:SetText(ClassLabel(token), 1, 1, 1)
 			GameTooltip:AddLine("Buffs this class can cast.", nil, nil, nil, true)
+			if token == (ns.PlayerClass and ns.PlayerClass()) then
+				GameTooltip:AddLine("After them, every spell you know that has a cooldown, read from your spellbook. Double-click or drag one to track its cooldown.", nil, nil, nil, true)
+			end
 		end
 		GameTooltip:Show()
 	end)
@@ -1918,7 +1941,7 @@ local function BuildTrackerPanel(width)
 		local g = t and ns.FindGroupOf(t)
 		if not (g and ns.GroupUnits(g)) then return "" end
 		if MemberTakes() then
-			return "This group is hidden in a fight, so out of one the addon reads everyone's buffs: Missing shows only the members without it, and brings it back on one whose buff is inside the warn time below. Not in a battleground or an arena, where nobody's auras can be read: there Missing behaves like Either."
+			return "This group is hidden in a fight, so out of one the addon reads everyone's buffs: Missing shows only the members without it, and brings it back on one whose buff is inside the warn time below. A member with nothing left to show drops out of the list, and the rest move up. Not in a battleground or an arena, where nobody's auras can be read: there Missing behaves like Either."
 		end
 		return "This group is shown in a fight, where the game draws the aura on everyone who has it, so Missing behaves like Either. Set In combat to Hidden in the group's settings, and Missing shows only the members without it."
 	end)

@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.74.2"
+ns.VERSION = "1.75.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -663,7 +663,7 @@ function ns.AddManual(text)
 		-- Not a spell this character knows; the pre-built book may still have its icon.
 		for _, list in pairs(ns.BookPages()) do
 			for _, item in ipairs(list) do
-				if strlower(item.name) == strlower(text) then
+				if strlower(item.name) == strlower(text) and not item.spellCd then
 					ns.ResolveBookItem(item)
 					name, icon, spellId = item.name, item.icon, item.id
 				end
@@ -988,6 +988,12 @@ end
 -- Track a ledger row: into an existing group, or as a new group of one at x, y (UIParent units).
 function ns.TrackHistory(h, group, index, x, y)
 	if h.preset then return nil, ns.MakePreset and ns.MakePreset(h.preset, x, y) end
+	-- A cooldown row's length is what a fight carries the tracker on, until it is read plainly.
+	if h.spellCd and type(h.cdLength) == "number" and h.name and ns.profile then
+		ns.profile.cdLen = ns.profile.cdLen or {}
+		local l = strlower(h.name)
+		if ns.profile.cdLen[l] == nil then ns.profile.cdLen[l] = h.cdLength end
+	end
 	local t = ns.NewTracker(h)
 	if not group then
 		if not x then
@@ -2353,6 +2359,7 @@ local function Startup()
 	ns.FitAllCells()
 	ns.MarkShapedGroups()
 	if ns.LearnRacials then pcall(ns.LearnRacials) end
+	if ns.LearnSpellCooldowns then pcall(ns.LearnSpellCooldowns) end
 	ns.ApplyMaskSettings()
 	ns.playerGUID = UnitGUID and UnitGUID("player")
 	ns.targetGUID = UnitGUID and Clean(UnitGUID("target")) or nil
@@ -2431,6 +2438,8 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 				ns.ReadTalents()
 				ns.UpdateEnv()
 				ns.LearnBookRanks()
+				-- Spell text can arrive late at login.
+				if ns.QueueSpellCooldownRows then ns.QueueSpellCooldownRows(0) end
 				if ns.ResolveAllBookItems then ns.ResolveAllBookItems() end
 			end)
 			-- A past version took the Cooldown Manager over and tainted it by doing so. Give it back.
@@ -2482,15 +2491,25 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		or event == "ACTIVE_TALENT_GROUP_CHANGED" then
 		ns.ReadTalents()
 		ns.UpdateEnv()
+		-- Talents can change a spell's cooldown: read the lengths again.
+		if ns.ForgetSpellCooldownEvidence then ns.ForgetSpellCooldownEvidence() end
+		if ns.QueueSpellCooldownRows then ns.QueueSpellCooldownRows() end
 	elseif event == "SPELLS_CHANGED" then
 		-- A racial can arrive with a level, or late at login.
 		if ns.LearnRacials then pcall(ns.LearnRacials) end
+		if ns.QueueSpellCooldownRows then ns.QueueSpellCooldownRows() end
 		ns.LearnBookRanks()
 		ns.ReadTalents()
 		ns.UpdateEnv()
 	elseif event == "GROUP_ROSTER_UPDATE" then
 		ns.UpdateEnv()
 		if ns.Display and ns.Display.RosterChanged then ns.Display:RosterChanged() end
+	elseif event == "SPELL_TEXT_UPDATE" then
+		local id = Clean(a1)
+		if ns.SpellTextArrived and ns.SpellTextArrived(id) and ns.QueueSpellCooldownRows then ns.QueueSpellCooldownRows() end
+	elseif event == "COOLDOWN_VIEWER_DATA_LOADED" then
+		if ns.ForgetManagerCooldowns then ns.ForgetManagerCooldowns() end
+		if ns.QueueSpellCooldownRows then ns.QueueSpellCooldownRows() end
 	elseif event == "CVAR_UPDATE" then
 		local name = Clean(a1)
 		if type(name) == "string" and name:lower() == "cooldownviewerenabled" then
@@ -2530,7 +2549,7 @@ for _, ev in ipairs({ "WEAPON_ENCHANT_CHANGED", "WEAPON_SLOT_CHANGED", "PLAYER_T
 end
 for _, ev in ipairs({ "PLAYER_REGEN_DISABLED", "PLAYER_REGEN_ENABLED", "PLAYER_ENTERING_WORLD",
 	"ADDON_RESTRICTION_STATE_CHANGED", "BAG_UPDATE_DELAYED", "PLAYER_EQUIPMENT_CHANGED", "SPELLS_CHANGED", "CVAR_UPDATE",
-	"PLAYER_LEAVING_WORLD" }) do
+	"PLAYER_LEAVING_WORLD", "COOLDOWN_VIEWER_DATA_LOADED", "SPELL_TEXT_UPDATE" }) do
 	SafeRegister(ev)
 end
 for _, ev in ipairs(ENV_EVENTS) do SafeRegister(ev) end
@@ -3038,7 +3057,7 @@ function ns.ClearMaskDiagnostics()
 	end
 end
 
-ns.DIAG_ORDER = { "log", "api", "gd", "members", "cdm2", "cdmrestore", "probe", "atlases", "icon", "item", "cdread" }
+ns.DIAG_ORDER = { "log", "api", "gd", "members", "cdm2", "cdmrestore", "probe", "atlases", "icon", "item", "cdread", "spellcd" }
 ns.DIAG = {}
 for _, k in ipairs(ns.DIAG_ORDER) do ns.DIAG[k] = true end
 ns.DIAG.soundtest, ns.DIAG.soundclear = true, true
@@ -3230,6 +3249,13 @@ local function Debug()
 	local rst = ns.racialStats or {}
 	Print(("  racials from the client: %s, %d lines, %d spells, %s line, %d added"):format(
 		rst.api or "none", rst.lines or 0, rst.scanned or 0, tostring(rst.line or "none"), rst.added or 0))
+	local cst = ns.cdBookStats or {}
+	local srcs = {}
+	for k, v in pairs(cst.src or {}) do srcs[#srcs + 1] = k .. " " .. v end
+	table.sort(srcs)
+	Print(("  spell cooldowns from your spellbook: %d read, %d candidates, %d rows (%d in your class, %d racial), %d waiting for spell text; lengths from %s; base-cooldown call %s, tooltip call %s"):format(
+		cst.scanned or 0, cst.candidates or 0, cst.rows or 0, cst.class or 0, cst.racial or 0, cst.pending or 0,
+		#srcs > 0 and table.concat(srcs, ", ") or "nothing yet", YesNo(cst.baseApi), YesNo(cst.tipApi)))
 	Print("  settling after entering the world: " .. (ns.settleUntil and (("%.1fs left"):format(ns.settleUntil - GetTime())) or "no, finished"))
 	local s = ns.stats
 	Print(("  scans %d (partial %d, blocked %d), removals by id %d, estimated refreshes %d"):format(
@@ -3392,8 +3418,10 @@ SlashCmdList.AURALEDGER = function(msg)
 		Print("If the line named above is not the one your racials are on, say so and it can be picked differently.")
 		Print("Only your own race's can be read from the client. Send the list below and the rest can be written in for every race.")
 		for _, row in ipairs(ns.BookPages().RACIAL or {}) do
-			Print(("  %s |cff808080(%s%s)|r"):format(row.name, row.listId and ("spell " .. row.listId) or "no id",
-				row.fromClient and ", from this client" or ""))
+			if not row.spellCd then
+				Print(("  %s |cff808080(%s%s)|r"):format(row.name, row.listId and ("spell " .. row.listId) or "no id",
+					row.fromClient and ", from this client" or ""))
+			end
 		end
 	elseif cmd == "cooldown" or cmd == "cd" then
 		if rest == "" then
@@ -3661,6 +3689,25 @@ SlashCmdList.AURALEDGER = function(msg)
 				end
 			end
 			if found == 0 then Print("nothing documented under that name (try the exact name from /api search)") end
+		end
+	elseif cmd == "spellcd" then
+		-- Your spells with a cooldown, as the book reads them: every row and where its length came from,
+		-- and with "all", every spell left out and why.
+		if ns.LearnSpellCooldowns then pcall(ns.LearnSpellCooldowns) end
+		local cst = ns.cdBookStats or {}
+		Print(("Spell cooldowns from your spellbook (%s): %d spells read, %d candidates, %d rows, racials taken from the %s line."):format(
+			tostring(cst.api), cst.scanned or 0, cst.candidates or 0, cst.rows or 0, tostring(cst.racialLine or "no")))
+		for _, token in ipairs({ ns.PlayerClass and ns.PlayerClass() or "?", "RACIAL" }) do
+			for _, row in ipairs(ns.BookPages()[token] or {}) do
+				if row.spellCd then
+					Print(("  %s |cff808080(%s, spell %s, %s, from %s)|r"):format(row.name, token, tostring(row.id), row.note, tostring(row.cdSource)))
+				end
+			end
+		end
+		if strlower(rest or "") == "all" then
+			for _, line in ipairs(cst.skipped or {}) do Print("  left out: " .. line) end
+		else
+			Print("  /auraledger debug spellcd all also lists every spell left out, and why.")
 		end
 	elseif cmd == "members" then
 		Print("Groups that watch your party:")

@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.75.0
+
+- New: your spells with a cooldown are in the book. Your own class's chapter now goes on, after its buffs, to list every spell you know that has a cooldown longer than the global one, read from your own spellbook (Death Coil, Shadowburn, Shield Wall and the like), each with its length. The Racials chapter does the same for your racials. Double-click one, or drag it out, to track its cooldown. Spells you have not learned yet, passive ones and lower ranks are left out, and the list follows your spellbook as you learn spells or change talents.
+- The game does not say plainly how long a spell's cooldown is, so the book reads it from the spell's own tooltip, in the game's own words, talents and all. A spell the Cooldown Manager lists as one of your cooldowns, but whose length could not be read, shows just "Cooldown"; the tracker reads the length the first time the spell is used.
+- A cooldown row and a buff row of the same name (Fel Domination, Blood Fury) are told apart: a tracker marks only its own row as tracked, and the search shows both.
+- New: party and raid groups close up round what is taken off. In a group hidden in a fight, a member with nothing to show no longer leaves their name behind: they have every buff you track, and nothing an Active or a dispel tracker would show, so their row goes, name and all. The rows after it move up, and in each row what is still shown sits side by side. When a buff falls off or runs into its warn time, or a debuff you can remove lands, the member comes back in their place. With the options window open, or on a loading screen, the list is shown in full.
+- New: `/auraledger debug spellcd` lists your spells with a cooldown as the book reads them, and where each length came from; `/auraledger debug spellcd all` adds every spell left out, and why. `/auraledger debug members` says which rows are closed up or moved up.
+
 ## 1.74.2
 
 - New: Aura Ledger tells you, once a session, when the game's Cooldown Manager is switched off. It draws its icons and bars in the manager's look (the icon shape, its border and shadow, the bar's frame), copied from the manager's own displays, so with the manager off every tracker falls back to plain stand-ins. Turn it on under Options, Gameplay, Advanced Options: Enable Cooldown Manager. The look is picked up within a few seconds, with no reload.
