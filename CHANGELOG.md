@@ -1,5 +1,24 @@
 # Changelog
 
+## 1.74.0
+
+- New: groups that watch your party or your whole raid. **Track on**, at the top of a group's settings, is now Me, My party, or Everyone in my group. Each member gets a row: their name in their class colour, then a cell for each tracker, and the game draws each member's buffs in them, so the rows stay right all through a fight. My party is you and up to four others; in a raid that is your own raid group, which is who Blood Pact and Battle Shout reach. Everyone is your party, or in a raid every member, ten to a column (**Members per column** changes that).
+- New: a row says when the game cannot show that member: **Far** when they are out of view, **Off** when offline, "(dead)" on the name. A **?** means the row changed hands during a fight (someone left and the rest moved up), or its member came back into view or online during one; it is read afresh when the fight ends. Hover a name for what the game can see of them.
+- New: in a group that watches your party, a buff's group version counts too: Prayer of Fortitude for Power Word: Fortitude, Arcane Brilliance for Arcane Intellect, Gift of the Wild, Prayer of Spirit, Prayer of Shadow Protection, and every Greater Blessing for its Blessing. A new buff added to such a group shows where it is missing.
+- New: dispel trackers. **Something I can remove** lights when there is a debuff you can dispel, and **Curse**, **Magic**, **Poison** and **Disease** light for that type whether you can remove it or not. The game draws the debuff itself, in its own icon with its countdown and a border in its type's colour, all through a fight. In a group that watches you they say "I have a Curse"; in one that watches your party, a column lights for each member who has one. They glow while lit.
+- New: a **Party and raid** chapter in the book, right after your own class, with the dispel trackers, the buffs worth watching on everyone, Soulstone Resurrection (who has one), and **Party buffs for my class**: one double-click sets up a group that watches your party with the buffs your class gives and, if your class can dispel, something to remove.
+- New: debuff trackers on you, from the ledger. The addon draws them (exact out of a fight, carried in one), their combat sounds are handed to the game, and the few debuffs the game never hides are drawn by the game in a group it draws.
+- New: school lockouts. A cooldown tracker whose spell's school is locked out by an interrupt shows it, drained and reddened, with the time left in its tooltip.
+- New: **Colour the border by dispel type**, a group option that rings each aura in its type's colour. Most buffs are Magic. In a group drawn by the game, the game draws the ring, in combat too.
+- New: the ranks of the class buffs in the book are bundled with the addon (from talentsforever.com), so a group drawn by the game follows every rank of a buff, even one never seen on you. Each is checked against this client and dropped if it names something else.
+- New: `/auraledger debug members` reports every group that watches your party, row by row. `/auraledger debug members probe`, run in a fight, checks whether a member's row could be read afresh during a fight rather than after it.
+- Fixed: trackers drawn by the game no longer go blank while the game's Edit Mode is open.
+- Fixed: nothing the game draws is built, changed or moved while the game is hiding auras outside a fight (a battleground, for one), which could make the game refuse the addon. In a battleground a group drawn by the game therefore keeps the conditions it had until the match ends.
+- Fixed: in a group drawn by the game, a tracker the addon draws (a cooldown, say) appearing or going during a fight knocked the game's icons out of line with their places, since the game will not have them moved then. The order is now held until the fight ends: a tracker that goes quiet leaves its place empty, and one that appears goes on the end.
+- Fixed: a group drawn by the game that was switched to be drawn by the addon during a fight no longer hides the game's frames with it; it fades out until they can be put away.
+- Fixed: a damaged or unusual import string can no longer break the import; anything in it the addon does not know is dropped.
+- Saved data is now changed in numbered steps, each run once, so a later version can add to a tracker without an older step undoing it. An addon that is older than your saved data leaves it alone and says so in `/auraledger debug`.
+
 ## 1.73.1
 
 - "Glow while it is up" is now offered on every tracker, not only on buffs in a group drawn by the game. On the trackers the addon draws, the addon plays the same action bar proc glow itself, going by what the tracker shows (in a fight, the reading it is carrying); on buffs the game draws, the game still plays it, in combat too.
