@@ -693,7 +693,7 @@ function ns.NewTracker(h)
 end
 
 -- The look of a group, copied when a tracker is pulled out into a group of its own.
-ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "barIconScale", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "gameDrawn" }
+ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "barIconScale", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "gameDrawn", "dispelColors" }
 
 -- How big the icon on a bar is: the bar's own height by default, and anything from half that to
 -- twice it. Kept here so the addon's bars and the slots the game fills agree on the answer.
@@ -1185,6 +1185,26 @@ function ns.CooldownMemory(t)
 		tostring(RememberedLength(lname)))
 end
 
+-- A school lockout: interrupted, and this spell's school cannot be cast for a while. The game's own
+-- action bars show it in place of the cooldown when it ends later than the cooldown would. Whether it
+-- is on is never hidden; its start and length can be, in a restricted fight.
+local function LockoutFor(key)
+	if not (C_Spell and C_Spell.GetSpellLossOfControlCooldownInfo) then return nil end
+	local ok, info = pcall(C_Spell.GetSpellLossOfControlCooldownInfo, key)
+	info = ok and Clean(info) or nil
+	if type(info) ~= "table" then return nil end
+	if Clean(info.isActive) ~= true or Clean(info.shouldReplaceNormalCooldown) ~= true then return nil end
+	local e = { kind = "cooldown", mine = true, lockout = true, duration = 0, expires = 0 }
+	local s, dur = info.startTime, info.duration
+	if IsHidden(s) or IsHidden(dur) then
+		e.secret = true
+	else
+		s, dur = tonumber(s), tonumber(dur)
+		if s and dur and dur > 0 then e.duration, e.expires = dur, s + dur end
+	end
+	return e
+end
+
 function ns.CooldownFor(t)
 	if t.item then return ns.ItemCooldownFor(t) end
 	local key = t.id or t.name
@@ -1200,6 +1220,11 @@ function ns.CooldownFor(t)
 	end
 	local icon = t.icon
 	if not icon then local _, i = ns.SpellInfo(key) icon = i end
+	local locked = LockoutFor(key)
+	if locked then
+		locked.name, locked.id, locked.icon = t.name, t.id, icon
+		return locked
+	end
 	if IsHidden(start) or IsHidden(duration) then return HiddenCooldown(t, key, icon, enabled, active) end
 	start, duration = tonumber(start), tonumber(duration)
 	if not start or not duration then return nil end

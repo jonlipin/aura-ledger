@@ -1667,6 +1667,9 @@ local function BuildGroupPanel(width)
 	b:Check("Icon frame", function() local g = G() return g and g.iconFrame ~= false end,
 		function(v) local g = G() if g then g.iconFrame = v GroupChanged() end end,
 		"The decorative frame around each icon, when the client has one.")
+	b:Check("Colour the border by dispel type", function() local g = G() return g and g.dispelColors end,
+		function(v) local g = G() if g then g.dispelColors = v or nil GroupChanged() end end,
+		"Rings each aura in the colour of its dispel type: blue for Magic, purple for Curse, green for Poison, brown for Disease. Most buffs are Magic. In a group drawn by the game, the game draws the ring, in combat too.")
 
 	b:Header("Only show this group when")
 	b:Conditions(function() local g = G() return g and g.cond end, TrackerChanged, {

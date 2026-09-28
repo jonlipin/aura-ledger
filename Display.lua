@@ -1536,7 +1536,9 @@ local function WidgetTooltip(w)
 	local cooldown = t.cd or t.item
 	local left = entry and entry.expires and entry.expires > 0 and (entry.expires - GetTime()) or nil
 	if cooldown then
-		if entry and entry.held then
+		if entry and entry.lockout then
+			GameTooltip:AddLine((left and left > 0) and ("Locked out, %s left"):format(ns.FormatTime(left)) or "Locked out", 1, 0.4, 0.4)
+		elseif entry and entry.held then
 			GameTooltip:AddLine("Used; its cooldown starts when the effect ends", 1, 0.7, 0.3)
 		elseif entry and entry.secret then
 			GameTooltip:AddLine("On cooldown; the game is not saying how long right now", 1, 0.7, 0.3)
@@ -2140,7 +2142,11 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 	local flagMissing = (not isActive) and (t.show ~= "active")
 	if w.icon.SetDesaturated then w.icon:SetDesaturated(not isActive or onCooldown) end
 	local redMissing = ns.db and ns.db.missingStyle == "red"
-	if onCooldown then
+	if onCooldown and entry.lockout then
+		-- Locked out: drained and reddened, as the spell cannot be cast whatever its cooldown says.
+		w.icon:SetVertexColor(1, 0.45, 0.45)
+		w.icon:SetAlpha(1)
+	elseif onCooldown then
 		w.icon:SetVertexColor(0.85, 0.85, 0.85)
 		w.icon:SetAlpha(1)
 	elseif isActive then
@@ -2160,6 +2166,9 @@ local function PaintWidget(w, g, t, entry, preview, expiring)
 		br, bg, bb, strong = 1, 0.1, 0.1, true
 	elseif isActive and entry.kind == "debuff" then
 		local c = DISPEL_COLORS[entry.dispel or "none"] or DISPEL_COLORS.none
+		br, bg, bb, strong = c[1], c[2], c[3], true
+	elseif isActive and g.dispelColors and entry.dispel and DISPEL_COLORS[entry.dispel] then
+		local c = DISPEL_COLORS[entry.dispel]
 		br, bg, bb, strong = c[1], c[2], c[3], true
 	elseif flagMissing and redMissing then
 		br, bg, bb, strong = 1, 0.1, 0.1, true
@@ -2316,7 +2325,7 @@ end
 local function SlotKey(g)
 	return g.style .. ":" .. g.size .. ":" .. g.barW .. ":" .. g.barH .. ":" .. tostring(g.barIconScale or 1)
 		.. ":" .. tostring(g.iconFrame ~= false) .. tostring(g.border ~= false)
-		.. tostring(g.background ~= false) .. tostring(g.timers ~= false) .. tostring(g.names ~= false)
+		.. tostring(g.background ~= false) .. tostring(g.timers ~= false) .. tostring(g.names ~= false) .. tostring(g.dispelColors == true)
 		-- and the look itself: the art read off the client, the plate's reach, the fill's margins.
 		.. ":" .. tostring(ns.MASK_EPOCH or 0) .. ":" .. tostring(ns.db and ns.db.plateTop) .. "," .. tostring(ns.db and ns.db.plateBottom)
 		.. "," .. tostring(ns.db and ns.db.plateEven)
@@ -2414,8 +2423,20 @@ local function InitSlotFrame(g, mode, filter, store, opts)
 		count:SetFont(FONT, max(7, floor(IS * (bars and 0.45 or 0.3))), "OUTLINE")
 		count:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", -1, 1)
 		pcall(button.SetApplicationCount, button, count)
-		-- No dispel-type border: the game hides it on helpful auras, and these slots only ever hold
-		-- buffs, so it never showed.
+		-- The border by dispel type, when the group asks for it. The game hides it on buffs unless told
+		-- to show it there, which the old border never was, so it never showed. The game draws its own
+		-- border in the type's colour and nothing about it is read back.
+		if g.dispelColors then
+			local okB, why = pcall(function()
+				local ring = button:CreateTexture(nil, "OVERLAY", nil, 7)
+				ring:SetPoint("TOPLEFT", icon, "TOPLEFT", -1, 1)
+				ring:SetPoint("BOTTOMRIGHT", icon, "BOTTOMRIGHT", 1, -1)
+				local styles = Enum and Enum.CustomAuraButtonDispelTypeTextureStyle
+				button:AddDispelTypeTexture(ring, { showWhenHelpful = true, showWhenHarmful = true,
+					style = styles and styles.Border or nil })
+			end)
+			ns.report["slot dispel border"] = okB and "drawn by the game" or ("refused: " .. tostring(why))
+		end
 		if bars then
 			local bar = CreateFrame("StatusBar", nil, button)
 			-- The group's own bar height, held in the middle of the cell: a cell is as tall as the
@@ -3003,6 +3024,7 @@ Display.Expiring = Expiring
 -- Which state a cooldown or weapon entry is in, for noticing a change that moves no time.
 local function EntryState(e)
 	if e == nil then return 0 end
+	if e.lockout then return 5 end
 	if e.held then return 1 end
 	if e.secret then return 2 end
 	if e.ready then return 3 end
