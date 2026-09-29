@@ -7,6 +7,7 @@
 ## SavedVariables: AuraLedgerDB
 ## IconTexture: Interface\Icons\INV_Misc_Book_09
 ## AddonCompartmentFunc: AuraLedger_OnAddonCompartmentClick
+## X-License: MIT
 
 AuraLedger.xml
 Core.lua
