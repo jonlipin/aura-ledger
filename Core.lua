@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.75.0"
+ns.VERSION = "1.76.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -223,10 +223,148 @@ end
 -- ------------------------------------------------------------------
 -- Saved data
 -- ------------------------------------------------------------------
-local function CharKey()
-	local name = UnitName and UnitName("player") or "Unknown"
-	local realm = GetRealmName and GetRealmName() or "Realm"
-	return tostring(name) .. "-" .. tostring(realm)
+-- Who is playing. Each character's profile is kept under its GUID, not its name: this client gives
+-- the name as the first name alone at one login and as the whole name at the next, two characters
+-- can share a first name, and early on the name can still be "Unknown". The name, surname and realm
+-- are kept on the profile only to show it by.
+local function Text(v)
+	v = Clean(v)
+	if type(v) ~= "string" or v == "" then return nil end
+	return v
+end
+local function Ask2(fn, ...)
+	if type(fn) ~= "function" then return nil, nil end
+	local ok, a, b = pcall(fn, ...)
+	if not ok then return nil, nil end
+	return a, b
+end
+function ns.WhoIsPlaying()
+	local who = {}
+	who.guid = Text((Ask2(UnitGUID, "player")))
+	who.realm = Text((Ask2(GetRealmName)))
+	local normalized = Text((Ask2(GetNormalizedRealmName)))
+	-- Every character here has a first name and a surname, and the name calls give the surname as
+	-- their second answer (a realm there is never taken for one).
+	local unknown = type(UNKNOWNOBJECT) == "string" and UNKNOWNOBJECT or "Unknown"
+	local calls = { UnitName, UnitFullName, UnitNameUnmodified }
+	for i = 1, 3 do
+		local first, second = Ask2(calls[i], "player")
+		first, second = Text(first), Text(second)
+		if first == unknown or first == "Unknown" then first = nil end
+		if first and not who.name then who.name = first end
+		if first and first == who.name and second and not who.surname and second ~= who.realm and second ~= normalized then
+			who.surname = second
+		end
+	end
+	-- The whole name in one piece, joined by a space or a hyphen (a name has neither in it).
+	if who.name and not who.surname then
+		local a, b = who.name:match("^([^%s%-]+)[%s%-]+([^%s%-].*)$")
+		if a then who.name, who.surname = a, b end
+	end
+	local _, class = Ask2(UnitClass, "player")
+	who.class = Text(class)
+	-- The client's own record for that GUID, first name and surname. A name that does not match it was
+	-- read before the client had caught up (the character played before, or nothing yet), and nothing
+	-- is taken over on it. The record also gives a surname the read left out.
+	if who.guid then
+		local recFirst, recSurname = Ask2(UnitNameFromGUID, who.guid)
+		recFirst, recSurname = Text(recFirst), Text(recSurname)
+		if recSurname == who.realm or recSurname == normalized then recSurname = nil end
+		if type(GetPlayerInfoByGUID) == "function" then
+			local ok, _, englishClass, _, _, _, name = pcall(GetPlayerInfoByGUID, who.guid)
+			if ok then
+				who.class = who.class or Text(englishClass)
+				recFirst = recFirst or Text(name)
+			end
+		end
+		if recFirst and not recSurname then
+			local a, b = recFirst:match("^([^%s%-]+)[%s%-]+([^%s%-].*)$")
+			if a then recFirst, recSurname = a, b end
+		end
+		if recFirst then
+			who.trusted = who.name == recFirst and (recSurname == nil or who.surname == nil or who.surname == recSurname)
+			if who.trusted and not who.surname then who.surname = recSurname end
+		end
+	end
+	return who
+end
+local function FullName(who)
+	if not who.name then return nil end
+	return who.surname and (who.name .. " " .. who.surname) or who.name
+end
+ns.FullName = FullName
+
+-- Profiles from before characters were kept by GUID, under "Name-Realm". One under the first name
+-- alone may be shared by every character with that first name.
+local function HasContent(q)
+	return type(q) == "table" and ((type(q.groups) == "table" and #q.groups > 0) or (type(q.cdLen) == "table" and next(q.cdLen) ~= nil))
+end
+local function Older(db, key)
+	local q = key and db.chars[key]
+	if type(q) == "table" and not q.guid and not q.olderOf then return q end
+	return nil
+end
+-- The newest thing made in a profile: ids are handed out in order across all characters.
+local function Newest(q)
+	local most = 0
+	for _, g in ipairs(type(q.groups) == "table" and q.groups or {}) do
+		if type(g) == "table" then
+			most = math.max(most, tonumber(g.uid) or 0)
+			for _, t in ipairs(type(g.trackers) == "table" and g.trackers or {}) do
+				if type(t) == "table" then most = math.max(most, tonumber(t.uid) or 0) end
+			end
+		end
+	end
+	return most
+end
+-- Whether another character with this first name has a setup on record: an old one under its whole
+-- name, or (unless oldOnly) its own profile.
+local function OtherWithFirstName(db, who, oldOnly)
+	local mine, prefix = FullName(who), who.name .. " "
+	for key, q in pairs(db.chars) do
+		if type(key) == "string" and type(q) == "table" then
+			if q.guid then
+				if not oldOnly and q.guid ~= who.guid and q.name == who.name and q.realm == who.realm and q.surname ~= who.surname then return true end
+			else
+				local name, realm = key:match("^(.-)%-(.+)$")
+				if name and realm == who.realm and name ~= mine and name:sub(1, #prefix) == prefix and HasContent(q) then return true end
+			end
+		end
+	end
+	return false
+end
+-- Takes over what this character had under its name (the caller has its first name and surname):
+-- the old profile under its whole name for sure, and the one under its first name alone only when no
+-- other character with that first name has a setup on record. With a setup of its own under its whole
+-- name, only another's old setup counts against it; without one, another's own profile counts too.
+-- Of two, the newer is taken and the other is kept, marked as this character's, for
+-- /auraledger profiles. Returns whether any groups came over.
+local function AdoptOlder(db, p, who)
+	local realm = who.realm
+	local fullKey = FullName(who) .. "-" .. realm
+	local firstKey = who.name .. "-" .. realm
+	local fullQ, firstQ = Older(db, fullKey), Older(db, firstKey)
+	if firstQ and OtherWithFirstName(db, who, HasContent(fullQ)) then firstQ = nil end
+	local found = {}
+	for _, e in ipairs({ { fullKey, fullQ }, { firstKey, firstQ } }) do
+		local key, q = e[1], e[2]
+		if q then
+			if HasContent(q) then found[#found + 1] = { key = key, q = q, at = Newest(q) }
+			else db.chars[key] = nil end
+		end
+	end
+	if #found == 0 then return false end
+	table.sort(found, function(a, b) return a.at > b.at end)
+	local take = found[1]
+	for _, g in ipairs(type(take.q.groups) == "table" and take.q.groups or {}) do table.insert(p.groups, g) end
+	if type(take.q.cdLen) == "table" then
+		p.cdLen = type(p.cdLen) == "table" and p.cdLen or {}
+		for k, v in pairs(take.q.cdLen) do if p.cdLen[k] == nil then p.cdLen[k] = v end end
+	end
+	db.chars[take.key] = nil
+	for i = 2, #found do found[i].q.olderOf = who.guid end
+	ns.report["profile"] = ("took over the profile kept under %s%s"):format(take.key, #found > 1 and (", and kept " .. found[2].key .. " as an older one") or "")
+	return type(take.q.groups) == "table" and #take.q.groups > 0
 end
 
 -- One-time changes to saved data, by number. Each runs once, for every character's profile, and
@@ -300,7 +438,9 @@ function ns.Migrate(db)
 	end
 end
 
-function ns.InitDB()
+-- The saved data. At load (atLoad) who is playing is not settled yet, so nothing is kept for anyone
+-- until login picks the profile.
+function ns.InitDB(atLoad)
 	if type(AuraLedgerDB) ~= "table" then AuraLedgerDB = {} end
 	local db = AuraLedgerDB
 	db.version = db.version or 1
@@ -309,18 +449,145 @@ function ns.InitDB()
 	db.nextUid = db.nextUid or 1
 	if db.minimapShown == nil then db.minimapShown = true end
 	db.minimapAngle = db.minimapAngle or 200
-	local key = CharKey()
-	db.chars[key] = type(db.chars[key]) == "table" and db.chars[key] or {}
-	local profile = db.chars[key]
-	profile.groups = type(profile.groups) == "table" and profile.groups or {}
+	ns.db = db
 	ns.Migrate(db)
+	-- Empty profiles made under "Unknown" while the client had no name yet.
+	for key, q in pairs(db.chars) do
+		if type(key) == "string" and key:find("^Unknown%-") and type(q) == "table" and not q.guid and not HasContent(q) then db.chars[key] = nil end
+	end
+	if atLoad then
+		if not ns.charKey then ns.profile = { groups = {} } end
+		return
+	end
+	ns.BindProfile("login")
+end
+
+-- Picks this character's profile, taking over what it had under its name before. At login ("login")
+-- only a name the client's record agrees with takes anything over; later a record that says nothing is
+-- enough. Returns whether the profile in use changed: another character's, or groups taken over.
+function ns.BindProfile(when)
+	local db = ns.db
+	if not db then return false end
+	local who = ns.WhoIsPlaying()
+	local key = who.guid or (who.name and (FullName(who) .. "-" .. (who.realm or "Realm"))) or nil
+	if not key then
+		ns.report["profile"] = "the client gave no GUID and no name yet"
+		if not ns.profile then ns.profile = { groups = {} } end
+		return false
+	end
+	local changed = key ~= ns.charKey
+	local p = type(db.chars[key]) == "table" and db.chars[key] or {}
+	db.chars[key] = p
+	p.groups = type(p.groups) == "table" and p.groups or {}
+	if who.guid then
+		p.guid = who.guid
+		p.name, p.surname = who.name or p.name, who.surname or p.surname
+		p.realm, p.class = who.realm or p.realm, who.class or p.class
+		local checked = (when == "login") and who.trusted == true or (when ~= "login" and who.trusted ~= false)
+		if not p.adopted and checked and who.name and who.surname and who.realm then
+			if AdoptOlder(db, p, who) then changed = true end
+			p.adopted = true
+		end
+	end
 	-- What every load still makes sure of: the tables are there.
-	for _, g in ipairs(profile.groups) do
+	for _, g in ipairs(p.groups) do
 		g.trackers = type(g.trackers) == "table" and g.trackers or {}
 		g.cond = type(g.cond) == "table" and g.cond or {}
 		for _, t in ipairs(g.trackers) do t.cond = type(t.cond) == "table" and t.cond or {} end
 	end
-	ns.db, ns.profile, ns.charKey = db, profile, key
+	ns.profile, ns.charKey, ns.who = p, key, who
+	return changed
+end
+
+-- Everything drawn from the profile, drawn again from the one now in use.
+function ns.ProfileChanged()
+	ns.selected = nil
+	if ns.Display and ns.Display.ForgetMarks then ns.Display:ForgetMarks() end
+	ns.MarkShapedGroups()
+	if ns.ForgetSpellCooldownEvidence then ns.ForgetSpellCooldownEvidence() end
+	if ns.QueueSpellCooldownRows then ns.QueueSpellCooldownRows() end
+	ns.Changed()
+	if ns.UI and ns.UI.RefreshHistory then ns.UI:RefreshHistory() end
+end
+
+-- Every profile kept: this character's first, then the other characters', then those kept from
+-- before profiles were kept by character, under the name they were kept by.
+function ns.ProfileList()
+	local list = {}
+	for key, q in pairs(ns.db and ns.db.chars or {}) do
+		if type(key) == "string" and type(q) == "table" and type(q.groups) == "table" then
+			local label
+			if q.guid then
+				label = FullName({ name = q.name or "?", surname = q.surname }) .. (q.realm and (", " .. q.realm) or "")
+			else
+				local name, realm = key:match("^(.-)%-(.+)$")
+				label = name and (name .. ", " .. realm) or key
+			end
+			list[#list + 1] = { key = key, q = q, label = label, mine = key == ns.charKey, older = not q.guid }
+		end
+	end
+	table.sort(list, function(a, b)
+		if a.mine ~= b.mine then return a.mine end
+		if a.older ~= b.older then return not a.older end
+		return a.label < b.label
+	end)
+	return list
+end
+
+function ns.ProfilesCommand(rest)
+	local verb, arg = (rest or ""):match("^(%S*)%s*(.-)$")
+	verb = string.lower(verb or "")
+	-- The numbers are the ones last listed, so a list that has changed since is never acted on by mistake.
+	local numArg, anyway = arg:match("^(%d+)%s*(%a*)$")
+	local n = tonumber(numArg)
+	local shown = ns.shownProfiles
+	local e = n and shown and shown[n]
+	if e and ns.db.chars[e.key] ~= e.q then e = nil end
+	if verb == "copy" or verb == "forget" then
+		if not e then Print("Type /auraledger profiles first, then use the number beside the one you want.") return end
+		if e.mine then Print("That is this character's own profile.") return end
+	end
+	if verb == "copy" then
+		local count = 0
+		for _, g in ipairs(e.q.groups) do
+			local ok, made = pcall(function() return ns.Import(ns.Export(g, "group")) end)
+			if ok and made then
+				made.x, made.y = tonumber(g.x) or made.x, tonumber(g.y) or made.y
+				-- A shape built by hand comes too, while the trackers are the same ones.
+				if type(g.cells) == "table" and #made.trackers == #g.trackers then
+					made.cells = {}
+					for i, cell in ipairs(g.cells) do made.cells[i] = { c = cell.c, r = cell.r } end
+					made.shaped = g.shaped
+				end
+				count = count + 1
+			end
+		end
+		ns.selected = nil
+		ns.Changed()
+		Print(("Copied %d group%s from %s. The profile you copied from is unchanged."):format(count, count == 1 and "" or "s", e.label))
+		return
+	elseif verb == "forget" then
+		if not e.older then Print("Only a profile kept from before 1.76.0 can be forgotten here: " .. e.label .. " is a character's own.") return end
+		if not e.q.olderOf and HasContent(e.q) and string.lower(anyway or "") ~= "anyway" then
+			Print(("No character has taken %s over yet: it may be the setup a character gets when it next logs in. To drop it anyway, type /auraledger profiles forget %d anyway."):format(e.label, n))
+			return
+		end
+		ns.db.chars[e.key] = nil
+		ns.shownProfiles = nil
+		Print("Forgot the old profile " .. e.label .. ". Type /auraledger profiles to see the list as it is now.")
+		return
+	end
+	local list = ns.ProfileList()
+	ns.shownProfiles = list
+	Print("Profiles, one for each character:")
+	for i, x in ipairs(list) do
+		local groups = #x.q.groups
+		local notes = {}
+		if x.mine then notes[#notes + 1] = "this character" end
+		if x.older then notes[#notes + 1] = "kept from before 1.76.0" .. (x.q.olderOf == ns.charKey and ", this character's older one" or "") end
+		Print(("  %d. %s: %d group%s%s"):format(i, x.label, groups, groups == 1 and "" or "s", #notes > 0 and (" (" .. table.concat(notes, "; ") .. ")") or ""))
+	end
+	Print("  /auraledger profiles copy <number> brings that profile's groups here; /auraledger profiles forget <number> drops an old one.")
 end
 
 function ns.NewUid()
@@ -2378,7 +2645,7 @@ end
 
 events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 	if event == "ADDON_LOADED" then
-		if a1 == ADDON then ns.InitDB() ns.ClearStaleAuraSounds() ns.LogLine("=== Aura Ledger " .. ns.VERSION .. " loaded " .. (date and date("%Y-%m-%d %H:%M") or "")) end
+		if a1 == ADDON then ns.InitDB(true) ns.ClearStaleAuraSounds() ns.LogLine("=== Aura Ledger " .. ns.VERSION .. " loaded " .. (date and date("%Y-%m-%d %H:%M") or "")) end
 		-- The player opened the spellbook: its art names can be read now.
 		if a1 == "Blizzard_PlayerSpells" and loaded and ns.UI and ns.UI.ApplyBookArt then ns.UI:ApplyBookArt() end
 		return
@@ -2433,6 +2700,9 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		if ns.cdmCheckPending then ns.CheckCooldownManager() end
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		ns.playerGUID = UnitGUID and UnitGUID("player") or ns.playerGUID
+		-- Who is playing, read again now the world is up: at login the client can still be giving the
+		-- character played before, or no name at all.
+		ns.WhenFree("profile", function() if ns.BindProfile("world") then ns.ProfileChanged() end end)
 		if C_Timer and C_Timer.After then
 			C_Timer.After(2, function()
 				ns.ReadTalents()
@@ -3142,6 +3412,7 @@ local function Help()
 	Print("  /auraledger bags - what you are carrying that has a use on it")
 	Print("  /auraledger racials - the racials this client knows about")
 	Print("  /auraledger import <string> - import a tracker or group from an export string")
+	Print("  /auraledger profiles - every character's profile; copy one's groups here, or forget an old one")
 	Print("  /auraledger edit - turn arranging on or off: drag trackers about and click one to change it")
 	Print("  /auraledger minimap - show or hide the minimap button")
 	Print("  /auraledger plainbook - switch the book between parchment and a plain dark page")
@@ -3233,7 +3504,7 @@ function ns.ProbeCDM(emit)
 end
 
 local function Debug()
-	Print("v" .. ns.VERSION .. " debug for " .. tostring(ns.charKey))
+	Print("v" .. ns.VERSION .. " debug for " .. tostring(ns.who and FullName(ns.who) or "?") .. " (profile " .. tostring(ns.charKey) .. ")")
 	Print("  APIs: GetAuraDataByIndex " .. YesNo(C_UnitAuras and C_UnitAuras.GetAuraDataByIndex)
 		.. ", ByInstanceID " .. YesNo(C_UnitAuras and C_UnitAuras.GetAuraDataByAuraInstanceID)
 		.. ", UnitAura " .. YesNo(UnitAura) .. ", issecretvalue " .. YesNo(issecretvalue))
@@ -3448,6 +3719,8 @@ SlashCmdList.AURALEDGER = function(msg)
 		ns.db.minimapShown = not ns.db.minimapShown
 		if ns.UI and ns.UI.UpdateMinimapButton then ns.UI:UpdateMinimapButton() end
 		Print("Minimap button " .. (ns.db.minimapShown and "shown." or "hidden."))
+	elseif cmd == "profiles" or cmd == "profile" then
+		ns.ProfilesCommand(rest)
 	elseif cmd == "import" then
 		local g, err = ns.Import(rest)
 		if g then Print("Imported " .. ns.GroupName(g) .. ".") else Print(err) end

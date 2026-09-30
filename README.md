@@ -80,6 +80,8 @@ In the **Groups and trackers** list, drag a row onto a group to move it there, o
 
 **Conditions**, on groups and on trackers, so a tracker can be set to appear only in a raid, only in a battleground, only on a particular class, only with a particular main talent tree or talent set, and so on. A tracker must pass its own and its group's.
 
+**Per character**: each character has its own groups and trackers, kept by the character itself rather than by its name, so two characters who share a first name never share a setup. The ledger of what has been on you, and the window and look settings, are shared by all your characters. `/auraledger profiles` lists every character's profile; `copy <number>` brings that profile's groups to the character you are on, where they were and in the shape they had (the one copied from is left as it was), and `forget <number>` drops a profile kept from before 1.76.0. The first time a character logs in with 1.76.0, it takes over the profile it had under its name before.
+
 ## What a fight does to this
 
 On this client an addon cannot read your auras during a fight. Nothing gets around that, so each group chooses how to handle it, under **In combat**:
@@ -103,6 +105,7 @@ In a battleground the game hides auras for the whole match, not only in fights. 
 | `/auraledger racials` | the racials this client knows about |
 | `/auraledger edit` | turn arranging on or off |
 | `/auraledger import <string>` | import a tracker or group |
+| `/auraledger profiles` | every character's profile, to copy groups from one or forget an old one |
 | `/auraledger minimap` | show or hide the minimap button |
 | `/auraledger debug` | what this client let the addon read |
 | `/auraledger debug cdread` | everything the game says about each cooldown tracker |
