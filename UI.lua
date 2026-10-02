@@ -825,6 +825,8 @@ local function BookTooltip(b)
 		-- said above
 	elseif why == "addon" then
 		-- nothing to say about the game following it: the addon reads it itself
+	elseif why == "target" then
+		GameTooltip:AddLine("A debuff on your target. Marked combat: in a group drawn by the game, the game follows it on a target you can attack by its spell id, all through a fight and from one target to the next.", 0.45, 0.75, 1, true)
 	elseif why == "yes" then
 		GameTooltip:AddLine("Marked combat: in a group drawn by the game, the game follows this buff on you by its spell id all through a fight, for every rank known here.", 0.45, 0.75, 1, true)
 	elseif why == "debuff" then
@@ -1003,7 +1005,7 @@ local function UpdateBookButton(b, h, tracked)
 	if h.prebuilt then
 		sub = h.note or (h.kind == "debuff" and "Debuff" or "Buff")
 	elseif (h.count or 0) > 0 then
-		sub = "Seen " .. h.count .. "x, " .. Ago(h.last)
+		sub = "Seen " .. h.count .. "x" .. ((h.onTarget and not h.onYou) and " on targets" or "") .. ", " .. Ago(h.last)
 	else
 		sub = "Added by hand"
 	end
@@ -1056,7 +1058,9 @@ local function BookItems()
 	end
 	for _, h in pairs(ns.db.history) do
 		local keep
-		keep = histFilter == "all" or h.kind == histFilter or h.kind == "any"
+		if histFilter == "you" then keep = h.onYou or not h.onTarget
+		elseif histFilter == "target" then keep = h.onTarget and true or false
+		else keep = histFilter == "all" or h.kind == histFilter or h.kind == "any" end
 		if keep then list[#list + 1] = h end
 	end
 	if histSort == "name" then
@@ -1637,8 +1641,9 @@ local function BuildGroupPanel(width)
 	local function NotMembers() return not IsMembers() end
 	local function IsRaidScope() local g = G() return (g and ns.GroupUnits(g) == "raid") and true or false end
 	local function IsBars() local g = G() return (g and g.style == "bars") and true or false end
-	-- Only the game can draw a dispel tracker, so a group holding one stays drawn by the game.
-	local function HasDispel() local g = G() for _, t in ipairs(g and g.trackers or {}) do if t.dispel then return true end end return false end
+	-- Only the game can draw a dispel tracker or one on your target, so a group holding one stays
+	-- drawn by the game.
+	local function HasDispel() local g = G() for _, t in ipairs(g and g.trackers or {}) do if t.dispel or t.unit == "target" then return true end end return false end
 	b:Header("Group")
 	b:Note("On this client an addon cannot read your auras during a fight. A group drawn by the addon shows its last reading until the fight ends; a group drawn by the game stays correct throughout.")
 	b:Edit("Name", function() local g = G() return g and g.name or "" end,
@@ -1842,6 +1847,7 @@ local function BuildTrackerPanel(width)
 	end
 	local function IsDispel() local t = T() return (t and t.dispel) and true or false end
 	local function NotDispel() return not IsDispel() end
+	local function OnTarget() local t = T() return (t and t.unit == "target") and true or false end
 	local function InMembers()
 		local t = T()
 		local g = t and ns.FindGroupOf(t)
@@ -1894,24 +1900,39 @@ local function BuildTrackerPanel(width)
 		return text
 	end)
 	b:AppliesWhen(IsDispel)
-	b:Cycle("Watch", { { false, "The buff on me" }, { true, "This spell's cooldown" } },
-		function() local t = T() return (t and t.cd) and true or false end,
+	b:Cycle("Watch", { { "buff", "The aura on me" }, { "cd", "This spell's cooldown" }, { "target", "A debuff on my target" } },
+		function() local t = T() return (t and t.cd and "cd") or (t and t.unit == "target" and "target") or "buff" end,
 		function(v)
 			local t = T()
 			if not t then return end
-			if v and not (t.id or t.name) then ns.Print("Nothing is known about this spell yet, so its cooldown cannot be read.") return end
-			t.cd = v or nil
-			-- A cooldown is yours alone: in a group that watches your party it goes beside it.
+			if v == "cd" and not (t.id or t.name) then ns.Print("Nothing is known about this spell yet, so its cooldown cannot be read.") return end
+			-- On your target it is a debuff; taken off it, it is what it was before (a debuff on you stays one).
+			local wasTarget = t.unit == "target"
+			t.cd = (v == "cd") or nil
+			t.unit = (v == "target") and "target" or nil
+			if v == "target" and not wasTarget then
+				t.kindOff = t.kind
+				t.kind = "debuff"
+			elseif v ~= "target" and wasTarget then
+				t.kind = t.kindOff or "buff"
+				t.kindOff = nil
+			end
+			-- A cooldown is yours alone, and a debuff on your target is only ever drawn by the game:
+			-- either goes beside a group it cannot be in.
 			local g = ns.FindGroupOf(t)
-			if g and ns.GroupUnits(g) then
+			if g and (ns.GroupUnits(g) or (v == "target" and not ns.IsGameDrawn(g))) then
 				ns.Redirect(t, g)
 				ns.Changed()
 			end
 			TrackerChanged()
 			b:Sync()
 		end,
-		"A cooldown is not hidden from addons the way an aura is, so a cooldown tracker keeps counting through a fight, and the addon always draws it itself.")
+		"A debuff on your target is drawn by the game, which follows it there all through a fight. A cooldown is not hidden from addons the way an aura is, so a cooldown tracker keeps counting through a fight, and the addon always draws it itself.")
 	b:AppliesWhen(function() return TrackerIsSpell() and not InMembers() end)
+	b:Note("The game draws this debuff on your target, in a fight too, and only on a target you can attack. The game never looks at a new target by itself, so each time you change target Aura Ledger asks it to read the new one at once (/auraledger debug target shows how that went). Only when it was cast by me picks out yours from other players' of the same spell.")
+	b:AppliesWhen(function() return OnTarget() and TrackerGetsSlot() end)
+	b:Note("No spell id is known for this debuff yet, so the game cannot be asked to follow it, and in a fight it does not show. Once it has been on a target you can attack while you are out of a fight, the ledger has its id.")
+	b:AppliesWhen(function() return OnTarget() and not TrackerGetsSlot() end)
 	b:Note("This tracker follows an item's cooldown. An item has no aura of its own to watch, so there is nothing to choose: to watch the buff it gives, add that buff by name from the book.")
 	b:AppliesWhen(TrackerIsItem)
 	b:Note("This tracker follows your weapon's temporary enchant: an oil, stone, poison or imbue. It is not an aura, so the addon reads it from the weapon itself, in a fight too.")
@@ -2039,12 +2060,14 @@ local function BuildTrackerPanel(width)
 					if not played then ns.Print(name .. " is not available on this client (or sound effects are muted); try the next one.") end
 				end
 			end, tip .. " Picking one plays it.", 150)
-		b:AppliesWhen(function() return NotDispel() and not InMembers() end)
+		b:AppliesWhen(function() return NotDispel() and not InMembers() and not OnTarget() end)
 	end
 	b:Note("Sounds follow auras on you, so a tracker that watches your party plays none.")
 	b:AppliesWhen(function() return NotDispel() and InMembers() end)
+	b:Note("Sounds follow auras on you, so a tracker on your target plays none.")
+	b:AppliesWhen(function() return NotDispel() and not InMembers() and OnTarget() end)
 	b:Note("Choices marked (combat) are played by the game itself, so they also fire while the aura is hidden in combat.")
-	b:AppliesWhen(function() return NotDispel() and not InMembers() end)
+	b:AppliesWhen(function() return NotDispel() and not InMembers() and not OnTarget() end)
 	SoundCycle("When applied", "applied", "Plays when the aura lands.")
 	SoundCycle("When it runs out", "removed", "Plays when the aura wears off or is removed.")
 	SoundCycle("When the tracker appears", "shown", "Plays when this tracker comes on screen, for whatever reason: the aura landing, going missing, or entering its warn window. In a group drawn by the game the warn time only colours the countdown, so there it plays when the aura goes, not at the warn time.")

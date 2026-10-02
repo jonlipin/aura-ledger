@@ -2417,6 +2417,16 @@ local function SlotSpec(t, g)
 		if not (ns.DISPEL_TYPES and ns.DISPEL_TYPES[t.dispel]) then return nil end
 		return { filter = "HARMFUL", filters = { includeDispelTypes = { [t.dispel] = true } }, key = "dispel:" .. t.dispel }
 	end
+	-- A debuff on your target: on a unit you can attack the game takes a spell filter on harmful
+	-- auras (only on one you can help does it refuse), so it follows the debuff there in a fight too.
+	-- Yours alone is the game's PLAYER filter: cast by you or your pet. (isFromPlayerOrPlayerPet is
+	-- true for any player's aura, so another warlock's Corruption would pass it.)
+	if t.unit == "target" then
+		local tids = TrackerIds(t, false)
+		if not tids then return nil end
+		return { filter = t.mine and "HARMFUL|PLAYER" or "HARMFUL", filters = { includeSpellIDs = tids },
+			key = "target:" .. IdsKey(tids) .. ":" .. tostring(t.mine and true or false) }
+	end
 	local ids = TrackerIds(t, ns.GroupUnits(g) ~= nil)
 	if not ids then return nil end
 	local filters = { includeSpellIDs = ids, isFromPlayerOrPlayerPet = t.mine and true or nil }
@@ -2433,6 +2443,7 @@ Display.SlotSpec = SlotSpec
 -- an item or a weapon is yours alone, and so is a debuff the game hides.
 function Display.MemberCanHold(t)
 	if not t or t.cd or t.item or t.enchant ~= nil or t.swing ~= nil then return false end
+	if t.unit == "target" then return false end
 	if t.dispel then return true end
 	if t.kind == "debuff" then
 		local ids = TrackerIds(t, true)
@@ -2904,9 +2915,13 @@ local function EnsureSlot(c, key, spec, look, o, t, noFrame)
 	return frame
 end
 
--- The slot for one tracker in a group that watches only you. Returns the slot frames.
+-- The slot for one tracker in a group that watches only you. A debuff on your target goes in a
+-- container of its own, which the game shows only while you have a target you can attack; its
+-- showing again is also when it reads the target afresh. Returns the slot frames.
+Display.TARGET_DRIVER = "[@target,harm,nodead] show; hide"
 local function TrackerSlots(f, g, t, spec)
-	local c = SlotContainer(f, g, "player")
+	local onTarget = t.unit == "target"
+	local c = SlotContainer(f, g, onTarget and "target" or "player", onTarget and Display.TARGET_DRIVER or nil)
 	if not c then return nil end
 	local o = AppliedSlotOpts(g, t)
 	local key = SlotName(t, spec.filter, o)
@@ -4119,7 +4134,7 @@ local function LayoutGroup(f, g, visible, unlocked)
 
 	-- A group that watched your party until now puts its members' rows and containers away.
 	if f.members then ReleaseMembers(f) end
-	if f.slotC then ParkContainers(f, { player = true }) end
+	if f.slotC then ParkContainers(f, f.keepUnits or { player = true }) end
 	-- Every slot starts the pass switched off; the ones with a cell are switched on below.
 	-- Containers are never shown or hidden from here: the gate's driver does that.
 	if f.slotC and slots then
@@ -4201,6 +4216,9 @@ local function LayoutGroup(f, g, visible, unlocked)
 				-- while the aura is present. "Show when active" leaves the cell empty underneath.
 				PaintWidget(widget, g, item.t, nil, false, false)
 				if item.t.show == "active" then widget:SetAlpha(0) end
+				-- On your target, with none you can attack, there is nothing to be missing from: the cell
+				-- keeps its place for the slot, which stays switched on for the next target.
+				if item.t.unit == "target" and not (ns.env and ns.env.targetFoe) then widget:SetAlpha(0) end
 				for _, sl in ipairs(item.slots) do
 					sl.c.alWant[sl.key] = true
 					if not ManagerUnsafe() then
@@ -4353,7 +4371,7 @@ local function Wants(t, entry, now, unlocked, groupPass)
 		elseif t.show == "always" then return true, nearly
 		else return onCd, nearly end
 	end
-	if t.unit == "target" and not ns.env.target then return false, false end
+	if t.unit == "target" and not ns.env.targetFoe then return false, false end
 	local expiring = Expiring(t, entry, now)
 	if t.show == "missing" then return entry == nil or expiring, expiring
 	elseif t.show == "always" then return true, expiring
@@ -4369,7 +4387,8 @@ local function Sounds(t, entry, show, unlocked, groupPass)
 	local active = entry ~= nil
 	local shown = show and not unlocked
 	if st then
-		local snd = t.snd
+		-- A tracker on your target plays none: switching between targets would set them all off.
+		local snd = (t.unit ~= "target") and t.snd or nil
 		-- A tracker that is switched off, or whose group is, stays quiet.
 		if snd and groupPass and ns.CondPass(t.cond) then
 			-- Blizzard plays these two itself when the tracker is registered with it (in combat too).
@@ -4423,9 +4442,14 @@ function Display:RefreshGroup(g)
 	local groupPass = unlocked or ns.CondPass(g.cond)
 	local now = GetTime()
 	local visible = {}
+	-- The containers this group keeps out: yours, and your target's while it has a tracker on it.
+	f.keepUnits = { player = true }
 	for _, t in ipairs(g.trackers) do
+		if t.unit == "target" then f.keepUnits.target = true end
 		local entry = ns.Find(t)
 		local show, expiring = Wants(t, entry, now, unlocked, groupPass)
+		-- Without a slot a debuff on your target is read by the addon, which cannot read it in a fight.
+		if t.unit == "target" and not unlocked and ns.AurasSecret() then show = false end
 		local slots
 		if g.gameDrawn and not unlocked then
 			local passes = groupPass and ns.CondPass(t.cond)
@@ -5369,7 +5393,126 @@ end
 
 -- Things that had to wait for a fight to end: a skin made without the manager is made again, and a
 -- group removed in the fight gives up its containers.
+-- ------------------------------------------------------------------
+-- Your target. The game never reads one of its aura displays again when your target changes: its
+-- own code leaves that to the display's owner ("e.g. target changes"), and its own target frame does
+-- it on every change. Each of a display's own calls runs in the game's secure code, so the addon can
+-- make them in a fight too. Three things are done on every change of target, and each can be
+-- switched off to find out which one this client needs (/auraledger debug target method):
+--   read: UpdateAllAuras, which is all the game's own target frame does;
+--   bounce: pointing the display at nothing and back, which also renews what it listens for;
+--   re-arm: a display marks itself unread and arms one read, but only on the change from read to
+--   unread, so one left unread by a read that failed half way would never read again. Its update
+--   mode says so (off while still unread), and setting the mode arms it once more.
+-- ------------------------------------------------------------------
+do
+	local stats = { changes = 0, inFight = 0, reads = 0, readFailed = 0, bounces = 0, bounceFailed = 0, rearmed = 0, rearmFailed = 0, blocked = 0 }
+	local log = {}
+	Display.targetStats = stats
+	local METHODS = { all = true, read = true, bounce = true, rearm = true, none = true }
+	local function Method()
+		local m = ns.db and ns.db.targetRefresh
+		return METHODS[m or ""] and m or "all"
+	end
+	local function BlockedCount()
+		local n = 0
+		for _, k in pairs(ns.blocked or {}) do n = n + k end
+		return n
+	end
+	local function ReadAgain(c, why)
+		local method = Method()
+		local rec = { at = GetTime(), why = why, fight = (InCombatLockdown and InCombatLockdown()) and true or false, secret = ns.AurasSecret() }
+		local before = BlockedCount()
+		if method == "all" or method == "read" then
+			rec.read = pcall(c.UpdateAllAuras, c)
+			if rec.read then stats.reads = stats.reads + 1 else stats.readFailed = stats.readFailed + 1 end
+		end
+		if method == "all" or method == "bounce" then
+			rec.bounce = pcall(c.SetUnit, c, "none") and pcall(c.SetUnit, c, "target") or false
+			if rec.bounce then stats.bounces = stats.bounces + 1 else stats.bounceFailed = stats.bounceFailed + 1 end
+		end
+		if (method == "all" or method == "rearm") and c.GetOnUpdateMode then
+			local modes = Enum and Enum.OnUpdateMode
+			local off, once = modes and modes.Disabled or 0, modes and modes.RunWhenVisibleOnce or 2
+			local ok, mode = pcall(c.GetOnUpdateMode, c)
+			mode = ok and ns.Clean(mode) or nil
+			rec.mode = mode
+			if mode == off and c.SetOnUpdateMode then
+				rec.rearm = pcall(c.SetOnUpdateMode, c, once)
+				if rec.rearm then stats.rearmed = stats.rearmed + 1 else stats.rearmFailed = stats.rearmFailed + 1 end
+			end
+		end
+		rec.blocked = BlockedCount() - before
+		stats.blocked = stats.blocked + rec.blocked
+		table.insert(log, 1, rec)
+		if #log > 20 then table.remove(log) end
+	end
+	local function Each(why)
+		local n = 0
+		for _, f in pairs(active) do
+			local c = f.slotC and f.slotC.target
+			if c and c.alMacro ~= "parked" then
+				ReadAgain(c, why)
+				n = n + 1
+			end
+		end
+		return n
+	end
+	function Display:TargetChanged()
+		stats.changes = stats.changes + 1
+		if InCombatLockdown and InCombatLockdown() then stats.inFight = stats.inFight + 1 end
+		Each("new target")
+	end
+	-- After a fight every display of your target is read again: what happened in it is not trusted.
+	function Display.RefreshTargets(why) return Each(why or "asked") end
+
+	-- /auraledger debug target: how the reads on a change of target went, and which of them to make.
+	function Display:TargetReport(emit, rest)
+		local verb, arg = string.lower(rest or ""):match("^(%S*)%s*(%S*)")
+		if verb == "method" then
+			if METHODS[arg] then
+				ns.db.targetRefresh = (arg ~= "all") and arg or nil
+				emit("On a change of target the addon now does: " .. (arg == "all" and "the read, the bounce and the re-arm" or arg) .. ". Back to all three: /auraledger debug target method all")
+			else
+				emit("Methods: all (the default: read, bounce and re-arm), read, bounce, rearm, none. For example /auraledger debug target method read")
+			end
+			return
+		end
+		local function S(v) if issecretvalue and issecretvalue(v) then return "hidden" end return tostring(v) end
+		emit(("Method on a change of target: %s. Target now: %s, one you can attack: %s, auras hidden: %s."):format(Method(),
+			tostring(ns.env and ns.env.target), tostring(ns.env and ns.env.targetFoe), tostring(ns.AurasSecret())))
+		local any = false
+		for _, f in pairs(active) do
+			local c = f.slotC and f.slotC.target
+			if c and f.group then
+				any = true
+				local slots, on = 0, 0
+				for key in pairs(c.alSlots or {}) do
+					slots = slots + 1
+					if c.alOn and c.alOn[key] then on = on + 1 end
+				end
+				local okV, vis = pcall(c.IsVisible, c)
+				local okM, mode = pcall(function() return c:GetOnUpdateMode() end)
+				emit(("%s: display %s, shown %s, update mode %s, slots %d (%d on)"):format(ns.GroupName(f.group),
+					c.alMacro == "parked" and "put away" or "in use", okV and S(vis) or "?", okM and S(mode) or "?", slots, on))
+			end
+		end
+		if not any then emit("No group has a tracker on your target with a slot the game draws.") end
+		emit(("Changes of target %d (%d in a fight). Reads %d (%d failed), bounces %d (%d failed), re-armed %d (%d failed), calls the game blocked %d.")
+			:format(stats.changes, stats.inFight, stats.reads, stats.readFailed, stats.bounces, stats.bounceFailed, stats.rearmed, stats.rearmFailed, stats.blocked))
+		for i, r in ipairs(log) do
+			if i > 10 then break end
+			emit(("  %.1fs ago, %s%s: read %s, bounce %s, update mode %s%s%s"):format(GetTime() - r.at, r.why, r.fight and " in a fight" or "",
+				r.read == nil and "-" or tostring(r.read), r.bounce == nil and "-" or tostring(r.bounce), tostring(r.mode),
+				r.rearm ~= nil and (", re-armed " .. tostring(r.rearm)) or "", (r.blocked or 0) > 0 and (", blocked " .. r.blocked) or ""))
+		end
+		emit("To test: put a debuff you track on one enemy, then in the fight switch to another without it and back. The tracker should follow each switch.")
+	end
+end
+
 function Display:AfterCombat()
+	-- Your target is read again, whatever happened to it in the fight.
+	if Display.RefreshTargets then Display.RefreshTargets("fight ended") end
 	if skin and skin.withoutManager and not ManagerUnsafe() then
 		skin = nil
 		if pcall(BuildSkin) and skin then ns.MASK_EPOCH = (ns.MASK_EPOCH or 0) + 1 end

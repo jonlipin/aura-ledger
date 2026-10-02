@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.76.0"
+ns.VERSION = "1.77.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -881,7 +881,7 @@ function ns.RecordAura(e, quiet)
 	end
 	if not quiet then h.count = (h.count or 0) + 1 end
 	h.last = now
-	h.onYou = true
+	if e.unit == "target" then h.onTarget = true else h.onYou = true end
 	h.ids = h.ids or {}
 	if e.id then h.id = e.id h.ids[e.id] = true end
 	if e.icon then h.icon = e.icon end
@@ -977,12 +977,15 @@ function ns.NewTracker(h)
 	local idOnly = h.idOnly or not h.name
 	-- A book row names what a dispel tracker matches; a ledger row's own dispel is its aura's type.
 	local dispel = ns.DISPEL_VALUES[h.matchDispel or ""] and h.matchDispel or nil
+	-- A debuff on your target: a row that says so, or a ledger row only ever seen on targets.
+	local onTarget = not dispel and not h.cd and not h.item and (h.unit == "target" or (h.onTarget and not h.onYou and h.kind == "debuff"))
 	return {
 		uid = ns.NewUid(),
 		name = h.name, id = (not dispel) and h.id or nil, icon = h.icon,
 		-- A debuff on you, from the ledger; everything else is a buff on you. A dispel tracker is a
-		-- debuff too, matched by its type rather than by a spell.
-		kind = (h.kind == "debuff" or dispel) and "debuff" or "buff",
+		-- debuff too, matched by its type rather than by a spell. One on your target is a debuff.
+		kind = (h.kind == "debuff" or dispel or onTarget) and "debuff" or "buff",
+		unit = onTarget and "target" or nil,
 		dispel = dispel,
 		-- It lights only while one is there, and it glows then: that is the whole point of it.
 		glow = dispel and true or nil,
@@ -1125,7 +1128,7 @@ function ns.SetGroupUnits(g, units)
 	g.units = units
 	-- Back to you alone: a dispel tracker needs the game to draw it, so the group stays drawn by it.
 	if not units then
-		for _, t in ipairs(g.trackers) do if t.dispel then g.gameDrawn = true end end
+		for _, t in ipairs(g.trackers) do if t.dispel or t.unit == "target" then g.gameDrawn = true end end
 	end
 	if units and canHold then
 		local out
@@ -1194,8 +1197,9 @@ function ns.Redirect(t, g)
 	if not (t and g) then return g end
 	local why
 	if ns.GroupUnits(g) and ns.Display and ns.Display.MemberCanHold and not ns.Display.MemberCanHold(t) then
-		why = "follows only you, so it went into a group of its own beside that one."
-	elseif t.dispel and not ns.IsGameDrawn(g) then
+		why = (t.unit == "target") and "is on your target, so it went into a group of its own beside that one."
+			or "follows only you, so it went into a group of its own beside that one."
+	elseif (t.dispel or t.unit == "target") and not ns.IsGameDrawn(g) then
 		why = "can only be drawn by the game, so it went into a new group the game draws, beside that one."
 	end
 	if not why then return g end
@@ -1208,7 +1212,7 @@ function ns.Redirect(t, g)
 		end
 	end
 	-- Several sent off the same group at once (an import, a marked drop) go into one group together.
-	local reason = t.dispel and "dispel" or "mine"
+	local reason = (t.dispel or t.unit == "target") and "game" or "mine"
 	local now = GetTime and GetTime() or 0
 	local ng = (lastRedirect.from == g and lastRedirect.reason == reason and lastRedirect.at == now) and lastRedirect.to or nil
 	if ng then
@@ -1220,7 +1224,7 @@ function ns.Redirect(t, g)
 	if fresh then
 		ng = ns.NewGroupLike(g)
 		ng.units, ng.memberNames, ng.perColumn = nil, nil, nil
-		if t.dispel then ng.gameDrawn = true end
+		if t.dispel or t.unit == "target" then ng.gameDrawn = true end
 	end
 	table.insert(ng.trackers, t)
 	lastRedirect = { from = g, reason = reason, at = now, to = ng }
@@ -1262,6 +1266,8 @@ function ns.TrackHistory(h, group, index, x, y)
 		if ns.profile.cdLen[l] == nil then ns.profile.cdLen[l] = h.cdLength end
 	end
 	local t = ns.NewTracker(h)
+	-- Your own class's debuff on your target: the one to follow is yours.
+	if t.unit == "target" and h.prebuilt and h.mine and h.class and h.class == ns.PlayerClass() then t.mine = true end
 	if not group then
 		if not x then
 			local n = #ns.profile.groups
@@ -1271,7 +1277,7 @@ function ns.TrackHistory(h, group, index, x, y)
 		group = ns.NewGroup(x, y)
 		-- A row meant for your party starts a group that watches it; a dispel row, one the game draws.
 		if h.units == "party" or h.units == "raid" then group.units = h.units end
-		if t.dispel or group.units then group.gameDrawn = true end
+		if t.dispel or t.unit == "target" or group.units then group.gameDrawn = true end
 	end
 	-- On your party a buff is worth seeing where it is missing, unless the row says otherwise.
 	if ns.GroupUnits(group) and not t.dispel and not h.show and ns.Display and ns.Display.MemberCanHold and ns.Display.MemberCanHold(t) then t.show = "missing" end
@@ -1313,7 +1319,7 @@ end
 
 local function EnvSignature(e)
 	return table.concat({ tostring(e.combat), tostring(e.group), tostring(e.groupSize), tostring(e.place),
-		tostring(e.resting), tostring(e.mounted), tostring(e.target), tostring(e.alive),
+		tostring(e.resting), tostring(e.mounted), tostring(e.target), tostring(e.targetFoe), tostring(e.alive),
 		tostring(e.talentSet), tostring(e.mainTree) }, "|")
 end
 
@@ -1422,6 +1428,8 @@ function ns.UpdateEnv()
 	e.resting = Bool(IsResting)
 	e.mounted = Bool(IsMounted)
 	e.target = Bool(UnitExists, "target")
+	-- A target your debuff trackers follow: one you can attack, and not dead.
+	e.targetFoe = (e.target and Bool(UnitCanAttack, "player", "target") and not Bool(UnitIsDead, "target")) and true or false
 	e.alive = not Bool(UnitIsDeadOrGhost, "player")
 	if not e.class and UnitClass then
 		local ok, _, token = pcall(UnitClass, "player")
@@ -1484,9 +1492,9 @@ end
 -- ------------------------------------------------------------------
 -- Aura reader: your own auras and your target's, kept in separate tables with their own indexes.
 -- ------------------------------------------------------------------
--- Only your own buffs: see the note on the tracker, nothing on this client can follow an aura on
--- another unit through a fight.
-ns.UNITS = { "player" }
+-- Your own auras, and the debuffs on a target you can attack. Both are read only while the game
+-- allows it (out of a fight); in one, a tracker the game draws is what follows your target.
+ns.UNITS = { "player", "target" }
 ns.targetAuras = {}
 local byName, byId = { player = {}, target = {} }, { player = {}, target = {} }
 
@@ -1882,7 +1890,8 @@ local function MakeEntry(a, kind, key, unit)
 		inst = Clean(a.auraInstanceID),
 		kind = kind,
 		unit = unit,
-		mine = (source == "player" or source == "pet") or (Clean(a.isFromPlayerOrPlayerPet) == true),
+		-- On your target that flag is true for any player's aura: there only you and your pet count.
+		mine = (source == "player" or source == "pet") or (unit ~= "target" and Clean(a.isFromPlayerOrPlayerPet) == true),
 		dispel = Clean(a.dispelName),
 	}
 end
@@ -2021,7 +2030,7 @@ local function PlainList(v)
 	return out, dropped
 end
 
-local function ScanUnit(unit, old, quiet)
+local function ScanUnit(unit, old, quiet, harmfulOnly)
 	local now = GetTime()
 	local fresh, unreadable = {}, 0
 	local stats = ns.stats
@@ -2029,7 +2038,7 @@ local function ScanUnit(unit, old, quiet)
 		unreadable = 1
 		stats.blocked = stats.blocked + 1
 	else
-		unreadable = ReadFilter(unit, "HELPFUL", "buff", fresh) + ReadFilter(unit, "HARMFUL", "debuff", fresh)
+		unreadable = (harmfulOnly and 0 or ReadFilter(unit, "HELPFUL", "buff", fresh)) + ReadFilter(unit, "HARMFUL", "debuff", fresh)
 		if unreadable > 0 then stats.partial = stats.partial + 1 end
 	end
 	local historyChanged = false
@@ -2063,6 +2072,19 @@ function ns.Scan()
 	local fresh, restricted, changed = ScanUnit("player", ns.auras, firstScan or ns.settleUntil ~= nil)
 	ns.auras = fresh
 	local historyChanged = changed
+	-- The debuffs on your target, which is where the ledger learns their spell ids. Only on a target
+	-- you can attack: on any other the game would not follow a debuff by its spell.
+	-- The first read of a target notes what is on it without counting it as landing: it was there
+	-- before you looked. Kept until a read gets through.
+	if ns.env and ns.env.targetFoe then
+		local tfresh, tblocked, tchanged = ScanUnit("target", ns.targetAuras, firstScan or ns.targetFresh, true)
+		ns.targetAuras = tfresh
+		if not tblocked then ns.targetFresh = nil end
+		historyChanged = historyChanged or tchanged
+	else
+		ns.targetAuras = {}
+		ns.targetFresh = true
+	end
 	firstScan = false
 	ns.restricted = restricted
 	Reindex()
@@ -2308,6 +2330,11 @@ function ns.CombatTrackableWhy(h)
 	-- Matched by dispel type, or a set of rows that are: the game follows these all through a fight.
 	if h.matchDispel or h.preset then return "yes" end
 	if h.item or h.cd or h.enchant ~= nil or h.swing ~= nil then return "addon" end
+	-- On your target the game follows a debuff by its spell all through a fight.
+	if h.unit == "target" or (h.onTarget and not h.onYou) then
+		if h.id or h.listId or (h.ids and next(h.ids)) or (h.name and ns.RankIds(h.name)) then return "target" end
+		return "noid"
+	end
 	if h.kind == "debuff" then return "debuff" end
 	if h.id or (h.ids and next(h.ids)) then return "yes" end
 	if h.name and ns.RankIds(h.name) then return "yes" end
@@ -2316,7 +2343,8 @@ function ns.CombatTrackableWhy(h)
 end
 
 function ns.CombatTrackable(h)
-	return ns.CombatTrackableWhy(h) == "yes"
+	local why = ns.CombatTrackableWhy(h)
+	return why == "yes" or why == "target"
 end
 
 -- ------------------------------------------------------------------
@@ -2521,7 +2549,7 @@ function ns.SyncAuraSounds()
 			ns.blizzardSound[t] = nil
 			-- Sounds follow auras on you by spell; a group that watches your party, and a tracker
 			-- matched by dispel type, have none to hand over.
-			local snd = (not t.dispel and not ns.GroupUnits(g)) and t.snd or nil
+			local snd = (not t.dispel and not ns.GroupUnits(g) and t.unit ~= "target") and t.snd or nil
 			if snd and (snd.applied or snd.removed) then
 				local unit = t.unit or "player"
 				for id in pairs(TrackerSpellIds(t)) do
@@ -2683,7 +2711,14 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		end
 	elseif event == "PLAYER_TARGET_CHANGED" then
 		ns.targetGUID = UnitGUID and Clean(UnitGUID("target")) or nil
+		-- Another target: nothing read off the last one is this one's.
+		ns.targetAuras = {}
+		ns.targetFresh = true
+		Reindex()
+		ns.dirty = true
 		ns.UpdateEnv()
+		-- The game's own displays of your target are told to read it again: they never do by themselves.
+		if ns.Display and ns.Display.TargetChanged then ns.Display:TargetChanged() end
 	elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
 		HandleCombatLog()
 	elseif event == "PLAYER_REGEN_DISABLED" then
@@ -2809,7 +2844,7 @@ SafeRegister("ADDON_ACTION_FORBIDDEN")
 -- a forbidden action (the "blocked from an action only available to the Blizzard UI" dialog at
 -- login, which pcall cannot stop). The combat log handler stays for clients that allow it, behind
 -- ns.db.combatLog, which is off by default.
-SafeRegisterUnit("UNIT_AURA", "player")
+SafeRegisterUnit("UNIT_AURA", "player", "target")
 SafeRegisterUnit("UNIT_SPELLCAST_SUCCEEDED", "player", "pet")
 SafeRegisterUnit("UNIT_SPELLCAST_START", "player")
 SafeRegisterUnit("UNIT_INVENTORY_CHANGED", "player")
@@ -3104,9 +3139,9 @@ function ns.Import(text)
 		t.show = (src.show == "missing" or src.show == "always") and src.show or "active"
 		t.mine = src.mine and true or false
 		t.label = type(src.label) == "string" and src.label or nil
-		-- Trackers follow your own auras; a unit from an old string would never be followed.
-		t.unit = nil
-		t.kind = (src.kind == "debuff" or t.dispel) and "debuff" or "buff"
+		-- A debuff on your target is followed there; any other unit from an old string never was.
+		t.unit = (src.unit == "target" and not t.dispel and not t.cd) and "target" or nil
+		t.kind = (src.kind == "debuff" or t.dispel or t.unit) and "debuff" or "buff"
 		t.warn = src.warn
 		t.cond = src.cond
 		t.snd = src.snd
@@ -3152,7 +3187,7 @@ function ns.Import(text)
 		local g = ns.NewGroup(x, y)
 		table.insert(g.trackers, t)
 		-- Only the game can draw a dispel tracker.
-		if t.dispel then g.gameDrawn = true end
+		if t.dispel or t.unit == "target" then g.gameDrawn = true end
 		ns.selected = { group = g, tracker = t }
 		ns.Changed()
 		return g
@@ -3327,7 +3362,7 @@ function ns.ClearMaskDiagnostics()
 	end
 end
 
-ns.DIAG_ORDER = { "log", "api", "gd", "members", "cdm2", "cdmrestore", "probe", "atlases", "icon", "item", "cdread", "spellcd" }
+ns.DIAG_ORDER = { "log", "api", "gd", "members", "target", "cdm2", "cdmrestore", "probe", "atlases", "icon", "item", "cdread", "spellcd" }
 ns.DIAG = {}
 for _, k in ipairs(ns.DIAG_ORDER) do ns.DIAG[k] = true end
 ns.DIAG.soundtest, ns.DIAG.soundclear = true, true
@@ -3982,6 +4017,8 @@ SlashCmdList.AURALEDGER = function(msg)
 		else
 			Print("  /auraledger debug spellcd all also lists every spell left out, and why.")
 		end
+	elseif cmd == "target" then
+		if ns.Display and ns.Display.TargetReport then ns.Display:TargetReport(function(line) Print("  " .. line) end, rest) end
 	elseif cmd == "members" then
 		Print("Groups that watch your party:")
 		if ns.Display and ns.Display.MembersReport then ns.Display:MembersReport(function(line) Print("  " .. line) end, rest) end

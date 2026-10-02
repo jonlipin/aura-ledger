@@ -12,6 +12,7 @@ Aura Ledger writes down every buff that ever lands on you, so you can find it ag
 - **Your party or your whole raid.** A group can watch everyone: a row per member, with the game drawing each member's buffs, all through a fight. See below.
 - **Something you can remove.** A dispel tracker lights when there is a debuff you can dispel, or one of a type (Curse, Magic, Poison, Disease), on you or on each member.
 - **A debuff on you**, from the ledger. The addon draws it: exact out of a fight, carried in one.
+- **A debuff on your target.** Your DoTs, curses and banes, a mage's Frostbite or Winter's Chill: the game draws it on a target you can attack, all through a fight, by its spell. The Warlock and Mage chapters list theirs, the ledger notes any it has seen on a target (filter **On targets**), and any aura tracker can be switched to it under **Watch**. The game never looks at a new target by itself, so each time you change target Aura Ledger asks it to read the new one at once; `/auraledger debug target` shows how that went.
 - **A spell's cooldown.** Under **Watch** in a tracker's settings, or `/auraledger cooldown <spell>`. A school locked out by an interrupt shows too, reddened, with the time left.
 - **Something you are carrying.** The **What you are carrying** chapter of the book lists everything in your bags or worn that has a use on it. Drag one out and you get its cooldown, trinkets included.
 - **Your weapons.** The same chapter starts with your main hand, off hand and ranged weapon: the temporary enchant on each (oils, stones, poisons, imbues), with its time left and charges, and the time to your next swing.
@@ -110,6 +111,7 @@ In a battleground the game hides auras for the whole match, not only in fights. 
 | `/auraledger debug` | what this client let the addon read |
 | `/auraledger debug cdread` | everything the game says about each cooldown tracker |
 | `/auraledger debug members` | every group that watches your party, row by row |
+| `/auraledger debug target` | how your target trackers were read on each change of target (`method` picks which reads are made) |
 | `/auraledger debug spellcd` | your spells with a cooldown, as the book reads them (`all` adds every spell left out, and why) |
 
 Aura Ledger also has a page in the game's own Options, under AddOns, with a button that opens it.
@@ -118,7 +120,7 @@ Aura Ledger also has a page in the game's own Options, under AddOns, with a butt
 
 `/auraledger debug` reports what this client actually allowed: which interface templates resolved, which art drew, what the aura reads returned, and which calls were refused. That report is the useful thing to send with a bug report, because this client differs from others in ways no addon can see from the outside.
 
-On this client the game follows a buff by spell on you and on your party and raid, and a debuff by its type, but not a debuff by spell (bar the few it never hides), and nothing at all on an enemy. So a debuff tracker on you is drawn by the addon, and the game's own frames are what show auras on your target.
+On this client the game follows a buff by spell on you and on your party and raid, a debuff by its type, and a debuff by spell on an enemy you target, but not a debuff by spell on you (bar the few it never hides). So a debuff tracker on you is drawn by the addon, while one on your target is drawn by the game.
 
 ## Credits
 

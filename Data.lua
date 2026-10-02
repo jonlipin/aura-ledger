@@ -61,7 +61,13 @@ ns.BOOK = {
 		{ "Mage Armor", 6117 }, { "Mana Shield", 1463 }, { "Ice Barrier", 11426 }, { "Fire Ward", 543 },
 		{ "Frost Ward", 6143 }, { "Dampen Magic", 604 }, { "Amplify Magic", 1008 }, { "Ice Block", 11958 },
 		{ "Evocation", 12051 }, { "Presence of Mind", 12043 }, { "Arcane Power", 12042 }, { "Combustion", 11129 },
-		{ "Clearcasting", 12536 }, { "Slow Fall", 130 },
+		{ "Clearcasting", 12536 }, { "Slow Fall", 130 }, { "Fingers of Frost", 400670 },
+		-- On your target.
+		-- On your target. "mine": each caster's own, so yours is the one to follow; without it, anyone's
+		-- will do (a freeze is a freeze, and a vulnerability does not stack).
+		{ "Frostbite", 12494, "target" }, { "Frost Nova", 122, "target" }, { "Winter's Chill", 12579, "target" },
+		{ "Fire Vulnerability", 22959, "target" }, { "Ignite", 412538, "target", nil, "mine" }, { "Impact", 12355, "target" },
+		{ "Counterspell - Silenced", 18469, "target" }, { "Polymorph", 118, "target", nil, "mine" },
 	},
 	WARLOCK = {
 		{ "Demon Skin", 687 }, { "Demon Armor", 706 }, { "Unending Breath", 5697 },
@@ -71,6 +77,14 @@ ns.BOOK = {
 		{ "Shadow Trance", 17941 }, { "Soulstone Resurrection", 20707 }, { "Sacrifice", 7812 },
 		{ "Burning Wish", 18789 }, { "Fel Stamina", 18790 }, { "Touch of Shadow", 18791 }, { "Fel Energy", 18792 },
 		{ "Blood Pact", 6307 }, { "Fire Shield", 2947 }, { "Paranoia", 19480 },
+		-- On your target. "mine": each caster's own (damage over time, and what you cast to hold a
+		-- target); without it, anyone's will do (a curse of one kind does not stack).
+		{ "Corruption", 172, "target", nil, "mine" }, { "Immolate", 348, "target", nil, "mine" }, { "Siphon Life", 18265, "target", nil, "mine" },
+		{ "Bane of Agony", 980, "target", nil, "mine" }, { "Bane of Doom", 603, "target", nil, "mine" }, { "Bane of Havoc", 1225228, "target", nil, "mine" },
+		{ "Curse of Weakness", 702, "target" }, { "Curse of Recklessness", 704, "target" }, { "Curse of Tongues", 1714, "target" },
+		{ "Curse of the Elements", 440892, "target" }, { "Curse of Exhaustion", 18223, "target" },
+		{ "Shadow Vulnerability", 17794, "target" }, { "Wrack", 1316697, "target", nil, "mine" }, { "Fear", 5782, "target", nil, "mine" },
+		{ "Banish", 710, "target", nil, "mine" },
 	},
 	DRUID = {
 		{ "Mark of the Wild", 1126 }, { "Gift of the Wild", 21849 }, { "Thorns", 467 }, { "Rejuvenation", 774 },
@@ -230,6 +244,20 @@ ns.RANK_IDS = ns.RANK_IDS or {
 	["Greater Blessing of Light"] = { 25890 },
 	["Greater Blessing of Sanctuary"] = { 25899 },
 	["Soulstone Resurrection"] = { 20707, 20762, 20763, 20764, 20765 },
+	-- Debuffs your spells put on a target: the aura has the spell's own id, rank by rank (from the
+	-- client's own spell data for 1.60.1.70170).
+	["Frost Nova"] = { 122, 865, 6131, 10230 },
+	["Polymorph"] = { 118, 12824, 12825, 12826 },
+	["Corruption"] = { 172, 6222, 6223, 7648, 11671, 11672, 25311 },
+	["Immolate"] = { 348, 707, 1094, 2941, 11665, 11667, 11668, 25309 },
+	["Siphon Life"] = { 18265, 18879, 18880, 18881 },
+	["Bane of Agony"] = { 980, 1014, 6217, 11711, 11712, 11713 },
+	["Curse of Weakness"] = { 702, 1108, 6205, 7646, 11707, 11708 },
+	["Curse of Recklessness"] = { 704, 7658, 7659, 11717 },
+	["Curse of Tongues"] = { 1714, 11719 },
+	["Curse of the Elements"] = { 440892, 1311676, 1311677, 1311680 },
+	["Fear"] = { 5782, 6213, 6215 },
+	["Banish"] = { 710, 18647 },
 }
 
 ns.BOOK_ORDER = { "WARRIOR", "PALADIN", "HUNTER", "ROGUE", "PRIEST", "SHAMAN", "MAGE", "WARLOCK", "DRUID", "GROUP", "RACIAL", "BAGS", "ITEMS" }
@@ -489,8 +517,12 @@ function ns.BookPages()
 	for token, rows in pairs(ns.BOOK) do
 		local list = {}
 		for _, row in ipairs(rows) do
-			-- Debuff rows are left out: a debuff on you cannot be followed by spell in combat.
-			if (row[3] or "buff") ~= "debuff" then
+			-- Debuff rows are left out: a debuff on you cannot be followed by spell in combat. One on
+			-- your target can.
+			if row[3] == "target" then
+				list[#list + 1] = { name = row[1], listId = row[2], kind = "debuff", unit = "target", note = row[4] or "On your target",
+					mine = row[5] == "mine" or nil, prebuilt = true, class = token }
+			elseif (row[3] or "buff") ~= "debuff" then
 				list[#list + 1] = { name = row[1], listId = row[2], kind = row[3] or "buff", note = row[4], prebuilt = true, class = token }
 			end
 		end
