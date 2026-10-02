@@ -769,6 +769,29 @@ local function TrackedNames()
 	return set
 end
 
+-- A spell from the game's spell list as a book row: what it is, where it lands if the index says,
+-- and every id it has.
+local GAME_ROWS = setmetatable({}, { __mode = "v" })
+function UI.GameRow(e)
+	if not (e and e.name and e.ids and e.ids[1]) then return nil end
+	local key = e.name .. "\0" .. tostring(e.class) .. "\0" .. tostring(e.where)
+	local row = GAME_ROWS[key]
+	if row then return row end
+	local where = e.where
+	local note = (where == "t" and "Debuff on your target") or (where == "d" and "Debuff on you") or (where == "y" and "Buff on you")
+		or (where == "o" and "Buff on you or others") or "From the game's spell list"
+	if e.class == "ITEM" then note = note .. ", from an item"
+	elseif e.class == "RACIAL" then note = note .. ", a racial"
+	elseif e.class then note = note .. ", " .. ClassLabel(e.class) end
+	local ids = {}
+	for _, id in ipairs(e.ids) do ids[id] = true end
+	for id in pairs(ns.SpellDB and ns.SpellDB.Ids and ns.SpellDB.Ids(e.name) or {}) do ids[id] = true end
+	row = { name = e.name, listId = e.ids[1], id = e.ids[1], ids = ids, kind = ((where == "t" or where == "d") and "debuff") or (where and "buff") or "any",
+		unit = (where == "t") and "target" or nil, note = note, desc = e.desc, prebuilt = true, fromGame = true, gameClass = e.class }
+	GAME_ROWS[key] = row
+	return row
+end
+
 local function BookTooltip(b)
 	local h = b.item
 	if not h then return end
@@ -782,6 +805,15 @@ local function BookTooltip(b)
 	end
 	if not shown then GameTooltip:SetText(h.name or ("Spell " .. tostring(h.id)), 1, 1, 1) end
 	GameTooltip:AddLine(" ")
+	if h.fromGame then
+		local n = 0
+		for _ in pairs(h.ids or {}) do n = n + 1 end
+		GameTooltip:AddLine((h.note or "From the game's spell list") .. (h.kind ~= "any" and ", from the game's own spell list" or "") .. (n > 1 and (", " .. n .. " spell ids by this name.") or "."), 0.6, 0.8, 1, true)
+		if h.desc then GameTooltip:AddLine(h.desc, 0.85, 0.85, 0.85, true) end
+	end
+	if (h.fromGame or h.listed) and h.kind == "any" then
+		GameTooltip:AddLine("Where it lands is not known: a tracker made from it watches it on you, as a buff or a debuff, read by the addon.", 0.8, 0.7, 0.5, true)
+	end
 	if h.preset then
 		GameTooltip:AddLine("Makes a group that watches your party, with the buffs your class gives them and, if your class can dispel, a tracker for something you can remove. Each member gets a row.", 0.6, 0.8, 1, true)
 	elseif h.matchDispel == "any" then
@@ -800,6 +832,8 @@ local function BookTooltip(b)
 		GameTooltip:AddLine(whose .. (len and (": " .. len .. ".") or ", its length not read yet."), 0.6, 0.8, 1, true)
 		GameTooltip:AddLine("A tracker made from this row follows the spell's cooldown, not any buff it gives. It shows while the cooldown is running; set Show the cooldown when it is to Ready to see it when the spell can be cast instead.", 0.6, 0.8, 1, true)
 		GameTooltip:AddLine("The addon reads it itself and keeps it counting through a fight.", 0.6, 0.8, 1, true)
+	elseif h.fromGame then
+		-- said above
 	elseif h.prebuilt then
 		local ranks = ns.RankIds and ns.RankIds(h.name)
 		local n = 0
@@ -825,6 +859,8 @@ local function BookTooltip(b)
 		-- said above
 	elseif why == "addon" then
 		-- nothing to say about the game following it: the addon reads it itself
+	elseif why == "unknown" then
+		-- said above: where it lands is not known, and the addon reads it
 	elseif why == "target" then
 		GameTooltip:AddLine("A debuff on your target. Marked combat: in a group drawn by the game, the game follows it on a target you can attack by its spell id, all through a fight and from one target to the next.", 0.45, 0.75, 1, true)
 	elseif why == "yes" then
@@ -1046,7 +1082,25 @@ local function BookItems()
 			if ac ~= bc then return ac < bc end
 			return (a.listId or 0) < (b.listId or 0)
 		end)
-		return list, "Search results"
+		-- Then the game's own spell list: anything else by that name, and auras whose own text has it.
+		local title = "Search results"
+		if ns.SpellDB and ns.SpellDB.Search then
+			local found, more = ns.SpellDB.Search(query, 40)
+			for _, e in ipairs(found) do
+				local row = UI.GameRow(e)
+				local k = row and TrackKey(row)
+				if k and not have[k] then
+					have[k] = true
+					list[#list + 1] = row
+				end
+			end
+			local done, share = ns.SpellDB.Progress()
+			local notes = {}
+			if not done then notes[#notes + 1] = ("reading the game's spell list: %d%%"):format(math.floor(share * 100)) end
+			if more then notes[#notes + 1] = "more in the game's spell list: type more of the name" end
+			if #notes > 0 then title = "Search results (" .. table.concat(notes, "; ") .. ")" end
+		end
+		return list, title
 	end
 	if book.tab ~= "HISTORY" then
 		local titles = { ITEMS = "Items and food", RACIAL = "Racials", BAGS = "What you are carrying", GROUP = "Party and raid" }
@@ -1058,8 +1112,8 @@ local function BookItems()
 	end
 	for _, h in pairs(ns.db.history) do
 		local keep
-		if histFilter == "you" then keep = h.onYou or not h.onTarget
-		elseif histFilter == "target" then keep = h.onTarget and true or false
+		if histFilter == "you" then keep = h.onYou or not (h.onTarget or h.unit == "target")
+		elseif histFilter == "target" then keep = (h.onTarget or h.unit == "target") and true or false
 		else keep = histFilter == "all" or h.kind == histFilter or h.kind == "any" end
 		if keep then list[#list + 1] = h end
 	end
@@ -1077,6 +1131,19 @@ local function BookItems()
 		end)
 	end
 	return list, "Ledger"
+end
+UI.LedgerForTest = function(filter)
+	local keepFilter, keepTab = histFilter, book.tab
+	histFilter, book.tab = filter, "HISTORY"
+	local items = BookItems()
+	histFilter, book.tab = keepFilter, keepTab
+	return items
+end
+UI.SearchForTest = function(text)
+	if searchBox then searchBox:SetText(text or "") end
+	local items, title = BookItems()
+	if searchBox then searchBox:SetText("") end
+	return items, title
 end
 
 -- Named RefreshHistory because the core calls it whenever the ledger gains a row.

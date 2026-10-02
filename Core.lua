@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.77.0"
+ns.VERSION = "1.78.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -136,8 +136,10 @@ end
 -- The game draws a slot only for the spell ids it is handed, and a combat sound is registered
 -- against one id at a time, so a rank nobody has told it about is invisible to it. Every rank known
 -- here is handed over: the ranks bundled in Data.lua (ns.RANK_IDS, kept only where this client
--- agrees an id carries that name), every rank in your own spellbook, and any seen on you. Ids are
--- only ever looked up one at a time; stepping through id ranges is what crashed another addon.
+-- agrees an id carries that name), every rank in your own spellbook, and any seen on you. Here ids
+-- are looked up one at a time. Reading every id in turn is left to the game's spell list
+-- (SpellDB.lua), which asks for the name alone, a little each frame, and steps over the ids the
+-- client has no spells at.
 -- A rank the client has not loaded yet is asked for and looked up again a second later, four times.
 -- ------------------------------------------------------------------
 local rankIndex, rankState = nil, {}
@@ -882,6 +884,7 @@ function ns.RecordAura(e, quiet)
 	if not quiet then h.count = (h.count or 0) + 1 end
 	h.last = now
 	if e.unit == "target" then h.onTarget = true else h.onYou = true end
+	if ns.SpellDB and ns.SpellDB.Learn then ns.SpellDB.Learn(e.name, e.id) end
 	h.ids = h.ids or {}
 	if e.id then h.id = e.id h.ids[e.id] = true end
 	if e.icon then h.icon = e.icon end
@@ -926,6 +929,7 @@ function ns.AddManual(text)
 		if h then return h end
 	end
 	local name, icon, spellId = ns.SpellInfo(text)
+	local bookItem
 	if not icon and ns.BookPages then
 		-- Not a spell this character knows; the pre-built book may still have its icon.
 		for _, list in pairs(ns.BookPages()) do
@@ -933,12 +937,26 @@ function ns.AddManual(text)
 				if strlower(item.name) == strlower(text) and not item.spellCd then
 					ns.ResolveBookItem(item)
 					name, icon, spellId = item.name, item.icon, item.id
+					bookItem = item
 				end
 			end
 		end
 	end
-	local h = { name = name or text, icon = icon, id = spellId, kind = "any", manual = true, first = time(), last = time(), count = 0, ids = {} }
-	if spellId then h.ids[spellId] = true end
+	-- The game's spell list: for a name this character does not know, its proper name and every id it
+	-- has; for any name its index holds, whether it is a debuff on your target or on you.
+	local found = ns.SpellDB and ns.SpellDB.Find and ns.SpellDB.Find(text, spellId)
+	local h = { name = name or (found and found.name) or text, icon = icon, id = spellId, kind = "any", manual = true, first = time(), last = time(), count = 0, ids = {} }
+	if found and found.ids and not spellId then
+		local first
+		for id in pairs(found.ids) do h.ids[id] = true if not first or id < first then first = id end end
+		h.id = found.id or first
+		h.name = found.name
+	end
+	if (found and found.where == "t") or (bookItem and bookItem.unit == "target") then h.kind, h.unit = "debuff", "target"
+	elseif found and found.where == "d" then h.kind = "debuff"
+	-- In the game's list, with nothing to say where it lands: watched on you, as a buff or a debuff.
+	elseif found and not found.where and not spellId then h.listed = true end
+	if h.id then h.ids[h.id] = true end
 	history[HistoryKey("any", h.name)] = h
 	return h
 end
@@ -984,7 +1002,7 @@ function ns.NewTracker(h)
 		name = h.name, id = (not dispel) and h.id or nil, icon = h.icon,
 		-- A debuff on you, from the ledger; everything else is a buff on you. A dispel tracker is a
 		-- debuff too, matched by its type rather than by a spell. One on your target is a debuff.
-		kind = (h.kind == "debuff" or dispel or onTarget) and "debuff" or "buff",
+		kind = (h.kind == "debuff" or dispel or onTarget) and "debuff" or (((h.fromGame or h.listed) and h.kind == "any") and "any" or "buff"),
 		unit = onTarget and "target" or nil,
 		dispel = dispel,
 		-- It lights only while one is there, and it glows then: that is the whole point of it.
@@ -2330,6 +2348,8 @@ function ns.CombatTrackableWhy(h)
 	-- Matched by dispel type, or a set of rows that are: the game follows these all through a fight.
 	if h.matchDispel or h.preset then return "yes" end
 	if h.item or h.cd or h.enchant ~= nil or h.swing ~= nil then return "addon" end
+	-- From the game's spell list with nothing to say where it lands: not claimed either way.
+	if (h.fromGame or h.listed) and h.kind == "any" then return "unknown" end
 	-- On your target the game follows a debuff by its spell all through a fight.
 	if h.unit == "target" or (h.onTarget and not h.onYou) then
 		if h.id or h.listId or (h.ids and next(h.ids)) or (h.name and ns.RankIds(h.name)) then return "target" end
@@ -2663,6 +2683,11 @@ local function Startup()
 	ns.UpdateEnv()
 	ns.WantSwingEvents()
 	ns.LearnBookRanks()
+	-- The game's spell list: read in the background from a little after now.
+	if ns.SpellDB and ns.SpellDB.Init then
+		local ok, err = pcall(ns.SpellDB.Init)
+		if not ok then ns.report["spell list"] = "failed to start: " .. tostring(err) end
+	end
 	if ns.Display and ns.Display.Init then ns.Display:Init() end
 	if ns.UI and ns.UI.Init then ns.UI:Init() end
 	ns.Settle()
@@ -2876,6 +2901,15 @@ function ns.OnUpdate(elapsed)
 	-- the next frame, so a burst of them comes to one.
 	local D = ns.Display
 	if D and D.PumpMembers and (D.rosterDirty or (D.memberJobs and #D.memberJobs > 0)) then D:PumpMembers() end
+	-- The game's spell list, a little each frame out of a fight; stopped for good if it ever errs.
+	if ns.SpellDB and ns.SpellDB.Step and not ns.spellListFailed then
+		local ok, err = pcall(ns.SpellDB.Step)
+		if not ok then
+			ns.spellListFailed = true
+			ns.report["spell list"] = "stopped: " .. tostring(err)
+			pcall(ns.SpellDB.UpdateBar)
+		end
+	end
 	tickAcc = tickAcc + elapsed
 	if tickAcc >= 0.1 then
 		tickAcc = 0
@@ -3141,7 +3175,7 @@ function ns.Import(text)
 		t.label = type(src.label) == "string" and src.label or nil
 		-- A debuff on your target is followed there; any other unit from an old string never was.
 		t.unit = (src.unit == "target" and not t.dispel and not t.cd) and "target" or nil
-		t.kind = (src.kind == "debuff" or t.dispel or t.unit) and "debuff" or "buff"
+		t.kind = (src.kind == "debuff" or t.dispel or t.unit) and "debuff" or ((src.kind == "any" and not t.cd) and "any" or "buff")
 		t.warn = src.warn
 		t.cond = src.cond
 		t.snd = src.snd
@@ -3362,7 +3396,7 @@ function ns.ClearMaskDiagnostics()
 	end
 end
 
-ns.DIAG_ORDER = { "log", "api", "gd", "members", "target", "cdm2", "cdmrestore", "probe", "atlases", "icon", "item", "cdread", "spellcd" }
+ns.DIAG_ORDER = { "log", "api", "gd", "members", "target", "spells", "cdm2", "cdmrestore", "probe", "atlases", "icon", "item", "cdread", "spellcd" }
 ns.DIAG = {}
 for _, k in ipairs(ns.DIAG_ORDER) do ns.DIAG[k] = true end
 ns.DIAG.soundtest, ns.DIAG.soundclear = true, true
@@ -3736,7 +3770,11 @@ SlashCmdList.AURALEDGER = function(msg)
 		end
 		local h, err = ns.AddManual(rest)
 		if not h then Print(err) return end
-		local t = ns.TrackHistory(h)
+		-- A cooldown is the spell's own, never a debuff on your target: made as one from the start.
+		local src = {}
+		for k, v in pairs(h) do src[k] = v end
+		src.cd, src.unit = true, nil
+		local t = ns.TrackHistory(src)
 		t.cd = true
 		ns.Changed()
 		if ns.Display then ns.Display:Rebuild() end
@@ -4019,6 +4057,9 @@ SlashCmdList.AURALEDGER = function(msg)
 		end
 	elseif cmd == "target" then
 		if ns.Display and ns.Display.TargetReport then ns.Display:TargetReport(function(line) Print("  " .. line) end, rest) end
+	elseif cmd == "spells" then
+		Print("The game's spell list:")
+		if ns.SpellDB and ns.SpellDB.Report then ns.SpellDB.Report(function(line) Print("  " .. line) end, rest) end
 	elseif cmd == "members" then
 		Print("Groups that watch your party:")
 		if ns.Display and ns.Display.MembersReport then ns.Display:MembersReport(function(line) Print("  " .. line) end, rest) end

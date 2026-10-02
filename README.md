@@ -40,8 +40,10 @@ The left side is laid out like the spellbook and borrows its art when the client
 - **Racials**: including the ones read straight out of this client's own spellbook, so a racial the written list never heard of is there anyway.
 - **What you are carrying**: your weapons' enchants and swings, then everything in your bags or worn that has a use on it.
 - **Items and food**: food, drink, bandages, flasks, elixirs, potions, scrolls, world buffs and trinkets, listed under the name of the buff rather than the item.
-- **Search** looks through every chapter at once, by name, spell ID or source ("naxx", "flask", "world buff").
-- **Add by spell name or ID** takes a name, an ID or a shift-clicked spell link, for anything not in the book.
+- **Search** looks through every chapter at once, by name, spell ID or source ("naxx", "flask", "world buff"), and then through the game's own spell list: the auras of every class and race, of talents and of items, by name or by what it does ("frozen" finds Frost Nova), each marked with where it lands (a buff on you, a debuff on you, or a debuff on your target) and ready to track, and any other spell this client knows by name.
+- **Add by spell name or ID** takes a name, an ID or a shift-clicked spell link, for anything not in the book. A name your character does not know is looked up in the game's spell list, so the tracker gets every spell id of that name and the game can draw it.
+
+The game's spell list comes in two parts. The auras players cast, and the ones talents and items put up, come with the addon, with where they land and what they do. Every other spell is read from your own client in the background the first time you play with this version (and again only when the game itself changes, or the language you play it in): about a millisecond of each frame, only out of a fight, with a thin bar at the top of the screen while it goes (right-click hides the bar; the reading goes on). It takes a minute or so, and the list is kept between sessions. `/auraledger debug spells off` stops the reading, and `on` starts it again.
 
 Rows a group drawn by the game can follow all through a fight carry a small **combat** mark: a buff with a spell id known on this client, or a dispel tracker. Every rank known is handed to the game: the ranks of the book's class buffs come with the addon, and your own come straight from your spellbook. That matters: see below.
 
@@ -111,6 +113,7 @@ In a battleground the game hides auras for the whole match, not only in fights. 
 | `/auraledger debug` | what this client let the addon read |
 | `/auraledger debug cdread` | everything the game says about each cooldown tracker |
 | `/auraledger debug members` | every group that watches your party, row by row |
+| `/auraledger debug spells` | how far the game's spell list has been read, and what the reading cost (`again` reads it all again, `off` stops the reading, `on` starts it again) |
 | `/auraledger debug target` | how your target trackers were read on each change of target (`method` picks which reads are made) |
 | `/auraledger debug spellcd` | your spells with a cooldown, as the book reads them (`all` adds every spell left out, and why) |
 

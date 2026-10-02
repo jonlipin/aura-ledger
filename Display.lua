@@ -2360,6 +2360,11 @@ local function KnownIds(name, map)
 	end
 	local ranks = ns.RankIds and ns.RankIds(name)
 	if ranks then for id in pairs(ranks) do map[id] = true any = true end end
+	-- Nothing else knows it: the game's own spell list, every id of that name.
+	if not any and ns.SpellDB and ns.SpellDB.Ids then
+		local listed = ns.SpellDB.Ids(name)
+		if listed then for id in pairs(listed) do map[id] = true any = true end end
+	end
 	return any
 end
 
