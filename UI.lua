@@ -671,6 +671,8 @@ local treeList
 local groupBuilder, trackerBuilder, groupPanel, trackerPanel, emptyText, optionsScroll, optionsChild
 local searchBox, unlockCheck
 local histFilter, histSort = "all", "recent"
+-- The game's spell list chapter: whose spells (nil for your own class) and where they land.
+local browseWho, browseWhere = nil, "all"
 local trackerTitle = {}
 
 local function SelectedGroup() return ns.selected and ns.selected.group end
@@ -788,6 +790,12 @@ function UI.GameRow(e)
 	for id in pairs(ns.SpellDB and ns.SpellDB.Ids and ns.SpellDB.Ids(e.name) or {}) do ids[id] = true end
 	row = { name = e.name, listId = e.ids[1], id = e.ids[1], ids = ids, kind = ((where == "t" or where == "d") and "debuff") or (where and "buff") or "any",
 		unit = (where == "t") and "target" or nil, note = note, desc = e.desc, prebuilt = true, fromGame = true, gameClass = e.class }
+	-- A debuff on your target the book marks as each caster's own (a DoT, crowd control): so is this.
+	if row.unit == "target" and e.class and ns.BookPages then
+		for _, b in ipairs(ns.BookPages()[e.class] or {}) do
+			if b.unit == "target" and b.mine and strlower(b.name) == strlower(e.name) then row.mine, row.class = true, e.class break end
+		end
+	end
 	GAME_ROWS[key] = row
 	return row
 end
@@ -1102,6 +1110,31 @@ local function BookItems()
 		end
 		return list, title
 	end
+	if book.tab == "SPELLS" and ns.SpellDB and ns.SpellDB.Browse then
+		local who = UI.BrowseWho()
+		if who == "CLIENT" then
+			local done, share = ns.SpellDB.Progress()
+			local names = ns.SpellDB.BrowseClient()
+			return names, done and ("Other spells (%d)"):format(#names) or ("Other spells: %d%% read"):format(math.floor(share * 100))
+		end
+		-- Group by group, each starting a page of its own, whose heading is the group's name.
+		local list, titles, sections, count, current = {}, {}, {}, 0, nil
+		for _, e in ipairs(ns.SpellDB.Browse(who, browseWhere)) do
+			local row = UI.GameRow(e)
+			if row then
+				if e.group ~= current then
+					while #list % PER_PAGE ~= 0 do list[#list + 1] = false end
+					current = e.group
+					sections[#sections + 1] = { name = ns.SpellDB.GroupName(e.group), page = floor(#list / PER_PAGE) + 1, count = 0 }
+				end
+				list[#list + 1] = row
+				count = count + 1
+				sections[#sections].count = sections[#sections].count + 1
+				titles[floor((#list - 1) / PER_PAGE) + 1] = ns.SpellDB.GroupName(e.group)
+			end
+		end
+		return list, ("Spell list (%d)"):format(count), titles, sections
+	end
 	if book.tab ~= "HISTORY" then
 		local titles = { ITEMS = "Items and food", RACIAL = "Racials", BAGS = "What you are carrying", GROUP = "Party and raid" }
 		local page = {}
@@ -1132,6 +1165,20 @@ local function BookItems()
 	end
 	return list, "Ledger"
 end
+function UI.BrowseWho()
+	if browseWho then return browseWho end
+	local mine = ns.PlayerClass and ns.PlayerClass()
+	for _, c in ipairs(ns.CLASSES or {}) do if c == mine then return mine end end
+	return "ALL"
+end
+UI.BrowseForTest = function(who, where)
+	local keepWho, keepWhere, keepTab = browseWho, browseWhere, book.tab
+	browseWho, browseWhere, book.tab = who, where or "all", "SPELLS"
+	local items, title, titles = BookItems()
+	browseWho, browseWhere, book.tab = keepWho, keepWhere, keepTab
+	return items, title, titles
+end
+UI.HeaderForTest = function() if book.header then return book.header:GetText(), book.header:GetWidth() end end
 UI.LedgerForTest = function(filter)
 	local keepFilter, keepTab = histFilter, book.tab
 	histFilter, book.tab = filter, "HISTORY"
@@ -1146,18 +1193,68 @@ UI.SearchForTest = function(text)
 	return items, title
 end
 
+-- The list of the spell list's groups, under its heading: each turns to its group's first page.
+function UI:ShowGroupMenu()
+	local menu, sections = book.groupMenu, book.sections
+	if not menu or not sections or #sections == 0 then return end
+	local current = (book.page or 1)
+	for i, sec in ipairs(sections) do
+		local b = menu.buttons[i]
+		if not b then
+			b = CreateFrame("Button", nil, menu)
+			b:SetSize(260, 20)
+			b:SetPoint("TOPLEFT", 8, -8 - (i - 1) * 20)
+			b:SetNormalFontObject("GameFontHighlightLeft")
+			b:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+			menu.buttons[i] = b
+		end
+		b:SetText(("%s (%d)"):format(sec.name, sec.count))
+		local fs = b.GetFontString and b:GetFontString()
+		if fs then
+			fs:ClearAllPoints()
+			fs:SetPoint("LEFT", 6, 0)
+			-- The group of the page on show, in gold.
+			local here = current >= sec.page and (not sections[i + 1] or current < sections[i + 1].page)
+			if here then fs:SetTextColor(1, 0.82, 0) else fs:SetTextColor(1, 1, 1) end
+		end
+		b:SetScript("OnClick", function()
+			book.page = sec.page
+			menu:Hide()
+			UI:RefreshHistory()
+		end)
+		b:Show()
+	end
+	for i = #sections + 1, #menu.buttons do menu.buttons[i]:Hide() end
+	menu:SetSize(276, 16 + #sections * 20)
+	menu:Show()
+end
+
+-- A name read from the client, as a book row with its ids: made only for the page on show.
+function UI.ClientRow(e)
+	local list = {}
+	for id in pairs(ns.SpellDB and ns.SpellDB.Ids and ns.SpellDB.Ids(e.name) or {}) do list[#list + 1] = id end
+	table.sort(list)
+	return UI.GameRow({ name = e.name, ids = list })
+end
+
 -- Named RefreshHistory because the core calls it whenever the ledger gains a row.
 function UI:RefreshHistory()
 	if not frame or not frame:IsShown() or not book.pane then return end
 	if ns.ResolveAllBookItems then ns.ResolveAllBookItems() end
-	local items, title = BookItems()
+	local items, title, pageTitles, sections = BookItems()
+	book.sections = sections
 	book.items = items
 	book.pages = max(1, ceil(#items / PER_PAGE))
 	book.page = max(1, min(book.page, book.pages))
-	book.header:SetText(title)
+	-- A chapter in groups names the group of the page on show.
+	book.header:SetText((pageTitles and pageTitles[book.page]) or title)
 	local tracked = TrackedNames()
 	local first = (book.page - 1) * PER_PAGE
-	for i = 1, PER_PAGE do UpdateBookButton(book.buttons[i], items[first + i], tracked) end
+	for i = 1, PER_PAGE do
+		local item = items[first + i]
+		if item and item.client then item = UI.ClientRow(item) end
+		UpdateBookButton(book.buttons[i], item, tracked)
+	end
 	book.pageText:SetText(("Page %d of %d"):format(book.page, book.pages))
 	book.prev:SetEnabled(book.page > 1)
 	book.next:SetEnabled(book.page < book.pages)
@@ -1165,11 +1262,42 @@ function UI:RefreshHistory()
 	local onHistory = book.tab == "HISTORY" and not searching
 	book.filterButton:SetShown(onHistory)
 	book.sortButton:SetShown(onHistory)
+	local onSpells = book.tab == "SPELLS" and not searching
+	-- On the spell list the title stops before the buttons beside it, and opens the list of groups.
+	book.header:SetWidth(onSpells and 326 or 0)
+	if book.headerButton then
+		local jump = onSpells and sections and #sections > 0
+		book.headerButton:SetShown(jump and true or false)
+		book.headerArrow:SetShown(jump and true or false)
+		if jump then
+			local w = tonumber(book.header.GetStringWidth and book.header:GetStringWidth()) or 0
+			book.headerArrow:ClearAllPoints()
+			book.headerArrow:SetPoint("LEFT", book.header, "LEFT", min(w, 326) + 2, -2)
+		end
+		if book.groupMenu:IsShown() then
+			if jump then UI:ShowGroupMenu() else book.groupMenu:Hide() end
+		end
+	end
+	if book.whoButton then
+		book.whoButton:SetShown(onSpells)
+		book.whereButton:SetShown(onSpells and UI.BrowseWho() ~= "CLIENT")
+	end
 	for token, tab in pairs(book.tabs) do tab:SetChosen(token == book.tab and not searching) end
 	book.empty:SetShown(#items == 0)
 	if #items == 0 then
-		book.empty:SetText(searching and "Nothing matches that." or
-			"Nothing here yet.\n\nEvery buff and debuff you get is written down here as it happens. The tabs along the top already list the buffs each class can cast.")
+		if searching then
+			book.empty:SetText("Nothing matches that.")
+		elseif onSpells and UI.BrowseWho() == "CLIENT" and type(AuraLedgerSpells) == "table" and AuraLedgerSpells.off then
+			book.empty:SetText("Nothing read.\n\nThe reading of the game's spell list is switched off: /auraledger debug spells on starts it again.")
+		elseif onSpells and UI.BrowseWho() == "CLIENT" and ns.spellListFailed then
+			book.empty:SetText("Nothing read.\n\nThe reading of the game's spell list stopped after an error: /auraledger debug spells again tries again.")
+		elseif onSpells and UI.BrowseWho() == "CLIENT" then
+			book.empty:SetText("Nothing read yet.\n\nEvery other spell is read from your client in the background, a little each frame out of a fight, and fills in here as the reading goes.")
+		elseif onSpells then
+			book.empty:SetText("Nothing in the game's list lands that way for these.")
+		else
+			book.empty:SetText("Nothing here yet.\n\nEvery buff and debuff you get is written down here as it happens. The tabs along the top already list the buffs each class can cast.")
+		end
 	end
 end
 
@@ -1270,7 +1398,8 @@ end
 
 -- Tabs across the top like the Forever spellbook: Blizzard's own tab frame, its glow when chosen,
 -- the icon in the frame's window, and their feet on the page edge.
-local TAB_W, TAB_H, TAB_GAP = 43, 37, 2
+-- Fifteen tabs, edge to edge, fit the left page.
+local TAB_W, TAB_H, TAB_GAP = 42, 37, 0
 local function CreateBookTab(holder, pane, token, index)
 	local tab = CreateFrame("CheckButton", nil, holder)
 	tab:SetSize(TAB_W, TAB_H)
@@ -1298,6 +1427,10 @@ local function CreateBookTab(holder, pane, token, index)
 		icon:SetTexture("Interface\\Icons\\Spell_Holy_PrayerOfFortitude")
 	elseif token == "RACIAL" then
 		icon:SetTexture("Interface\\Icons\\Racial_Orc_BerserkerStrength")
+	elseif token == "SPELLS" then
+		-- Not the ledger's own book.
+		local tome, scroll = "Interface\\Icons\\INV_Misc_Book_11", "Interface\\Icons\\INV_Scroll_03"
+		icon:SetTexture((FileExists(tome, true) and tome) or (FileExists(scroll, false) and scroll) or ICON)
 	elseif token == "ITEMS" then
 		icon:SetTexture("Interface\\Icons\\INV_Potion_54")
 	elseif token == "PVE" then
@@ -1378,6 +1511,10 @@ local function CreateBookTab(holder, pane, token, index)
 		elseif token == "ITEMS" then
 			GameTooltip:SetText("Items", 1, 1, 1)
 			GameTooltip:AddLine("Flasks, elixirs, potions, scrolls, world buffs and trinket effects.", nil, nil, nil, true)
+		elseif token == "SPELLS" then
+			GameTooltip:SetText("The game's spell list", 1, 1, 1)
+			GameTooltip:AddLine("Every aura of every class and race, of talents and of items, that comes with the addon, by name: pick whose and where they land at the top of the page. Hover one to see what it does; double-click or drag it to track it.", nil, nil, nil, true)
+			GameTooltip:AddLine("Every other spell this client knows is there too, under Every other spell, read from your client in the background.", 0.8, 0.8, 0.8, true)
 		elseif token == "PVE" then
 			GameTooltip:SetText("Dungeons and raids", 1, 1, 1)
 			GameTooltip:AddLine("Buffs and debuffs that mobs and bosses put on you, with where they come from.", nil, nil, nil, true)
@@ -1715,7 +1852,7 @@ local function BuildGroupPanel(width)
 	b:Note("On this client an addon cannot read your auras during a fight. A group drawn by the addon shows its last reading until the fight ends; a group drawn by the game stays correct throughout.")
 	b:Edit("Name", function() local g = G() return g and g.name or "" end,
 		function(text) local g = G() if g then g.name = (text ~= "" and text) or nil GroupChanged() end end)
-	b:Cycle("Track on", { { "me", "Me" }, { "party", "My party" }, { "raid", "Everyone in my group" } },
+	b:Cycle("Track on", { { "me", "Me and my target" }, { "party", "My party" }, { "raid", "Everyone in my group" } },
 		function() local g = G() return (g and ns.GroupUnits(g)) or "me" end,
 		function(v)
 			local g = G()
@@ -1724,7 +1861,7 @@ local function BuildGroupPanel(width)
 			b:Sync()
 			UI:RefreshTree()
 		end,
-		"My party: you and up to four others. In a raid, that is the four in your own raid group, which is who Blood Pact and Battle Shout reach. Everyone: your party, or every member of a raid, ten to a block. Either way the game draws each member's buffs, so they stay right all through a fight.")
+		"Me and my target: your own trackers, each on you or, where its Watch says so, on your target. My party: you and up to four others. In a raid, that is the four in your own raid group, which is who Blood Pact and Battle Shout reach. Everyone: your party, or every member of a raid, ten to a block. Either way the game draws each member's buffs, so they stay right all through a fight.")
 	-- Two plain questions: what is in the group, and who draws it. The second only comes up for a
 	-- group of your own trackers, because a group the game fills is always drawn by the game.
 	b:DynamicNote(function()
@@ -1741,7 +1878,14 @@ local function BuildGroupPanel(width)
 			return text
 		end
 		if g and g.gameDrawn then
-			return "The game draws these trackers, so they stay correct all through a fight. It fills a slot whenever the aura is on you, in a fight or out, so a tracker here is on screen the whole time its aura is up whatever Show is set to."
+			local onTarget, onYou = false, false
+			for _, t in ipairs(g.trackers or {}) do
+				if t.unit == "target" then onTarget = true
+				elseif not (t.cd or t.item or t.enchant ~= nil or t.swing ~= nil) then onYou = true end
+			end
+			local where = (onTarget and not onYou and "on your target (one you can attack)")
+				or (onTarget and "on you, or for a tracker that watches your target, on your target") or "on you"
+			return "The game draws these trackers, so they stay correct all through a fight. It fills a slot whenever the aura is " .. where .. ", in a fight or out, so a tracker here is on screen the whole time its aura is up whatever Show is set to."
 		end
 		return "The addon draws these trackers, so during a fight they show the reading taken before it started, counting down, plus whatever it can still work out. To hand them to the game instead, set In combat under Only show this group when."
 	end)
@@ -2395,6 +2539,8 @@ local function Build()
 	for _, token in ipairs(ns.BOOK_ORDER) do
 		if token ~= mine and token ~= "GROUP" then order[#order + 1] = token end
 	end
+	-- Last, the game's own spell list to browse.
+	if ns.SpellDB and ns.SpellDB.Browse then order[#order + 1] = "SPELLS" end
 	for index, token in ipairs(order) do book.tabs[token] = CreateBookTab(frame, left, token, index) end
 
 	searchBox = TryCreateFrame("EditBox", "AuraLedgerSearchBox", frame, {
@@ -2435,6 +2581,44 @@ local function Build()
 	-- The spellbook's heading: larger, dark ink with a light emboss around it.
 	local hf, hs, hflags = book.header:GetFont()
 	if hf then book.header:SetFont(STANDARD_TEXT_FONT or hf, 24, "") end
+	if book.header.SetWordWrap then book.header:SetWordWrap(false) end
+	-- Given a width on the spell list, it still starts at the left.
+	if book.header.SetJustifyH then book.header:SetJustifyH("LEFT") end
+	-- On the spell list the heading is a button: it opens the list of the chapter's groups.
+	local headerButton = CreateFrame("Button", nil, left)
+	headerButton:SetPoint("TOPLEFT", book.header, "TOPLEFT", -4, 4)
+	-- As wide as the heading, and no further: the Whose button starts there.
+	headerButton:SetSize(338, 32)
+	headerButton:SetFrameLevel(left:GetFrameLevel() + 2)
+	headerButton:SetScript("OnClick", function()
+		if book.groupMenu:IsShown() then book.groupMenu:Hide() else UI:ShowGroupMenu() end
+	end)
+	headerButton:SetScript("OnEnter", function(self)
+		TextTooltip(self, "Groups", "Click to see this list's groups, and pick one to turn to its first page.")
+	end)
+	headerButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	headerButton:Hide()
+	book.headerButton = headerButton
+	local headerArrow = left:CreateTexture(nil, "OVERLAY")
+	headerArrow:SetTexture("Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up")
+	headerArrow:SetSize(24, 24)
+	headerArrow:Hide()
+	book.headerArrow = headerArrow
+	local okMenu, menu = pcall(CreateFrame, "Frame", nil, left, "BackdropTemplate")
+	if not (okMenu and menu) then menu = CreateFrame("Frame", nil, left) end
+	if menu.SetBackdrop then
+		menu:SetBackdrop({ bgFile = "Interface\\Tooltips\\UI-Tooltip-Background", edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border",
+			tile = true, tileSize = 16, edgeSize = 16, insets = { left = 4, right = 4, top = 4, bottom = 4 } })
+		menu:SetBackdropColor(0.05, 0.05, 0.05, 0.95)
+	end
+	menu:SetFrameStrata("DIALOG")
+	-- Above the book's rows and its heading whatever strata the window takes on.
+	menu:SetFrameLevel(left:GetFrameLevel() + 10)
+	menu:EnableMouse(true)
+	menu:SetPoint("TOPLEFT", book.header, "BOTTOMLEFT", -4, -6)
+	menu.buttons = {}
+	menu:Hide()
+	book.groupMenu = menu
 	if onParchment then
 		-- Exactly what the spellbook does behind a heading: its list backplate at 65%, no text shadow.
 		book.header:SetShadowColor(0, 0, 0, 0)
@@ -2468,8 +2652,9 @@ local function Build()
 		local b = MakeButton(left, "", width)
 		local function Index() for i, c in ipairs(choices) do if c[1] == get() then return i end end return 1 end
 		b:SetText(choices[Index()][2])
-		b:SetScript("OnClick", function(self)
-			local i = Index() % #choices + 1
+		if b.RegisterForClicks then b:RegisterForClicks("LeftButtonUp", "RightButtonUp") end
+		b:SetScript("OnClick", function(self, button)
+			local i = (button == "RightButton") and ((Index() - 2) % #choices + 1) or (Index() % #choices + 1)
 			set(choices[i][1])
 			self:SetText(choices[i][2])
 			book.page = 1
@@ -2481,6 +2666,31 @@ local function Build()
 	book.sortButton:SetPoint("TOPRIGHT", -20, -64)
 	book.filterButton = CycleButton(FILTERS, function() return histFilter end, function(v) histFilter = v end, 78)
 	book.filterButton:SetPoint("RIGHT", book.sortButton, "LEFT", -4, 0)
+	-- The game's spell list: whose spells, and where they land.
+	local WHO = {}
+	local mine = UI.BrowseWho()
+	if mine ~= "ALL" then WHO[#WHO + 1] = { mine, ClassLabel(mine) } end
+	WHO[#WHO + 1] = { "ALL", "All" }
+	for _, c in ipairs(ns.CLASSES or {}) do if c ~= mine then WHO[#WHO + 1] = { c, ClassLabel(c) } end end
+	WHO[#WHO + 1] = { "RACIAL", "Racials" }
+	WHO[#WHO + 1] = { "ITEM", "Items" }
+	WHO[#WHO + 1] = { "OTHER", "Other auras" }
+	WHO[#WHO + 1] = { "CLIENT", "Every other spell" }
+	local WHERE = { { "all", "Anywhere" }, { "buff", "Buffs" }, { "d", "Debuffs on you" }, { "t", "On your target" } }
+	book.whereButton = CycleButton(WHERE, function() return browseWhere end, function(v) browseWhere = v end, 124)
+	book.whereButton:SetPoint("TOPRIGHT", -20, -64)
+	book.whoButton = CycleButton(WHO, function() return UI.BrowseWho() end, function(v) browseWho = v end, 132)
+	book.whoButton:SetPoint("RIGHT", book.whereButton, "LEFT", -4, 0)
+	book.whoButton:SetScript("OnEnter", function(self)
+		TextTooltip(self, "Whose spells", "Your own class, all of them, another class, racials, items, the other auras that come with the addon, or every other spell this client knows by name. Click for the next, right-click for the one before.")
+	end)
+	book.whoButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	book.whereButton:SetScript("OnEnter", function(self)
+		TextTooltip(self, "Where they land", "Anywhere; buffs, on you or on others too; debuffs on you; or debuffs on your target. Click for the next, right-click for the one before.")
+	end)
+	book.whereButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	book.whoButton:Hide()
+	book.whereButton:Hide()
 
 	-- Twelve spell buttons, two columns of six, like a spellbook page.
 	local colW = floor((BOOK_W - 44 - INDENT) / 2)

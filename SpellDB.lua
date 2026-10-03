@@ -31,17 +31,31 @@ local startAt = math.huge
 -- ------------------------------------------------------------------
 -- The index that comes with the addon, read the first time it is wanted.
 -- ------------------------------------------------------------------
+-- The groups of the index, in the order the spell list shows them: a class's own spells, its
+-- talents, its procs and set bonuses, its pets'; racials; world buffs; what items do, by kind;
+-- mounts; the rest.
+local GROUPS = {
+	{ "s", "Spells" }, { "a", "Talents" }, { "p", "Procs and set bonuses" }, { "h", "Pet abilities" }, { "r", "Racials" },
+	{ "w", "World buffs" },
+	{ "f", "Flasks and elixirs" }, { "o", "Potions" }, { "e", "Food and drink" }, { "c", "Scrolls" }, { "b", "Bandages" },
+	{ "x", "Explosives and devices" }, { "n", "Other consumables" }, { "k", "Trinkets" }, { "g", "Gear" },
+	{ "q", "Quest and other items" }, { "m", "Mounts" }, { "z", "Other" },
+}
+local groupRank, groupName = {}, {}
+for i, g in ipairs(GROUPS) do groupRank[g[1]], groupName[g[1]] = i, g[2] end
+function SpellDB.GroupName(code) return groupName[code] or "Other" end
+
 local index, indexByName
 local function Index()
 	if index then return index end
 	index, indexByName = {}, {}
 	for _, line in ipairs(ns.SPELL_INDEX or {}) do
-		local name, ids, where, class, desc = line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t?(.*)$")
+		local name, ids, where, class, group, desc = line:match("^([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t([^\t]*)\t?(.*)$")
 		if name and name ~= "" then
 			local list = {}
 			for id in ids:gmatch("%d+") do list[#list + 1] = tonumber(id) end
 			local e = { name = name, lower = lower(name), ids = list, where = where, class = (class ~= "" and class) or nil,
-				desc = (desc ~= "" and desc) or nil }
+				group = groupName[group] and group or "z", desc = (desc ~= "" and desc) or nil }
 			e.lowerDesc = e.desc and lower(e.desc)
 			index[#index + 1] = e
 			local l = indexByName[e.lower]
@@ -274,7 +288,7 @@ local function LocalNames()
 				local l = lower(name)
 				if not seen[name] and not indexByName[l] then
 					seen[name] = true
-					list[#list + 1] = { name = name, lower = l }
+					list[#list + 1] = { name = name, lower = l, client = true }
 				end
 			end
 		end
@@ -401,6 +415,50 @@ function SpellDB.Search(text, limit)
 	end
 	last.q, last.limit, last.names, last.mine, last.out, last.more = q, limit, names, mine, out, more
 	return out, more
+end
+
+-- The index to browse: every line of one class (or RACIAL, ITEM, OTHER for none, ALL) that lands
+-- where asked (all, buff for on you or on you and others, d, t), group by group, by name in each.
+-- The index never changes, so each is worked out once.
+local browsed = {}
+local function byName(a, b)
+	local ga, gb = groupRank[a.group] or 99, groupRank[b.group] or 99
+	if ga ~= gb then return ga < gb end
+	if a.lower ~= b.lower then return a.lower < b.lower end
+	return (a.ids[1] or 0) < (b.ids[1] or 0)
+end
+function SpellDB.Browse(who, where)
+	Index()
+	local key = tostring(who) .. "\0" .. tostring(where)
+	if browsed[key] then return browsed[key] end
+	local out = {}
+	for _, e in ipairs(index) do
+		local c = e.class
+		local okWho = who == "ALL" or (who == "OTHER" and not c) or (c ~= nil and c == who)
+		local okWhere = where == "all" or (where == "buff" and (e.where == "y" or e.where == "o")) or e.where == where
+		if okWho and okWhere then out[#out + 1] = e end
+	end
+	table.sort(out, byName)
+	browsed[key] = out
+	return out
+end
+
+-- Every other name this client knows, by name: as much as has been read so far.
+local browsedClient = {}
+function SpellDB.BrowseClient()
+	local names = LocalNames()
+	if browsedClient.names == names then return browsedClient.out end
+	-- Rebuilt with nothing added (an id learned for a name already known): the same list, kept.
+	local src = type(AuraLedgerSpells) == "table" and AuraLedgerSpells.names or nil
+	if browsedClient.out and #browsedClient.out == #names and browsedClient.src == src then
+		browsedClient.names = names
+		return browsedClient.out
+	end
+	local out = {}
+	for i, r in ipairs(names) do out[i] = r end
+	table.sort(out, function(a, b) return a.lower < b.lower end)
+	browsedClient.names, browsedClient.out, browsedClient.src = names, out, src
+	return out
 end
 
 -- /auraledger debug spells: where the list is, and what the reading has cost.
