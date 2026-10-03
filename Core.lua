@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.79.0"
+ns.VERSION = "1.80.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -863,6 +863,102 @@ local function TeachTrackers(e)
 	end
 end
 
+-- ------------------------------------------------------------------
+-- Combo points. A finisher's length grows with the points spent on it (the client's own duration
+-- table, bundled as ns.CP_DURATION). The points are read as they change, so a cast knows what it
+-- spent whether the game takes them before or after it says the cast went off. Where the game hides
+-- them in a fight, a finisher is carried for the length it had last time, as any other buff.
+-- ------------------------------------------------------------------
+ns.combo = { now = 0 }
+function ns.ReadComboPoints()
+	local pt = Enum and Enum.PowerType and Enum.PowerType.ComboPoints
+	local v
+	if UnitPower and pt then
+		local ok, x = pcall(UnitPower, "player", pt)
+		if ok then v = Clean(x) end
+	end
+	if v == nil and GetComboPoints then
+		local ok, x = pcall(GetComboPoints, "player", "target")
+		if ok then v = Clean(x) end
+	end
+	if InCombatLockdown and InCombatLockdown() then
+		ns.report["combo points"] = (type(v) == "number") and "readable in a fight" or "hidden in a fight: finishers are carried for their last length"
+	end
+	return type(v) == "number" and v or nil
+end
+-- A change of combo points: a drop is what the last finisher spent. Hidden, nothing known is trusted.
+function ns.ComboChanged()
+	local v = ns.ReadComboPoints()
+	if v == nil then ns.combo.now, ns.combo.spentAt = nil, nil return end
+	local c = ns.combo
+	if (c.now or 0) > 0 and v < c.now then c.spent, c.spentAt = c.now, GetTime() end
+	c.now = v
+end
+-- The points a finisher that just went off spent: what a drop took just now (a point it gives back may
+-- be there already), used once; else what there was, if the game has taken them but not said so yet;
+-- else what is there now.
+function ns.ComboForCast()
+	local c = ns.combo
+	if c.spentAt and GetTime() - c.spentAt < 0.3 then
+		c.spentAt = nil
+		return c.spent
+	end
+	local v = ns.ReadComboPoints()
+	if v == nil then return nil end
+	if c.now and v < c.now then return c.now end
+	if v > 0 then return v end
+	return nil
+end
+-- Your talents, as the points spent in each tree: a factor learned under other talents is not used.
+function ns.TalentSig()
+	local parts = {}
+	for _, tr in ipairs(ns.talentTrees or {}) do parts[#parts + 1] = tostring(tr.id) .. ":" .. tostring(tr.spent) end
+	return table.concat(parts, ",")
+end
+-- What this character's talents add to a finisher's length, learned from a reading; nil until then.
+function ns.CpFactor(lname)
+	local all = ns.profile and ns.profile.cpFactor
+	local f = all and lname and all[lname]
+	if type(f) ~= "table" or f.talents ~= ns.TalentSig() then return nil end
+	return f.factor
+end
+-- Your finishers of the last minute, with the points each spent: a reading of one of your auras that
+-- started when one of them went off teaches what talents add, in a fight or after it.
+ns.finisherCasts = {}
+function ns.NoteFinisher(f)
+	local list = ns.finisherCasts
+	list[#list + 1] = f
+	while #list > 0 and (#list > 12 or GetTime() - list[1].at > 60) do table.remove(list, 1) end
+end
+function ns.LearnFinisher(e)
+	if not (e and e.mine and e.name and e.duration and e.duration > 0 and e.expires and e.expires > 0) then return end
+	local start, lname = e.expires - e.duration, strlower(e.name)
+	local list = ns.finisherCasts
+	for i = #list, 1, -1 do
+		local f = list[i]
+		if f.cp and (f.id == e.id or f.name == lname) and math.abs(start - f.at) < 0.5 then
+			local base = ns.FinisherDuration(f.id, f.cp)
+			if base and base > 0 and ns.profile then
+				local k = e.duration / base
+				if k >= 0.95 and k <= 1.6 then
+					ns.profile.cpFactor = ns.profile.cpFactor or {}
+					ns.profile.cpFactor[lname] = { factor = math.floor(k * 100 + 0.5) / 100, talents = ns.TalentSig() }
+				end
+			end
+			return
+		end
+	end
+end
+-- A finisher's length for so many points: the client's own base, per point and cap, times what talents
+-- add (learned from a reading out of a fight). Nil for a spell that is not a finisher.
+function ns.FinisherDuration(spellId, cp, factor)
+	local f = spellId and ns.CP_DURATION and ns.CP_DURATION[spellId]
+	if not (f and cp and cp > 0) then return nil end
+	local d = f[1] + f[2] * cp
+	if f[3] and f[3] > 0 and d > f[3] then d = f[3] end
+	return d * (factor or 1)
+end
+
 -- Returns true when the ledger gained or changed a row worth redrawing.
 function ns.RecordAura(e, quiet)
 	if not e.name then return false end
@@ -888,7 +984,11 @@ function ns.RecordAura(e, quiet)
 	h.ids = h.ids or {}
 	if e.id then h.id = e.id h.ids[e.id] = true end
 	if e.icon then h.icon = e.icon end
-	if e.duration and e.duration > 0 and not e.estimated then h.duration = e.duration end
+	if e.duration and e.duration > 0 and not e.estimated then
+		h.duration = e.duration
+		-- One of your finishers whose points are known: what talents add to its length.
+		ns.LearnFinisher(e)
+	end
 	if e.dispel then h.dispel = e.dispel end
 	return true
 end
@@ -2229,9 +2329,16 @@ local function HandleCast(unit, spellId, castGUID)
 		if guid == nil or guid ~= ns.lastCastStart then ns.lastGcdAt = GetTime() end
 		ns.lastCastStart = nil
 	end
+	local thisFinisher
 	do
 		local cname = SpellName(spellId)
 		if cname then ns.lastCast[strlower(cname)] = GetTime() end
+		-- A finisher: the points it spent, for its length now and to learn what talents add.
+		if unit == "player" and ns.CP_DURATION and ns.CP_DURATION[spellId] then
+			thisFinisher = { id = spellId, name = cname and strlower(cname), cp = ns.ComboForCast(), at = GetTime() }
+			ns.lastFinisher = thisFinisher
+			ns.NoteFinisher(thisFinisher)
+		end
 	end
 	if not (ns.restricted or AurasSecret()) then return end -- the real aura event is on its way
 	local name = SpellName(spellId)
@@ -2249,6 +2356,11 @@ local function HandleCast(unit, spellId, castGUID)
 				if e.kind == kind and e.name and strlower(e.name) == lname then existing = e break end
 			end
 			local duration = h.duration or 0
+			-- A finisher is carried for the points it spent, not for whatever it had last time.
+			if thisFinisher then
+				local d = ns.FinisherDuration(spellId, thisFinisher.cp, ns.CpFactor(lname))
+				if d then duration = d end
+			end
 			if existing then
 				if duration > 0 then existing.duration, existing.expires = duration, now + duration end
 				existing.estimated, existing.stale, existing.probed = true, true, true
@@ -2314,10 +2426,18 @@ local function HandleCombatLog()
 	else
 		local h = ns.db.history[HistoryKey(kind, spellName)]
 		local duration = h and h.duration or 0
+		-- Just set off by a finisher of yours: its length for the points it spent.
+		local fin = ns.lastFinisher
+		local yours = Clean(srcGUID) == ns.playerGUID
+		if not (yours and fin and fin.cp and fin.name == strlower(spellName) and now - fin.at < 1.5) then fin = nil end
+		if fin then
+			local d = ns.FinisherDuration(fin.id, fin.cp, ns.CpFactor(fin.name))
+			if d then duration = d else fin = nil end
+		end
 		if #matches > 0 then
 			for _, key in ipairs(matches) do
 				local e = auras[key]
-				local d = e.duration > 0 and e.duration or duration
+				local d = (fin and e.mine and duration > 0 and duration) or (e.duration > 0 and e.duration) or duration
 				if d > 0 then e.duration, e.expires = d, now + d end
 				e.estimated = true
 			end
@@ -2729,6 +2849,8 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		ns.dirty = true
 	elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
 		HandleCast(a1, a3, a2)
+	elseif event == "UNIT_POWER_UPDATE" or event == "UNIT_POWER_FREQUENT" then
+		if a1 == "player" and (a2 == "COMBO_POINTS" or a2 == nil) then ns.ComboChanged() end
 	elseif event == "UNIT_SPELLCAST_START" then
 		if a1 == "player" then
 			ns.lastCastStart = Clean(a2)
@@ -2736,6 +2858,8 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		end
 	elseif event == "PLAYER_TARGET_CHANGED" then
 		ns.targetGUID = UnitGUID and Clean(UnitGUID("target")) or nil
+		-- Combo points are the target's on this client: a new target's are not a spend.
+		do local v = ns.ReadComboPoints() if v then ns.combo.now = v end end
 		-- Another target: nothing read off the last one is this one's.
 		ns.targetAuras = {}
 		ns.targetFresh = true
@@ -2871,6 +2995,8 @@ SafeRegister("ADDON_ACTION_FORBIDDEN")
 -- ns.db.combatLog, which is off by default.
 SafeRegisterUnit("UNIT_AURA", "player", "target")
 SafeRegisterUnit("UNIT_SPELLCAST_SUCCEEDED", "player", "pet")
+SafeRegisterUnit("UNIT_POWER_UPDATE", "player")
+SafeRegisterUnit("UNIT_POWER_FREQUENT", "player")
 SafeRegisterUnit("UNIT_SPELLCAST_START", "player")
 SafeRegisterUnit("UNIT_INVENTORY_CHANGED", "player")
 for _, ev in ipairs({ "WEAPON_ENCHANT_CHANGED", "WEAPON_SLOT_CHANGED", "PLAYER_TALENT_UPDATE", "TRAIT_CONFIG_UPDATED",

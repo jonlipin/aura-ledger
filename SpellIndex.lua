@@ -1946,3 +1946,22 @@ ns.SPELL_INDEX = {
 	"Zeal	8191	y	ITEM	g	Increased armor and damage done.",
 	"Zila Gular	448686	y	ITEM	k	Damage of your next non-channeled Affliction based damage over time spell increased by 10%.",
 }
+-- Finishers whose length grows with the combo points spent: base, per point, cap, in seconds.
+ns.CP_DURATION = {
+	[400009] = { 0, 1, 5 }, -- Between the Eyes
+	[400012] = { 10, 4, 30 }, -- Blade Dance
+	[412096] = { 2, 2, 12 }, -- Crimson Tempest
+	[408] = { 0, 1, 5 }, -- Kidney Shot
+	[8643] = { 1, 1, 6 }, -- Kidney Shot
+	[1943] = { 6, 2, 16 }, -- Rupture
+	[8639] = { 6, 2, 16 }, -- Rupture
+	[8640] = { 6, 2, 16 }, -- Rupture
+	[11273] = { 6, 2, 16 }, -- Rupture
+	[11274] = { 6, 2, 16 }, -- Rupture
+	[11275] = { 6, 2, 16 }, -- Rupture
+	[14903] = { 2, 4, 22 }, -- Rupture
+	[407988] = { 9, 5, 34 }, -- Savage Roar
+	[5171] = { 6, 3, 21 }, -- Slice and Dice
+	[6774] = { 6, 3, 21 }, -- Slice and Dice
+	[1310703] = { 6, 3, 21 }, -- Venom
+}

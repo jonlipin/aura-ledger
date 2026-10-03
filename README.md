@@ -90,7 +90,7 @@ In the **Groups and trackers** list, drag a row onto a group to move it there, o
 
 On this client an addon cannot read your auras during a fight. Nothing gets around that, so each group chooses how to handle it, under **In combat**:
 
-- **Drawn by the addon**: the group shows the reading taken before the fight started and keeps counting it down. It is not frozen: it still takes a buff dropping when the game names which one, and a buff you cast yourself, and marks anything it worked out rather than read with a `~`. Anything else it will not know about until the fight ends.
+- **Drawn by the addon**: the group shows the reading taken before the fight started and keeps counting it down. It is not frozen: it still takes a buff dropping when the game names which one, and a buff you cast yourself (a finisher such as Slice and Dice for the combo points it spent), and marks anything it worked out rather than read with a `~`. Anything else it will not know about until the fight ends.
 - **Drawn by the game**: each tracker is handed to the game as an aura slot for the game to fill, so it is correct the whole way through. Its countdown reads the way the addon's own does, turns red inside the tracker's warn time, and it can glow while the aura is up. The cost is that the game draws these in its own look, and it fills a slot whenever the aura is on you, so they are on screen the whole time the aura is up whatever else you set.
 
 Cooldowns, carried items and your weapons are read by the addon itself, in a fight too.
