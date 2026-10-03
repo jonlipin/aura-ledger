@@ -111,6 +111,7 @@ In a battleground the game hides auras for the whole match, not only in fights. 
 | `/auraledger import <string>` | import a tracker or group |
 | `/auraledger profiles` | every character's profile, to copy groups from one or forget an old one |
 | `/auraledger minimap` | show or hide the minimap button |
+| `/auraledger log` | a log to copy and send with a bug report: the debug report and what the addon noted, selected and ready for Ctrl+C (`start` records step by step, `stop` ends it, `clear` empties it) |
 | `/auraledger debug` | what this client let the addon read |
 | `/auraledger debug cdread` | everything the game says about each cooldown tracker |
 | `/auraledger debug members` | every group that watches your party, row by row |

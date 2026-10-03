@@ -1,3 +1,8 @@
+## 1.81.0
+
+- New: a log to send with a bug report. `/auraledger log` opens a window holding what this client lets the addon read and the newest lines Aura Ledger has noted, all of it selected: press Ctrl+C, then paste it into Discord or wherever the report goes. `/auraledger log start` records what the addon does step by step (fights starting and ending, buffs read and how long they last, timers it carries through a fight and why, combo points), so a problem can be shown as it happens; `/auraledger log stop` ends the recording and `/auraledger log clear` empties the log.
+- Changed: the lines of your chat window are kept in the saved variables only while a recording is on, and never go into the log window.
+
 ## 1.80.0
 
 - Fixed: a finisher you cast in a fight was carried for the length it had last time. The game hides your auras from addons in a fight, so a tracker drawn by the addon shows a carried time there (marked with a ~), and for Slice and Dice that time came from the last one read, whatever combo points it had: a one-point Slice and Dice after a two-point one showed about 12 seconds when it lasted 9, and only came right when the fight ended. Now a finisher you cast is carried for the combo points it spent, from the client's own lengths (Slice and Dice 6 seconds plus 3 a point, Rupture 6 plus 2, Kidney Shot, Savage Roar and the newer rogue runes too), with whatever your talents add, such as Improved Slice and Dice. Aura Ledger learns that from the first one it reads, out of a fight or as a fight ends, keeps it for each character, and learns it again when your talents change. Where the game hides your combo points in a fight, a finisher is carried for its last length as before; `/auraledger debug` says which.

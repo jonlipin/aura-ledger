@@ -1237,6 +1237,54 @@ function UI.ClientRow(e)
 	return UI.GameRow({ name = e.name, ids = list })
 end
 
+-- A window of text to copy: all of it selected, so Ctrl+C takes it; typing in it changes nothing.
+local copyFrame
+function UI.ShowCopy(title, text)
+	if not copyFrame then
+		local f = TryCreateFrame("Frame", "AuraLedgerCopyFrame", UIParent, { { "BasicFrameTemplateWithInset" }, { "BackdropTemplate" } })
+		f:SetSize(680, 460)
+		f:SetPoint("CENTER")
+		f:SetFrameStrata("DIALOG")
+		f:SetMovable(true)
+		f:EnableMouse(true)
+		f:RegisterForDrag("LeftButton")
+		f:SetScript("OnDragStart", f.StartMoving)
+		f:SetScript("OnDragStop", f.StopMovingOrSizing)
+		f.heading = f:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+		f.heading:SetPoint("TOP", 0, -6)
+		f.hint = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+		f.hint:SetPoint("BOTTOM", 0, 10)
+		f.hint:SetText("Press Ctrl+C to copy all of it, then paste it into Discord. Esc closes.")
+		local ok, scroll = pcall(CreateFrame, "ScrollFrame", "AuraLedgerCopyScroll", f, "UIPanelScrollFrameTemplate")
+		if not (ok and scroll) then scroll = CreateFrame("ScrollFrame", nil, f) end
+		scroll:SetPoint("TOPLEFT", 14, -32)
+		scroll:SetPoint("BOTTOMRIGHT", -34, 30)
+		local edit = CreateFrame("EditBox", nil, scroll)
+		edit:SetMultiLine(true)
+		edit:SetAutoFocus(false)
+		edit:SetFontObject(ChatFontNormal)
+		edit:SetWidth(620)
+		if edit.SetMaxLetters then edit:SetMaxLetters(0) end
+		edit:SetScript("OnEscapePressed", function() f:Hide() end)
+		-- Read only: whatever is typed, the text goes back as it was, still selected.
+		edit:SetScript("OnTextChanged", function(self, byUser)
+			if byUser then self:SetText(f.text or "") self:HighlightText() end
+		end)
+		edit:SetScript("OnMouseUp", function(self) self:HighlightText() end)
+		scroll:SetScrollChild(edit)
+		f.edit = edit
+		if UISpecialFrames then table.insert(UISpecialFrames, "AuraLedgerCopyFrame") end
+		copyFrame = f
+	end
+	copyFrame.text = text or ""
+	copyFrame.heading:SetText(title or "Aura Ledger")
+	copyFrame.edit:SetText(copyFrame.text)
+	copyFrame:Show()
+	copyFrame.edit:SetFocus()
+	copyFrame.edit:HighlightText()
+	return copyFrame
+end
+
 -- Named RefreshHistory because the core calls it whenever the ledger gains a row.
 function UI:RefreshHistory()
 	if not frame or not frame:IsShown() or not book.pane then return end

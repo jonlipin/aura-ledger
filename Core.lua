@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.80.0"
+ns.VERSION = "1.81.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -24,6 +24,8 @@ local strlower, floor, max, min = string.lower, math.floor, math.max, math.min
 
 -- Everything printed is also kept in the saved variables (AuraLedgerDB.log, newest last), so the
 -- output of the diagnostic commands can be read from disk after a /reload instead of from chat.
+-- While a recording is on (/auraledger log start) the addon also notes what it does step by step,
+-- and keeps the chat window's lines; /auraledger log shows the addon's own lines, ready to copy.
 local LOG_CAP, CHAT_CAP = 3000, 1500
 local pendingLog, pendingChat = {}, {}
 local function Append(db, field, pending, cap, line)
@@ -51,9 +53,15 @@ local function LogLine(text)
 	Append(ns.db, "log", pendingLog, LOG_CAP, Stamp(text))
 end
 ns.LogLine = LogLine
+-- A step worth noting, only while a recording is on.
+function ns.Trace(text)
+	if ns.db and ns.db.recording then LogLine(text) end
+end
 -- Every line that reaches the main chat frame, from anyone, color codes stripped.
 local function ChatLine(text)
 	if type(text) ~= "string" or (issecretvalue and issecretvalue(text)) then return end
+	-- Other people's words are kept only while a recording is on.
+	if not (ns.db and ns.db.recording) then return end
 	Append(ns.db, "chat", pendingChat, CHAT_CAP, Stamp((text:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("|T.-|t", ""))))
 end
 if hooksecurefunc and DEFAULT_CHAT_FRAME then
@@ -70,6 +78,11 @@ ns.YesNo = YesNo
 local function Print(msg)
 	if issecretvalue and issecretvalue(msg) then msg = "(secret value)" end
 	msg = tostring(msg)
+	-- Gathered for the log window instead of going to chat.
+	if ns.capture then
+		ns.capture[#ns.capture + 1] = (msg:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""))
+		return
+	end
 	DEFAULT_CHAT_FRAME:AddMessage("|cff00ccffAura Ledger:|r " .. msg)
 	LogLine((msg:gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", "")))
 end
@@ -889,8 +902,13 @@ end
 -- A change of combo points: a drop is what the last finisher spent. Hidden, nothing known is trusted.
 function ns.ComboChanged()
 	local v = ns.ReadComboPoints()
-	if v == nil then ns.combo.now, ns.combo.spentAt = nil, nil return end
+	if v == nil then
+		if ns.combo.now ~= nil then ns.Trace("combo points hidden") end
+		ns.combo.now, ns.combo.spentAt = nil, nil
+		return
+	end
 	local c = ns.combo
+	if v ~= c.now then ns.Trace(("combo points %s -> %d"):format(tostring(c.now), v)) end
 	if (c.now or 0) > 0 and v < c.now then c.spent, c.spentAt = c.now, GetTime() end
 	c.now = v
 end
@@ -943,6 +961,7 @@ function ns.LearnFinisher(e)
 				if k >= 0.95 and k <= 1.6 then
 					ns.profile.cpFactor = ns.profile.cpFactor or {}
 					ns.profile.cpFactor[lname] = { factor = math.floor(k * 100 + 0.5) / 100, talents = ns.TalentSig() }
+					ns.Trace(("learned: talents make %s x%.2f (read %.1f s for %d points)"):format(lname, k, e.duration, f.cp))
 				end
 			end
 			return
@@ -984,6 +1003,10 @@ function ns.RecordAura(e, quiet)
 	h.ids = h.ids or {}
 	if e.id then h.id = e.id h.ids[e.id] = true end
 	if e.icon then h.icon = e.icon end
+	if not e.estimated then
+		ns.Trace(("read %s (%s) on %s: lasts %.1f s, %.1f s left"):format(tostring(e.name), tostring(e.id), tostring(e.unit or "player"),
+			e.duration or 0, (e.expires and e.expires > 0) and (e.expires - GetTime()) or 0))
+	end
 	if e.duration and e.duration > 0 and not e.estimated then
 		h.duration = e.duration
 		-- One of your finishers whose points are known: what talents add to its length.
@@ -2339,6 +2362,9 @@ local function HandleCast(unit, spellId, castGUID)
 			ns.lastFinisher = thisFinisher
 			ns.NoteFinisher(thisFinisher)
 		end
+		if unit == "player" then
+			ns.Trace(("cast %s (%d)%s"):format(tostring(cname), spellId, thisFinisher and (", " .. tostring(thisFinisher.cp) .. " combo points") or ""))
+		end
 	end
 	if not (ns.restricted or AurasSecret()) then return end -- the real aura event is on its way
 	local name = SpellName(spellId)
@@ -2361,6 +2387,8 @@ local function HandleCast(unit, spellId, castGUID)
 				local d = ns.FinisherDuration(spellId, thisFinisher.cp, ns.CpFactor(lname))
 				if d then duration = d end
 			end
+			ns.Trace(("carried %s for %.1f s (%s)"):format(name, duration,
+				thisFinisher and ("points " .. tostring(thisFinisher.cp) .. ", talents x" .. tostring(ns.CpFactor(lname) or 1)) or "its last length"))
 			if existing then
 				if duration > 0 then existing.duration, existing.expires = duration, now + duration end
 				existing.estimated, existing.stale, existing.probed = true, true, true
@@ -2871,9 +2899,11 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 	elseif event == "COMBAT_LOG_EVENT_UNFILTERED" then
 		HandleCombatLog()
 	elseif event == "PLAYER_REGEN_DISABLED" then
+		ns.Trace("fight starts")
 		ns.combatFlag = true
 		ns.UpdateEnv()
 	elseif event == "PLAYER_REGEN_ENABLED" then
+		ns.Trace("fight ends")
 		ns.combatFlag = false
 		ns.UpdateEnv()
 		ns.dirty = true
@@ -3612,6 +3642,7 @@ local function Help()
 	Print("  /auraledger minimap - show or hide the minimap button")
 	Print("  /auraledger plainbook - switch the book between parchment and a plain dark page")
 	Print("  /auraledger sound test | clear - play each sound the game can make, or remove the ones registered with it")
+	Print("  /auraledger log - a log to copy and send with a bug report; log start records step by step, log stop ends it")
 	Print("  /auraledger debug - what this client let the addon read (send this with a bug report)")
 	Print("  /auraledger debug <topic> - a closer look: " .. table.concat(ns.DIAG_ORDER, ", "))
 end
@@ -3696,6 +3727,38 @@ function ns.ProbeCDM(emit)
 		CooldownViewerSettings and "yes" or "no")
 	ns.report["cooldown manager"] = summary
 	return summary
+end
+
+-- What a player sends with a report: the addon and client, a fresh debug report, then the newest
+-- lines the addon kept (never other people's chat), in a window ready to copy.
+local LOG_SHOWN = 600
+function ns.LogText()
+	local function V(fn, ...)
+		if type(fn) ~= "function" then return nil end
+		local ok, a, b = pcall(fn, ...)
+		if not ok then return nil end
+		return Clean(a), Clean(b)
+	end
+	local version, build = V(GetBuildInfo)
+	local _, class = V(UnitClass, "player")
+	local level = V(UnitLevel, "player")
+	local out = {
+		("Aura Ledger %s log, %s"):format(ns.VERSION, date and date("%Y-%m-%d %H:%M") or ""),
+		("client %s.%s %s, %s level %s, recording %s"):format(tostring(version), tostring(build), tostring(V(GetLocale)),
+			tostring(class), tostring(level), (ns.db and ns.db.recording) and "on" or "off"),
+		"--- report (/auraledger debug)",
+	}
+	ns.capture = {}
+	local ok, err = pcall(ns.Debug)
+	local report = ns.capture
+	ns.capture = nil
+	for _, l in ipairs(report) do out[#out + 1] = l end
+	if not ok then out[#out + 1] = "(the report stopped: " .. tostring(err) .. ")" end
+	local lines = ns.db and ns.db.log or {}
+	local first = math.max(1, #lines - LOG_SHOWN + 1)
+	out[#out + 1] = ("--- log (newest last; %d of %d lines)"):format(#lines - first + 1, #lines)
+	for i = first, #lines do out[#out + 1] = lines[i] end
+	return table.concat(out, "\n")
 end
 
 local function Debug()
@@ -4128,12 +4191,21 @@ SlashCmdList.AURALEDGER = function(msg)
 	elseif cmd == "cdm2" then
 		ns.ProbeCDM(Print)
 	elseif cmd == "log" then
-		if rest == "clear" then
+		local word = strlower(rest or "")
+		if word == "clear" then
+			Print("The log is cleared.")
 			if ns.db then ns.db.log = {} ns.db.chat = {} end
-			Print("log cleared")
-		else
-			Print(("log: %d addon lines and %d chat lines kept in the saved variables (written on /reload or logout); /auraledger log clear empties both"):format(
-				ns.db and ns.db.log and #ns.db.log or 0, ns.db and ns.db.chat and #ns.db.chat or 0))
+		elseif word == "start" or word == "on" then
+			if ns.db then ns.db.recording = true end
+			ns.LogLine("=== recording started")
+			Print("Recording what Aura Ledger does, step by step. Play until the problem shows, then type /auraledger log to copy it. /auraledger log stop ends the recording.")
+		elseif word == "stop" or word == "off" then
+			ns.LogLine("=== recording stopped")
+			if ns.db then ns.db.recording = nil end
+			Print("Recording stopped. /auraledger log shows what was recorded.")
+		elseif ns.UI and ns.UI.ShowCopy then
+			ns.UI.ShowCopy("Aura Ledger log", ns.LogText())
+			Print("The log is open and selected: press Ctrl+C to copy it, then paste it into Discord. /auraledger log start records step by step.")
 		end
 	elseif cmd == "api" then
 		local doc = APIDocumentation
@@ -4307,6 +4379,8 @@ SlashCmdList.AURALEDGER = function(msg)
 		Help()
 	end
 end
+
+ns.Debug = Debug
 
 function AuraLedger_OnAddonCompartmentClick()
 	if not loaded then Startup() end
