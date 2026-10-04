@@ -2415,6 +2415,19 @@ Display.AllNeverSecret = AllNeverSecret
 -- will not filter by spell, a map (even an empty one) matches nothing.
 local function SlotSpec(t, g)
 	if not t or t.cd or t.item or t.enchant ~= nil or t.swing ~= nil then return nil end
+	-- The game can only show an aura that is there. A tracker for when it is not is the addon's to
+	-- draw, except on your party's rows, which have their own way with Missing.
+	-- (On your target the addon cannot read anything in a fight, so there the game keeps the slot
+	-- over a cell painted as missing.)
+	if t.show == "missing" and not t.dispel and t.unit ~= "target" and not (g and ns.GroupUnits(g)) then return nil end
+	-- Nor what a slot cannot do: an aura whose landing is not known (a slot has one filter, buffs or
+	-- debuffs), a warn time with no countdown to turn red, or an In combat condition of its own (a
+	-- slot cannot be switched in a fight). The addon draws those.
+	if not t.dispel and t.unit ~= "target" and not (g and ns.GroupUnits(g)) then
+		if t.kind == "any" then return nil end
+		if (t.warn or 0) > 0 and g and g.timers == false then return nil end
+		if type(t.cond) == "table" and t.cond.combat then return nil end
+	end
 	if t.dispel == "any" then
 		-- RAID on harmful auras is the game's own "a debuff you can remove".
 		return { filter = "HARMFUL|RAID", key = "dispel:any" }
@@ -2666,7 +2679,9 @@ local function InitSlotFrame(g, mode, filter, store, opts)
 			name:SetWidth(max(10, W - IS - 2 - 8 - 44))
 			name:SetJustifyH("LEFT")
 			name:SetWordWrap(false)
-			if g.names ~= false then pcall(button.SetSpellName, button, name) end
+			if g.names ~= false then
+				if opts.label then name:SetText(opts.label) else pcall(button.SetSpellName, button, name) end
+			end
 		else
 			local time = button:CreateFontString(nil, "OVERLAY")
 			time:SetFont(FONT, max(8, floor(H * 0.4)), "OUTLINE")
@@ -2872,6 +2887,7 @@ local function AppliedSlotOpts(g, t)
 	if o.warn == nil or not ManagerUnsafe() then
 		o.warn = (g.timers ~= false and (t.warn or 0) > 0) and floor(t.warn) or 0
 		o.glow = t.glow and true or false
+		o.label = (g.style == "bars" and type(t.label) == "string" and t.label ~= "") and t.label or nil
 	end
 	return o
 end
@@ -2886,7 +2902,8 @@ end
 -- A slot's name in its container: the tracker, the filter, and what it was built with. A slot cannot
 -- be changed once made, so anything it was built with is part of its name.
 local function SlotName(t, filter, o, suffix)
-	return tostring(t.uid) .. ":" .. filter .. ":cover" .. (o.warn > 0 and (":w" .. o.warn) or "") .. (o.glow and ":g" or "") .. (suffix or "")
+	return tostring(t.uid) .. ":" .. filter .. ":cover" .. (o.warn > 0 and (":w" .. o.warn) or "") .. (o.glow and ":g" or "")
+		.. (o.label and (":l" .. o.label) or "") .. (suffix or "")
 end
 
 -- Past this many slots made in a session (they cannot be freed), a reload is suggested.
@@ -2900,7 +2917,7 @@ local function EnsureSlot(c, key, spec, look, o, t, noFrame)
 		if ManagerUnsafe() then return nil end
 		local store = {}
 		local ok, fr = pcall(c.AddAuraSlot, c, key, spec.filter, { initializeFrame = InitSlotFrame(look, "cover", spec.filter, store,
-			{ warn = o.warn, glow = o.glow, dispelRing = t.dispel ~= nil, noFrame = noFrame }), candidateFilters = spec.filters })
+			{ warn = o.warn, glow = o.glow, dispelRing = t.dispel ~= nil, noFrame = noFrame, label = o.label }), candidateFilters = spec.filters })
 		if not ok or not fr then
 			ns.report["game-drawn trackers"] = "AddAuraSlot: " .. tostring(fr)
 			AdviseGameDrawn("game-drawn trackers", "the game refused a tracker's slot")
@@ -4136,6 +4153,12 @@ local function LayoutGroup(f, g, visible, unlocked)
 	local grow = g.grow or "RIGHT"
 	local flow = FLOW[grow] or grow
 	local slots = g.gameDrawn and not unlocked
+	-- A group the game draws nothing in (only cooldowns, items, weapons, or a fight joined before its
+	-- slots could be made) is laid out and shown as the addon's.
+	if slots and not (f.slotC and next(f.slotC)) then
+		slots = false
+		for _, it in ipairs(visible) do if it.slots then slots = true break end end
+	end
 
 	-- A group that watched your party until now puts its members' rows and containers away.
 	if f.members then ReleaseMembers(f) end
@@ -4445,6 +4468,15 @@ function Display:RefreshGroup(g)
 	if not f then return end
 	local unlocked = self:IsUnlocked()
 	local groupPass = unlocked or ns.CondPass(g.cond)
+	-- A group the game draws is shown and hidden in a fight by its gate, so its slots are made ready out
+	-- of one even while In combat keeps it off screen there: they cannot be made once the fight starts.
+	local slotPass = groupPass
+	if not slotPass and g.gameDrawn and type(g.cond) == "table" and g.cond.combat == "yes" then
+		local c = {}
+		for k, v in pairs(g.cond) do c[k] = v end
+		c.combat = nil
+		slotPass = ns.CondPass(c)
+	end
 	local now = GetTime()
 	local visible = {}
 	-- The containers this group keeps out: yours, and your target's while it has a tracker on it.
@@ -4457,7 +4489,7 @@ function Display:RefreshGroup(g)
 		if t.unit == "target" and not unlocked and ns.AurasSecret() then show = false end
 		local slots
 		if g.gameDrawn and not unlocked then
-			local passes = groupPass and ns.CondPass(t.cond)
+			local passes = slotPass and ns.CondPass(t.cond)
 			local spec = passes and SlotSpec(t, g)
 			slots = spec and TrackerSlots(f, g, t, spec)
 		end
@@ -4478,8 +4510,20 @@ function Display:RefreshGroup(g)
 	end
 	if g.gameDrawn and not unlocked then
 		if not ManagerUnsafe() then
-			f.safeOrder = {}
-			for i, it in ipairs(visible) do f.safeOrder[i] = it.t end
+			-- Out of a fight a plain row or a bar list closes up: a tracker the game draws whose aura is
+			-- not there goes to the end, its slot still on for the game to fill in a fight.
+			if not (g.shaped and g.style ~= "bars") then
+				local up, gaps = {}, {}
+				for _, it in ipairs(visible) do
+					if it.slots and it.t.show == "active" and it.entry == nil then gaps[#gaps + 1] = it else up[#up + 1] = it end
+				end
+				for _, it in ipairs(gaps) do up[#up + 1] = it end
+				visible = up
+			end
+			-- The order is held through a fight only where the game draws something to hold it for.
+			f.safeOrder = nil
+			for _, it in ipairs(visible) do if it.slots then f.safeOrder = {} break end end
+			if f.safeOrder then for i, it in ipairs(visible) do f.safeOrder[i] = it.t end end
 		elseif f.safeOrder then
 			visible = HeldOrder(f, visible)
 		end

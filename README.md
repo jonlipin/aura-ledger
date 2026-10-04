@@ -70,7 +70,7 @@ Everything about these groups is built and laid out out of a fight, a little at 
 - **Drag a tracker** to move that tracker. Drop it on another group to join it, or in the open for a place of its own. A tracker that is its whole group just moves the group.
 - **Drag the titled plate** behind a group to move the whole group.
 - **Hold an icon against a free side of another icon**, above, below or either side, and it hangs there. The edge you are aiming at lights up. The group keeps that shape: it is a **cluster**, and every icon holds its own place, gaps and all, as things come and go.
-- A group you have not shaped is plain **rows**: whatever is on screen fills them in order and the rest close up. The plate says which of the two you are looking at.
+- A group you have not shaped is plain **rows**: whatever is on screen fills them in order and the rest close up (in a fight, a tracker the game draws keeps its place when its aura drops). The plate says which of the two you are looking at.
 - **Lay the icons out in rows again**, in the group's settings, turns a cluster back into rows.
 - Click any tracker to jump straight to its settings.
 
@@ -88,12 +88,12 @@ In the **Groups and trackers** list, drag a row onto a group to move it there, o
 
 ## What a fight does to this
 
-On this client an addon cannot read your auras during a fight. Nothing gets around that, so each group chooses how to handle it, under **In combat**:
+On this client an addon cannot read your auras during a fight. Nothing gets around that, so Aura Ledger hands every tracker it can to the game and draws the rest itself; each tracker's settings say which.
 
-- **Drawn by the addon**: the group shows the reading taken before the fight started and keeps counting it down. It is not frozen: it still takes a buff dropping when the game names which one, and a buff you cast yourself (a finisher such as Slice and Dice for the combo points it spent), and marks anything it worked out rather than read with a `~`. Anything else it will not know about until the fight ends.
-- **Drawn by the game**: each tracker is handed to the game as an aura slot for the game to fill, so it is correct the whole way through. Its countdown reads the way the addon's own does, turns red inside the tracker's warn time, and it can glow while the aura is up. The cost is that the game draws these in its own look, and it fills a slot whenever the aura is on you, so they are on screen the whole time the aura is up whatever else you set.
+- **Drawn by the game**: a buff on you, a debuff on your target, or a buff on your party, followed by its spell. It is correct the whole way through a fight. Its countdown reads the way the addon's own does, turns red inside the tracker's warn time, and it can glow while the aura is up. The game fills its slot whenever the aura is there, so such a tracker is on screen the whole time the aura is up.
+- **Drawn by the addon**: a cooldown, an item or a weapon, which the addon reads itself, exactly, in a fight too; and a debuff on you, or a tracker set to show only when it is **Missing** (the game can only show an aura that is there), which the addon carries from the reading taken before the fight. It still takes a buff dropping when the game names which one, and a buff you cast yourself (a finisher such as Slice and Dice for the combo points it spent), and marks anything it worked out rather than read with a `~`.
 
-Cooldowns, carried items and your weapons are read by the addon itself, in a fight too.
+A group's **In combat**, under Only show this group when, is simply Shown or Hidden. Out of a fight a plain row closes up as auras come and go; in a fight a tracker the game draws keeps its place when its aura drops, because the game cannot have its slots moved then.
 
 In a battleground the game hides auras for the whole match, not only in fights. A group drawn by the game is only changed when auras can be read, so in a match already under way (or after a reload in one) it keeps the Where, class and talent conditions it had until the match ends, and a change you make to it waits until then too.
 

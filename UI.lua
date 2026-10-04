@@ -562,34 +562,19 @@ function Builder:Conditions(getCond, onChange, draw, hideRest)
 		function(v) Cond().never = v or nil onChange() end,
 		"Switches this off without deleting it.")
 	local firstRow = #self.rows
-	-- In combat: shown or hidden, and if shown, who draws it. On this client the addon cannot see
-	-- auras during a fight, so handing the group to the game is the only way to stay correct.
-	local inChoices = { { "addon", "Shown, drawn by the addon" } }
-	if draw then inChoices[#inChoices + 1] = { "game", "Shown, drawn by the game" } end
-	inChoices[#inChoices + 1] = { "hide", "Hidden" }
-	self:Cycle("In combat", inChoices,
-		function()
-			if Cond().combat == "no" then return "hide" end
-			if draw and (draw.get() or GameOnly()) then return "game" end
-			return "addon"
-		end,
+	-- In combat: shown or hidden. Who draws each tracker follows from the tracker itself: the game
+	-- wherever it can follow the aura, the addon for the rest.
+	self:Cycle("In combat", { { "show", "Shown" }, { "hide", "Hidden" } },
+		function() return Cond().combat == "no" and "hide" or "show" end,
 		function(v)
 			local c = Cond()
-			if GameOnly() and v == "addon" then v = "game" end
-			if v == "hide" then
-				c.combat = "no"
-				if draw then draw.set(false) end
-			else
-				if c.combat == "no" then c.combat = nil end
-				if draw then draw.set(v == "game") end
-			end
+			if v == "hide" then c.combat = "no" elseif c.combat == "no" then c.combat = nil end
 			onChange()
 			self:Sync()
 		end,
-		"On this client an addon cannot read your auras during a fight. That is the whole reason this setting exists. A group that watches your party is always drawn by the game."
-		.. "\n\n|cffffd000Drawn by the addon:|r the group shows the reading taken before the fight started and keeps counting it down. It is not frozen: it still takes a buff dropping when the game names which one, and a buff you cast yourself, and anything it has had to work out rather than read wears a ~. Anything else that changes mid-fight it will not know about until the fight ends."
-		.. "\n\n|cffffd000Drawn by the game:|r each tracker is handed over as an aura slot for the game to fill, so it is correct the whole way through, and whether the slot is filled is what tells the addon the aura has gone."
-		.. "\n\n|cffffd000What that costs:|r the game draws these in its own look rather than this group's, and it fills a slot whenever the aura is on you, in a fight or out of it. So a tracker here is on screen the whole time its aura is up, whatever you set Show to, which is why Missing behaves like Either. A warn time cannot bring it back early; it turns the game's countdown red instead.",
+		"On this client an addon cannot read your auras during a fight."
+		.. "\n\n|cffffd000Shown:|r on screen in a fight. Whatever the game can follow (a buff on you, a debuff on your target, a buff on your party) it draws, right all the way through. The addon draws the rest: a cooldown, an item or a weapon, which it reads itself, exactly; and a debuff on you, or a tracker set to Missing, which it carries from what it read before the fight, with a ~ on anything it had to work out."
+		.. "\n\n|cffffd000Hidden:|r off screen in a fight. A tracker with an In combat choice of its own is drawn by the addon, as the game cannot switch its slot mid-fight.",
 		210)
 	self:Cycle("Out of combat", { { "show", "Shown" }, { "hide", "Hidden" } },
 		function() return Cond().combat == "yes" and "hide" or "show" end,
@@ -1897,7 +1882,7 @@ local function BuildGroupPanel(width)
 	-- drawn by the game.
 	local function HasDispel() local g = G() for _, t in ipairs(g and g.trackers or {}) do if t.dispel or t.unit == "target" then return true end end return false end
 	b:Header("Group")
-	b:Note("On this client an addon cannot read your auras during a fight. A group drawn by the addon shows its last reading until the fight ends; a group drawn by the game stays correct throughout.")
+	b:Note("On this client an addon cannot read your auras during a fight. The game draws every tracker here that it can follow, so those stay right throughout; the addon draws the rest, and each tracker's settings say which.")
 	b:Edit("Name", function() local g = G() return g and g.name or "" end,
 		function(text) local g = G() if g then g.name = (text ~= "" and text) or nil GroupChanged() end end)
 	b:Cycle("Track on", { { "me", "Me and my target" }, { "party", "My party" }, { "raid", "Everyone in my group" } },
@@ -1933,9 +1918,9 @@ local function BuildGroupPanel(width)
 			end
 			local where = (onTarget and not onYou and "on your target (one you can attack)")
 				or (onTarget and "on you, or for a tracker that watches your target, on your target") or "on you"
-			return "The game draws these trackers, so they stay correct all through a fight. It fills a slot whenever the aura is " .. where .. ", in a fight or out, so a tracker here is on screen the whole time its aura is up whatever Show is set to."
+			return "The game draws the trackers it can follow, so they stay correct all through a fight: it fills each one's slot whenever the aura is " .. where .. ", in a fight or out. A tracker set to Missing, or one the game cannot follow, is drawn by the addon."
 		end
-		return "The addon draws these trackers, so during a fight they show the reading taken before it started, counting down, plus whatever it can still work out. To hand them to the game instead, set In combat under Only show this group when."
+		return "The addon draws these trackers, so during a fight they show the reading taken before it started, counting down, plus whatever it can still work out."
 	end)
 	b:Cycle("Show as", { { "icons", "Icons with numbers" }, { "bars", "Bars with icons" } },
 		function() local g = G() return g and g.style or "icons" end,
@@ -1996,7 +1981,7 @@ local function BuildGroupPanel(width)
 		if g and g.shaped then
 			return "This group holds the shape you built: every icon keeps its own place, and one that is not on screen leaves its gap. Drag an icon against a free side of another to move it. The button above goes back to rows."
 		end
-		return "While arranging, drag one icon against a free side of another, above, below or to either side, to hang it there. Until you do, this group is plain rows: whatever is on screen fills them in order and the rest close up."
+		return "While arranging, drag one icon against a free side of another, above, below or to either side, to hang it there. Until you do, this group is plain rows: whatever is on screen fills them in order and the rest close up (in a fight, a tracker the game draws keeps its place when its aura drops)."
 	end)
 	b:AppliesWhen(function() return not IsBars() and NotMembers() end)
 	b:Slider("Scale", { min = 0.5, max = 2.5, step = 0.05, get = Num("scale", 1), set = SetNum("scale"),
@@ -2025,16 +2010,7 @@ local function BuildGroupPanel(width)
 		"Rings each aura in the colour of its dispel type: blue for Magic, purple for Curse, green for Poison, brown for Disease. Most buffs are Magic. In a group drawn by the game, the game draws the ring, in combat too.")
 
 	b:Header("Only show this group when")
-	b:Conditions(function() local g = G() return g and g.cond end, TrackerChanged, {
-		available = function() return NotMembers() and not HasDispel() end,
-		get = function() local g = G() return g and g.gameDrawn end,
-		set = function(v)
-			local g = G()
-			if not g then return end
-			g.gameDrawn = (v or HasDispel()) and true or nil
-			GroupChanged()
-		end,
-	})
+	b:Conditions(function() local g = G() return g and g.cond end, TrackerChanged)
 
 	b.y = b.y - 8
 	b:Note("To delete this group, click the X on its row in the Groups and trackers list twice.")
@@ -2201,8 +2177,35 @@ local function BuildTrackerPanel(width)
 	b:Cycle("Show the aura when it is", { { "active", "Active" }, { "missing", "Missing" }, { "always", "Either (red when missing)" } },
 		function() local t = T() return t and t.show or "active" end,
 		function(v) local t = T() if t then t.show = v TrackerChanged() b:Sync() end end,
-		"Active: on screen while you have it. Missing: on screen only while you do not. Either: on screen both ways, red while missing. In a group drawn by the game, Missing behaves like Either, except in a group that watches your party and is hidden in a fight (see the note below).")
+		"Active: on screen while you have it. Missing: on screen only while you do not. Either: on screen both ways, red while missing. The game can only show an aura that is there, so a tracker set to Missing is drawn by the addon, which carries what it read before a fight. On your party's rows Missing works its own way (see the note below).")
 	b:AppliesWhen(function() return TrackerIsAura() and NotDispel() end)
+	-- Who draws this tracker in a fight, and why: it follows from the tracker, not from a setting.
+	b:DynamicNote(function()
+		local t = T()
+		if not t then return "" end
+		if TrackerGetsSlot() then
+			return "In a fight: drawn by the game, which follows this aura by its spell all the way through, so its time stays right."
+		end
+		if t.show == "missing" then
+			return "In a fight: drawn by the addon. The game can only show an aura that is there, and this tracker shows when it is not, so the addon carries what it read before the fight, with a ~ on anything it had to work out."
+		end
+		local g = ns.FindGroupOf(t)
+		if t.kind == "any" then
+			return "In a fight: drawn by the addon. Where this aura lands is not known, and the game needs to be told buff or debuff, so the addon carries what it read before the fight."
+		elseif (t.warn or 0) > 0 and g and g.timers == false then
+			return "In a fight: drawn by the addon, so its warn time can turn the border red. Turn on Show time left and the game draws it, its countdown turning red instead."
+		elseif type(t.cond) == "table" and t.cond.combat then
+			return "In a fight: drawn by the addon, because this tracker has an In combat choice of its own and the game cannot switch its slot mid-fight."
+		end
+		local why = ns.CombatTrackableWhy and ns.CombatTrackableWhy(t)
+		if why == "debuff" then
+			return "In a fight: drawn by the addon. The game cannot follow a debuff on you by its spell, so the addon carries what it read before the fight, with a ~ on anything it had to work out."
+		elseif why == "noid" or why == "renamed" or why == "unknown" then
+			return "In a fight: drawn by the addon until this aura's spell id is known here. Once it has been on you out of a fight, the game takes it over."
+		end
+		return "In a fight: drawn by the addon, which carries what it read before the fight."
+	end)
+	b:AppliesWhen(function() return TrackerIsAura() and NotDispel() and not InMembers() and not OnTarget() and not TrackerIsWeapon() and not TrackerIsItem() end)
 	b:Cycle("Show the cooldown when it is", { { "active", "Running" }, { "missing", "Ready" }, { "always", "Either" } },
 		function() local t = T() return t and t.show or "active" end,
 		function(v) local t = T() if t then t.show = v TrackerChanged() b:Sync() end end,
@@ -2329,7 +2332,7 @@ local function BuildTrackerPanel(width)
 	b:AppliesWhen(function() return NotDispel() and not InMembers() and not OnTarget() end)
 	SoundCycle("When applied", "applied", "Plays when the aura lands.")
 	SoundCycle("When it runs out", "removed", "Plays when the aura wears off or is removed.")
-	SoundCycle("When the tracker appears", "shown", "Plays when this tracker comes on screen, for whatever reason: the aura landing, going missing, or entering its warn window. In a group drawn by the game the warn time only colours the countdown, so there it plays when the aura goes, not at the warn time.")
+	SoundCycle("When the tracker appears", "shown", "Plays when this tracker comes on screen, for whatever reason: the aura landing, going missing, or entering its warn window. For a tracker the game draws, the warn time only colours the countdown, so its sound plays when the aura goes, not at the warn time.")
 
 	b:Header("Only show this tracker when")
 	b:Note("These add to the group's own conditions.")
@@ -3965,7 +3968,7 @@ local STEPS = {
 	},
 	{
 		title = "In a fight",
-		text = "This client hides your auras from addons during a fight, and no addon can get around it.\n\nA group |cffffd000drawn by the addon|r shows the reading taken before the fight started and keeps counting down from it, along with whatever it can still work out: a buff dropping when the game names it, and one you cast yourself.\n\nA group |cffffd000drawn by the game|r is handed over for the game to fill, so it stays correct throughout. The game fills those whenever the aura is on you, in a fight or out, so they are on screen the whole time the aura is up whatever Show says.\n\nIt is set per group, under |cffffd000Only show this group when|r, as In combat.",
+		text = "This client hides your auras from addons during a fight, and no addon can get around it.\n\nSo Aura Ledger hands every tracker it can to the game: a buff on you, a debuff on your target, a buff on your party. The game keeps those |cffffd000correct throughout|r, and shows them whenever the aura is there.\n\nThe addon draws the rest: a cooldown, an item or a weapon, which it reads itself, exactly; and a debuff on you, or a tracker set to show only when it is |cffffd000Missing|r, which it carries from the reading taken before the fight, with a ~ on anything it had to work out.\n\nEach tracker's settings say which.",
 		target = function() return UI.parts and UI.parts.options end,
 	},
 	{

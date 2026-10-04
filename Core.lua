@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.81.0"
+ns.VERSION = "1.82.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -432,6 +432,29 @@ ns.MIGRATIONS = {
 	-- there, and is the numbered place for any later change in what these fields mean.
 	[2] = function(db)
 		EachProfile(db, function(g) ns.CleanMemberFields(g) end)
+	end,
+	-- 3 (1.82.0): every group drawn by the game wherever it can be. A tracker the game cannot follow,
+	-- or one set to show only when it is missing, is still drawn by the addon. Groups that were shown
+	-- in a fight and drawn by the addon are counted, so the change is said once at login.
+	[3] = function(db)
+		local switched = 0
+		EachProfile(db, function(g)
+			local shown = not g.units and not (type(g.cond) == "table" and g.cond.combat == "no")
+			if not g.gameDrawn then
+				if shown then switched = switched + 1 end
+				g.gameDrawn = true
+			elseif shown then
+				-- Already the game's: a tracker set to Missing is the addon's from now on.
+				for _, t in ipairs(g.trackers) do
+					if type(t) == "table" and t.show == "missing" and not t.dispel and t.unit ~= "target"
+						and not t.cd and not t.item and t.enchant == nil and t.swing == nil then
+						switched = switched + 1
+						break
+					end
+				end
+			end
+		end)
+		if switched > 0 then db.gameDrawnNote = switched end
 	end,
 }
 function ns.Migrate(db)
@@ -1172,6 +1195,7 @@ end
 function ns.NewGroupLike(g, x, y)
 	local ng = ns.NewGroup(x or ((g.x or 500) + 30), y or ((g.y or 400) - 60))
 	for _, key in ipairs(ns.GROUP_STYLE_KEYS) do ng[key] = g[key] end
+	ng.gameDrawn = true
 	-- Only so many groups can watch a whole raid; one more watches your party.
 	if ng.units == "raid" and ns.RaidGroupRoom and not ns.RaidGroupRoom(ng) then ng.units = "party" end
 	-- The look is copied; the shape is not. A new group is a row of its own.
@@ -1267,10 +1291,8 @@ function ns.SetGroupUnits(g, units)
 		return false
 	end
 	g.units = units
-	-- Back to you alone: a dispel tracker needs the game to draw it, so the group stays drawn by it.
-	if not units then
-		for _, t in ipairs(g.trackers) do if t.dispel or t.unit == "target" then g.gameDrawn = true end end
-	end
+	-- Back to you alone: still drawn by the game wherever it can be.
+	if not units then g.gameDrawn = true end
 	if units and canHold then
 		local out
 		for i = #g.trackers, 1, -1 do
@@ -1416,9 +1438,10 @@ function ns.TrackHistory(h, group, index, x, y)
 			y = (UIParent:GetHeight() or 768) / 2 + 120 - (n % 6) * 12
 		end
 		group = ns.NewGroup(x, y)
-		-- A row meant for your party starts a group that watches it; a dispel row, one the game draws.
+		-- A row meant for your party starts a group that watches it. Every group is drawn by the game
+		-- wherever it can be; what it cannot follow, the addon draws.
 		if h.units == "party" or h.units == "raid" then group.units = h.units end
-		if t.dispel or t.unit == "target" or group.units then group.gameDrawn = true end
+		group.gameDrawn = true
 	end
 	-- On your party a buff is worth seeing where it is missing, unless the row says otherwise.
 	if ns.GroupUnits(group) and not t.dispel and not h.show and ns.Display and ns.Display.MemberCanHold and ns.Display.MemberCanHold(t) then t.show = "missing" end
@@ -2914,6 +2937,12 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 		if ns.cdmCheckPending then ns.CheckCooldownManager() end
 	elseif event == "PLAYER_ENTERING_WORLD" then
 		ns.playerGUID = UnitGUID and UnitGUID("player") or ns.playerGUID
+		-- Said once, the first time in with 1.82.0: what changed in how groups are drawn.
+		if ns.db and ns.db.gameDrawnNote then
+			local n = ns.db.gameDrawnNote
+			ns.db.gameDrawnNote = nil
+			Print(("Your groups are now drawn by the game in a fight wherever it can follow the aura, so their times stay exact (%d group%s across your characters changed). Trackers it cannot follow (a cooldown, an item, a debuff on you) are drawn by the addon, and so is any set to Missing, which the game cannot show; each tracker's settings say which. In a fight a tracker the game draws keeps its place when its aura drops."):format(n, n == 1 and "" or "s"))
+		end
 		-- Who is playing, read again now the world is up: at login the client can still be giving the
 		-- character played before, or no name at all.
 		ns.WhenFree("profile", function() if ns.BindProfile("world") then ns.ProfileChanged() end end)
@@ -3350,6 +3379,8 @@ function ns.Import(text)
 			if type(v) == want and (want ~= "number" or v == v) then g[k] = v end
 		end
 		if g.style ~= "icons" and g.style ~= "bars" then g.style = "icons" end
+		-- Drawn by the game wherever it can be, whatever the string says.
+		g.gameDrawn = true
 		g.name = Str(src.name)
 		g.cond = CleanCond(src.cond)
 		for _, ts in ipairs(type(src.trackers) == "table" and src.trackers or {}) do
@@ -3376,8 +3407,7 @@ function ns.Import(text)
 		if not t then return nil, "That tracker had no name or spell ID." end
 		local g = ns.NewGroup(x, y)
 		table.insert(g.trackers, t)
-		-- Only the game can draw a dispel tracker.
-		if t.dispel or t.unit == "target" then g.gameDrawn = true end
+		g.gameDrawn = true
 		ns.selected = { group = g, tracker = t }
 		ns.Changed()
 		return g
@@ -4285,7 +4315,7 @@ SlashCmdList.AURALEDGER = function(msg)
 					end
 					for i, w in ipairs(f.widgets) do
 						if w:IsShown() then
-							Print(("    cell %d: %s, alpha %.1f"):format(i, w.tracker and (w.tracker.name or "?") or "-", tonumber(w:GetAlpha()) or 1))
+							Print(("    cell %d: %s, alpha %.1f"):format(i, w.tracker and (w.tracker.name or "?") or "-", tonumber((w:GetAlpha())) or 1))
 						end
 					end
 				end

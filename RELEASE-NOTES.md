@@ -1,3 +1,11 @@
+## 1.82.0
+
+- Changed: the game draws every tracker it can, and the addon draws the rest. Every group is now drawn by the game wherever the game can follow the aura (a buff on you, a debuff on your target, a buff on your party), so those trackers stay exact all through a fight with no carried ~ times. The addon draws what the game cannot: a cooldown, an item or a weapon, which it reads itself, exactly, in a fight too; and a debuff on you, or a tracker set to show only when it is Missing, which the game cannot show, so the addon carries it from the reading taken before the fight, as before.
+- Groups you already have are switched over once, the first time you log in with this version, and Aura Ledger says so in chat.
+- Simpler settings: a group's In combat is now just Shown or Hidden. Who draws each tracker follows from the tracker itself, and each tracker's settings say which, and why.
+- A tracker set to Missing works again in groups the game draws: it shows only while the aura is gone, where before it behaved like Either. On your target, and on your party's rows, Missing keeps working the way it did.
+- Out of a fight a plain row closes up as auras come and go, as before. In a fight a tracker the game draws keeps its place when its aura drops, because the game cannot have its slots moved then. A group shown only in a fight has its slots made ready before the fight, so the game draws it from the first second.
+
 ## 1.81.0
 
 - New: a log to send with a bug report. `/auraledger log` opens a window holding what this client lets the addon read and the newest lines Aura Ledger has noted, all of it selected: press Ctrl+C, then paste it into Discord or wherever the report goes. `/auraledger log start` records what the addon does step by step (fights starting and ending, buffs read and how long they last, timers it carries through a fight and why, combo points), so a problem can be shown as it happens; `/auraledger log stop` ends the recording and `/auraledger log clear` empties the log.
