@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.82.0"
+ns.VERSION = "1.83.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1167,7 +1167,7 @@ end
 
 -- The look of a group, copied when a tracker is pulled out into a group of its own.
 ns.GROUP_STYLE_KEYS = { "style", "size", "barW", "barH", "barIconScale", "spacing", "perRow", "scale", "alpha", "timers", "names", "grow", "border", "background", "iconFrame", "gameDrawn", "dispelColors",
-	"units", "memberNames", "perColumn" }
+	"units", "memberNames", "perColumn", "anyOne", "anyShow" }
 
 -- How big the icon on a bar is: the bar's own height by default, and anything from half that to
 -- twice it. Kept here so the addon's bars and the slots the game fills agree on the answer.
@@ -1196,6 +1196,8 @@ function ns.NewGroupLike(g, x, y)
 	local ng = ns.NewGroup(x or ((g.x or 500) + 30), y or ((g.y or 400) - 60))
 	for _, key in ipairs(ns.GROUP_STYLE_KEYS) do ng[key] = g[key] end
 	ng.gameDrawn = true
+	-- One icon is a choice made for the trackers a group holds, not a look a new group takes on.
+	ng.anyOne, ng.anyShow = nil, nil
 	-- Only so many groups can watch a whole raid; one more watches your party.
 	if ng.units == "raid" and ns.RaidGroupRoom and not ns.RaidGroupRoom(ng) then ng.units = "party" end
 	-- The look is copied; the shape is not. A new group is a row of its own.
@@ -1290,6 +1292,8 @@ function ns.SetGroupUnits(g, units)
 		Print(("At most %d groups can watch everyone in a raid. This one can watch your party."):format(ns.RAID_GROUP_CAP or 2))
 		return false
 	end
+	-- A row for each member cannot be one icon for the whole group.
+	if units then g.anyOne = nil end
 	g.units = units
 	-- Back to you alone: still drawn by the game wherever it can be.
 	if not units then g.gameDrawn = true end
@@ -3344,7 +3348,7 @@ function ns.Import(text)
 		return any and out or nil
 	end
 	local STYLE_TYPES = { style = "string", grow = "string", size = "number", barW = "number", barH = "number", barIconScale = "number",
-		spacing = "number", perRow = "number", scale = "number", alpha = "number", units = "string", perColumn = "number" }
+		spacing = "number", perRow = "number", scale = "number", alpha = "number", units = "string", perColumn = "number", anyShow = "string" }
 	local function CleanTracker(src)
 		if type(src) ~= "table" or (not Str(src.name) and not Num(src.id) and not tonumber(src.item)) then return nil end
 		src = { name = Str(src.name), id = Num(src.id), icon = Num(src.icon) or Str(src.icon), kind = src.kind, item = src.item, cd = src.cd,
@@ -3379,6 +3383,7 @@ function ns.Import(text)
 			if type(v) == want and (want ~= "number" or v == v) then g[k] = v end
 		end
 		if g.style ~= "icons" and g.style ~= "bars" then g.style = "icons" end
+		if g.anyShow ~= nil and g.anyShow ~= "always" and g.anyShow ~= "active" and g.anyShow ~= "missing" then g.anyShow = nil end
 		-- Drawn by the game wherever it can be, whatever the string says.
 		g.gameDrawn = true
 		g.name = Str(src.name)

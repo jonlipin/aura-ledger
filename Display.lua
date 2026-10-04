@@ -2419,7 +2419,14 @@ local function SlotSpec(t, g)
 	-- draw, except on your party's rows, which have their own way with Missing.
 	-- (On your target the addon cannot read anything in a fight, so there the game keeps the slot
 	-- over a cell painted as missing.)
-	if t.show == "missing" and not t.dispel and t.unit ~= "target" and not (g and ns.GroupUnits(g)) then return nil end
+	-- In a group shown as one icon the group says when: "None of them is up" is the addon's to draw,
+	-- and otherwise a tracker's own Show does not matter.
+	local show = t.show
+	if g and g.anyOne and not ns.GroupUnits(g) then
+		if g.anyShow == "missing" then return nil end
+		show = nil
+	end
+	if show == "missing" and not t.dispel and t.unit ~= "target" and not (g and ns.GroupUnits(g)) then return nil end
 	-- Nor what a slot cannot do: an aura whose landing is not known (a slot has one filter, buffs or
 	-- debuffs), a warn time with no countdown to turn red, or an In combat condition of its own (a
 	-- slot cannot be switched in a fight). The addon draws those.
@@ -4184,7 +4191,8 @@ local function LayoutGroup(f, g, visible, unlocked)
 	-- A shape that was built by hand holds every icon in the cell it was given, so the outline
 	-- stays put and a tracker that is not on screen simply leaves its gap. A shape that is still
 	-- plain rows is filled in order by whatever is on screen, which is what rows have always done.
-	local shaped = (g.style ~= "bars") and g.shaped and g.cells and true or false
+	-- A group shown as one icon is a single cell, whatever shape its trackers were given.
+	local shaped = (g.style ~= "bars") and g.shaped and g.cells and not g.anyOne and true or false
 	local cellA, cellB, rawA, rawB = {}, {}, {}, {}
 	local minA, minB, maxA, maxB
 	local function span(a, b)
@@ -4247,7 +4255,18 @@ local function LayoutGroup(f, g, visible, unlocked)
 				-- On your target, with none you can attack, there is nothing to be missing from: the cell
 				-- keeps its place for the slot, which stays switched on for the next target.
 				if item.t.unit == "target" and not (ns.env and ns.env.targetFoe) then widget:SetAlpha(0) end
-				for _, sl in ipairs(item.slots) do
+				-- Several slots over one cell (a group shown as one icon) get a band of levels each, so two
+				-- auras up at once never interleave: the later tracker's slot, countdown and border and all,
+				-- lies wholly over the earlier one's. Only out of a fight, when the game's frames may be
+				-- changed; they keep the levels they were given through one.
+				local band
+				if g.anyOne and #item.slots > 1 and not ManagerUnsafe() then
+					local okB, gl = pcall(function() return (f.gate or f):GetFrameLevel() end)
+					gl = okB and ns.Clean(gl) or nil
+					if type(gl) == "number" then band = gl + 4 end
+				end
+				local lowest
+				for i, sl in ipairs(item.slots) do
 					sl.c.alWant[sl.key] = true
 					if not ManagerUnsafe() then
 						local ok = pcall(function()
@@ -4257,24 +4276,26 @@ local function LayoutGroup(f, g, visible, unlocked)
 						end)
 						if ok then sl.frame.alAnchor = k end
 					end
+					if band then pcall(function() sl.frame:SetFrameLevel(band + (i - 1) * 10) end) end
 					-- The game's icon has to cover the cell underneath, edge and all. The button is the
 					-- game's own and may refuse to be read at all, so nothing is asked of it unguarded.
 					local okL, lvl = pcall(function() return sl.frame:GetFrameLevel() end)
 					lvl = okL and ns.Clean(lvl) or nil
-					if type(lvl) == "number" then
-						SetCellLevel(widget, lvl - 6)
-					else
-						-- In combat the game refuses to say where its own frame sits. The gate the slots
-						-- hang on is the addon's own and always answers, and a slot is three levels above
-						-- it, so the cell goes far enough below the gate that all of it stays under.
-						local okG, glvl = pcall(function() return (f.gate or f):GetFrameLevel() end)
-						if okG and type(glvl) == "number" then SetCellLevel(widget, glvl - 3) end
-					end
+					if type(lvl) == "number" and (not lowest or lvl < lowest) then lowest = lvl end
 					-- A cooldown makes its textures the first time it runs, and the game runs these, so
 					-- the mask is asked for again here rather than only when the slot was built.
 					if sl.frame.alW then
 						ShapeCooldownsOn(sl.frame.alW, sl.frame, sl.frame.alCdSize or g.size or 40, g.iconFrame ~= false)
 					end
+				end
+				if lowest then
+					SetCellLevel(widget, lowest - 6)
+				else
+					-- In combat the game refuses to say where its own frame sits. The gate the slots
+					-- hang on is the addon's own and always answers, and a slot is three levels above
+					-- it, so the cell goes far enough below the gate that all of it stays under.
+					local okG, glvl = pcall(function() return (f.gate or f):GetFrameLevel() end)
+					if okG and type(glvl) == "number" then SetCellLevel(widget, glvl - 3) end
 				end
 			else
 				SetCellLevel(widget, widget.alBaseLevel)
@@ -4457,6 +4478,145 @@ local function HeldOrder(f, visible)
 	return out
 end
 
+-- A group shown as one icon: any of its trackers. Where the game can follow every one of them, all
+-- their slots hang over a single cell painted as missing, so whichever aura is up covers it and the
+-- missing look shows only when none is (Either), or nothing does (One of them is up). "None of them is
+-- up" needs to know that none is there, which only the addon can say, so it draws that one itself, as
+-- it does a group with a tracker the game cannot follow.
+local anyCells = setmetatable({}, { __mode = "k" })
+-- The cell's tracker: one table for the group, which reads through to a real tracker (the one up, or
+-- the first) and says when it shows; the same table every time, so a fight's held order keeps it. Its
+-- unit is said outright unless it is the one up: "target" only when every tracker is on your target,
+-- so the cell is left empty with nothing to attack only when none of them could be up anywhere else.
+local function AnyProxy(g, base, show, unit)
+	local p = anyCells[g]
+	if not p then
+		local mt = {}
+		p = { t = setmetatable({}, mt), mt = mt }
+		anyCells[g] = p
+	end
+	p.mt.__index = base
+	rawset(p.t, "show", show)
+	rawset(p.t, "unit", unit)
+	rawset(p.t, "uid", "any:" .. tostring(g.uid))
+	return p.t
+end
+Display.AnyProxyForTest = function(g) return anyCells[g] and anyCells[g].t end
+
+-- A tracker switched off by a condition of its own is not one of "any of these" for now. Its In
+-- combat choice is left out of that: such a tracker still counts, and the addon draws the icon.
+local function AnyOff(t)
+	local c = t.cond
+	if type(c) ~= "table" or c.combat == nil then return not ns.CondPass(c) end
+	local d = {}
+	for k, v in pairs(c) do d[k] = v end
+	d.combat = nil
+	return not ns.CondPass(d)
+end
+Display.AnyOff = AnyOff
+
+-- What a one-icon group's trackers say, the same for the refresh and the tick so the two agree: the
+-- one to show (one that is up, ahead of one about to run out), whether every one up is about to run
+-- out, how many trackers count, whether all of them are on your target, and whether one is unreadable.
+local function AnyState(g, groupPass, now)
+	local present, presentEntry, solid, solidEntry, firstLive
+	local live, allTarget, blind = 0, true, false
+	local foe = ns.env and ns.env.targetFoe
+	for _, t in ipairs(g.trackers) do
+		if not AnyOff(t) then
+			live = live + 1
+			firstLive = firstLive or t
+			local entry = (groupPass and ns.CondPass(t.cond)) and ns.Find(t) or nil
+			-- A cooldown or an item is "up" while it runs, not while it is ready.
+			if entry and (t.cd or t.item) and entry.ready then entry = nil end
+			if t.unit == "target" then
+				-- In a fight a debuff on your target cannot be read at all, so "none is up" cannot be
+				-- either; with nothing to attack, it is simply not up.
+				if ns.AurasSecret() then blind, entry = true, nil
+				elseif not foe then entry = nil end
+			else
+				allTarget = false
+			end
+			if entry then
+				if not present then present, presentEntry = t, entry end
+				if not solid and not Expiring(t, entry, now) then solid, solidEntry = t, entry end
+			end
+		end
+	end
+	return solid or present, solidEntry or presentEntry, present ~= nil and solid == nil, live, allTarget and live > 0, blind, firstLive
+end
+
+-- Whether the addon's one icon is on screen.
+local function AnyWants(show, present, warned, live, allTarget, blind, groupPass)
+	if not groupPass or live == 0 then return false end
+	-- Every tracker on your target, and nothing to attack: none of them can be up or missing.
+	if allTarget and not (ns.env and ns.env.targetFoe) then return false end
+	-- One it cannot read might be the one that is up, so it cannot say that none is.
+	if blind and not present then return false end
+	if show == "missing" then return present == nil or warned end
+	if show == "active" then return present ~= nil end
+	return true
+end
+
+local function RefreshAnyOne(g, f, unlocked, groupPass, slotPass)
+	local first = g.trackers[1]
+	f.keepUnits = { player = true }
+	for _, t in ipairs(g.trackers) do if t.unit == "target" then f.keepUnits.target = true end end
+	if unlocked then
+		-- Arranging: the one icon, as its first tracker, so a click still picks a real tracker.
+		f.safeOrder = nil
+		local on = ns.CondPass(g.cond)
+		for _, t in ipairs(g.trackers) do Sounds(t, ns.Find(t), false, true, on) end
+		LayoutGroup(f, g, first and { { t = first, entry = ns.Find(first), expiring = false } } or {}, unlocked)
+		return
+	end
+	local show = g.anyShow or "always"
+	local present, presentEntry, warned, live, allTarget, blind, firstLive = AnyState(g, groupPass, GetTime())
+	local base = firstLive or first
+	local cellUnit = allTarget and "target" or "player"
+	-- Drawn by the game only where every tracker that counts has a slot.
+	local wantSlots = g.gameDrawn and show ~= "missing"
+	local slotsAll, allSlotted = {}, live > 0
+	if wantSlots then
+		for _, t in ipairs(g.trackers) do
+			if not AnyOff(t) then
+				local spec = slotPass and ns.CondPass(t.cond) and SlotSpec(t, g)
+				local sl = spec and TrackerSlots(f, g, t, spec)
+				if sl then for _, s in ipairs(sl) do slotsAll[#slotsAll + 1] = s end else allSlotted = false end
+			end
+		end
+	end
+	local visible = {}
+	if base then
+		if wantSlots and allSlotted and #slotsAll > 0 then
+			visible[1] = { t = AnyProxy(g, base, show, cellUnit), entry = nil, expiring = false, slots = slotsAll }
+		elseif AnyWants(show, present, warned, live, allTarget, blind, groupPass) then
+			-- The addon's: the one that is up, red once every one up is inside its warn time, or the
+			-- missing look.
+			visible[1] = { t = AnyProxy(g, present or base, show, (not present) and cellUnit or nil), entry = presentEntry, expiring = warned }
+		end
+	end
+	-- A tracker's "shown" sound is the icon coming on screen for it: for its aura, or with None of them
+	-- is up for none being up. Landing and going are its aura's own.
+	local up = visible[1] ~= nil and (visible[1].slots == nil or groupPass)
+	for _, t in ipairs(g.trackers) do
+		local raw = ns.Find(t)
+		local shown = up and not AnyOff(t) and ((show == "missing" and (present == nil or warned)) or (show ~= "missing" and raw ~= nil))
+		Sounds(t, raw, shown and true or false, false, groupPass)
+	end
+	-- One cell, held through a fight like any group the game draws in.
+	if g.gameDrawn then
+		if not ManagerUnsafe() then
+			f.safeOrder = (visible[1] and visible[1].slots) and { visible[1].t } or nil
+		elseif f.safeOrder then
+			visible = HeldOrder(f, visible)
+		end
+	else
+		f.safeOrder = nil
+	end
+	LayoutGroup(f, g, visible, unlocked)
+end
+
 function Display:RefreshGroup(g)
 	-- A group that watches your party has its own pass; its look is always icons.
 	if ns.GroupUnits(g) then return self:RefreshMembers(g) end
@@ -4477,6 +4637,8 @@ function Display:RefreshGroup(g)
 		c.combat = nil
 		slotPass = ns.CondPass(c)
 	end
+	-- One icon for any of the group's trackers.
+	if g.anyOne then return RefreshAnyOne(g, f, unlocked, groupPass, slotPass) end
 	local now = GetTime()
 	local visible = {}
 	-- The containers this group keeps out: yours, and your target's while it has a tracker on it.
@@ -4563,7 +4725,30 @@ function Display:Tick(now)
 		if g and not ns.GroupUnits(g) then
 			-- A warn window opens with no event, and so does a cooldown starting or coming back, so
 			-- trackers that watch either are re-checked each tick.
-			if not unlocked then
+			if not unlocked and g.anyOne then
+				-- One icon: the game's slots need nothing from here. The addon's cell is checked for what
+				-- comes with no event: a warn window opening, a cooldown starting or coming back.
+				local w = f.widgets[1]
+				if not (w and w.underSlot) then
+					local groupPass = ns.CondPass(g.cond)
+					local present, entry, warned, live, allTarget, blind, firstLive = AnyState(g, groupPass, now)
+					local want = AnyWants(g.anyShow or "always", present, warned, live, allTarget, blind, groupPass)
+					local shown = (w and w:IsShown() and w.tracker ~= nil) and true or false
+					local changed = want ~= shown
+					if not changed and shown then
+						local was = w.entry
+						local p = anyCells[g]
+						changed = (was ~= nil) ~= (entry ~= nil) or (w.expiring or false) ~= warned
+							or (p and p.mt.__index) ~= (present or firstLive or g.trackers[1])
+						-- Only a cooldown, an item or a weapon moves its time with no event.
+						if not changed and present and (present.cd or present.item or present.enchant ~= nil or present.swing ~= nil) then
+							changed = abs((was and was.expires or -1) - (entry and entry.expires or -1)) > 0.25
+								or EntryState(was) ~= EntryState(entry)
+						end
+					end
+					if changed then self:RefreshGroup(g) end
+				end
+			elseif not unlocked then
 				local groupPass = ns.CondPass(g.cond)
 				for _, t in ipairs(g.trackers) do
 					local slotted = false

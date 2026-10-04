@@ -1657,7 +1657,8 @@ local function CreateTreeRow(parent)
 		if not item then return end
 		local cond = ns.CondSummary(item.t and item.t.cond or item.g.cond)
 		TextTooltip(self, item.t and (item.t.name or ("Spell " .. tostring(item.t.id))) or ns.GroupName(item.g),
-			item.t and ("Shows when " .. (SHOW_TAG[item.t.show] or "active")) or (#item.g.trackers .. " tracker" .. (#item.g.trackers == 1 and "" or "s")),
+			item.t and ((item.g and item.g.anyOne and not ns.GroupUnits(item.g)) and "Part of its group's one icon"
+				or ("Shows when " .. (SHOW_TAG[item.t.show] or "active"))) or (#item.g.trackers .. " tracker" .. (#item.g.trackers == 1 and "" or "s")),
 			cond ~= "" and ("Only: " .. cond) or nil,
 			item.t and "|cffaaaaaaDrag: onto a group or tracker to move it, onto empty space for a group of its own, or out onto the screen.|r" or nil)
 	end)
@@ -1766,7 +1767,8 @@ local function UpdateTreeRow(row, item)
 		local off = t.cond and t.cond.never
 		local _, dimC, offC = InkCodes()
 		row.text:SetText((off and offC or "") .. (t.name or ("Spell " .. tostring(t.id)))
-			.. "  " .. dimC .. (off and "off" or (SHOW_TAG[t.show] or "active")) .. (t.unit == "target" and ", target" or "") .. "|r")
+			.. "  " .. dimC .. (off and "off" or ((item.g and item.g.anyOne and not ns.GroupUnits(item.g)) and "one icon" or (SHOW_TAG[t.show] or "active")))
+			.. (t.unit == "target" and ", target" or "") .. "|r")
 		row.remove:Show()
 		row.sel:SetShown(SelectedTracker() == t)
 	else
@@ -1780,7 +1782,7 @@ local function UpdateTreeRow(row, item)
 		local groupC, dimC, offC = InkCodes()
 		local units = ns.GroupUnits(g)
 		local what = off and "off" or (units == "raid" and "everyone") or (units == "party" and "my party")
-			or (g.style == "bars" and "bars" or (g.shaped and "cluster" or "icons"))
+			or (g.anyOne and "one icon") or (g.style == "bars" and "bars" or (g.shaped and "cluster" or "icons"))
 		row.text:SetText((off and offC or groupC) .. ns.GroupName(g) .. "|r  " .. dimC .. what .. "|r")
 		row.sel:SetShown(SelectedGroup() == g and not SelectedTracker())
 	end
@@ -1922,6 +1924,16 @@ local function BuildGroupPanel(width)
 		end
 		return "The addon draws these trackers, so during a fight they show the reading taken before it started, counting down, plus whatever it can still work out."
 	end)
+	-- Any of these: one icon for the whole group.
+	b:Check("Show as one icon: any of these", function() local g = G() return g and g.anyOne end,
+		function(v) local g = G() if g then g.anyOne = v or nil GroupChanged() b:Sync() UI:RefreshTree() end end,
+		"One icon for the whole group, for whichever of its auras is on you: your seals, your blessings, an armor or an aspect. Show the icon when, below, says when it is on screen.")
+	b:AppliesWhen(NotMembers)
+	b:Cycle("Show the icon when", { { "always", "Either (red when none is up)" }, { "active", "One of them is up" }, { "missing", "None of them is up" } },
+		function() local g = G() return g and g.anyShow or "always" end,
+		function(v) local g = G() if g then g.anyShow = (v ~= "always") and v or nil GroupChanged() b:Sync() end end,
+		"Either: the icon of whichever is up, or red when none is: the alert that none of them is on you. One of them is up: on screen only while one is. Both are drawn by the game where it can follow every tracker here, so they stay right all through a fight. None of them is up: on screen only while none is. The game can only show an aura that is there, so the addon draws this one, carrying what it read before a fight.")
+	b:AppliesWhen(function() local g = G() return (g and g.anyOne and NotMembers()) and true or false end)
 	b:Cycle("Show as", { { "icons", "Icons with numbers" }, { "bars", "Bars with icons" } },
 		function() local g = G() return g and g.style or "icons" end,
 		function(v)
@@ -2097,6 +2109,12 @@ local function BuildTrackerPanel(width)
 		return (t and t.cd) and true or false
 	end
 	local function TrackerIsAura() return not TrackerIsCooldown() end
+	-- Part of a group shown as one icon, which says when it is on screen.
+	local function TrackerInAnyOne()
+		local t = T()
+		local g = t and ns.FindGroupOf(t)
+		return (g and g.anyOne and not ns.GroupUnits(g)) and true or false
+	end
 	local function TrackerGetsSlot()
 		local t = T()
 		return (t and ns.Display and ns.Display.TrackerGetsSlot and ns.Display.TrackerGetsSlot(t)) and true or false
@@ -2167,7 +2185,7 @@ local function BuildTrackerPanel(width)
 	b:Note("The game draws this debuff on your target, in a fight too, and only on a target you can attack. The game never looks at a new target by itself, so each time you change target Aura Ledger asks it to read the new one at once (/auraledger debug target shows how that went). Only when it was cast by me picks out yours from other players' of the same spell.")
 	b:AppliesWhen(function() return OnTarget() and TrackerGetsSlot() end)
 	b:Note("No spell id is known for this debuff yet, so the game cannot be asked to follow it, and in a fight it does not show. Once it has been on a target you can attack while you are out of a fight, the ledger has its id.")
-	b:AppliesWhen(function() return OnTarget() and not TrackerGetsSlot() end)
+	b:AppliesWhen(function() return OnTarget() and not TrackerGetsSlot() and not TrackerInAnyOne() end)
 	b:Note("This tracker follows an item's cooldown. An item has no aura of its own to watch, so there is nothing to choose: to watch the buff it gives, add that buff by name from the book.")
 	b:AppliesWhen(TrackerIsItem)
 	b:Note("This tracker follows your weapon's temporary enchant: an oil, stone, poison or imbue. It is not an aura, so the addon reads it from the weapon itself, in a fight too.")
@@ -2178,11 +2196,31 @@ local function BuildTrackerPanel(width)
 		function() local t = T() return t and t.show or "active" end,
 		function(v) local t = T() if t then t.show = v TrackerChanged() b:Sync() end end,
 		"Active: on screen while you have it. Missing: on screen only while you do not. Either: on screen both ways, red while missing. The game can only show an aura that is there, so a tracker set to Missing is drawn by the addon, which carries what it read before a fight. On your party's rows Missing works its own way (see the note below).")
-	b:AppliesWhen(function() return TrackerIsAura() and NotDispel() end)
+	b:AppliesWhen(function() return TrackerIsAura() and NotDispel() and not TrackerInAnyOne() end)
+	b:Note("This tracker is part of its group's one icon: the group's Show the icon when says when it is on screen.")
+	b:AppliesWhen(TrackerInAnyOne)
 	-- Who draws this tracker in a fight, and why: it follows from the tracker, not from a setting.
 	b:DynamicNote(function()
 		local t = T()
 		if not t then return "" end
+		local g0 = ns.FindGroupOf(t)
+		if g0 and g0.anyOne and not ns.GroupUnits(g0) then
+			if (g0.anyShow or "always") == "missing" then
+				return "In a fight: this group's one icon is drawn by the addon. It shows only when none of these is up, and the game can only show an aura that is there, so the addon carries what it read before the fight."
+			end
+			-- A tracker switched off by its own conditions is left out, as it is on screen.
+			local all, any = true, false
+			for _, x in ipairs(g0.trackers) do
+				if not (ns.Display and ns.Display.AnyOff and ns.Display.AnyOff(x)) then
+					any = true
+					if not (ns.Display and ns.Display.TrackerGetsSlot(x)) then all = false end
+				end
+			end
+			if any and all then
+				return "In a fight: drawn by the game, over the group's one icon, so whichever of these is up shows there, right all the way through."
+			end
+			return "In a fight: this group's one icon is drawn by the addon, because the game cannot follow every tracker in it."
+		end
 		if TrackerGetsSlot() then
 			return "In a fight: drawn by the game, which follows this aura by its spell all the way through, so its time stays right."
 		end
@@ -2205,12 +2243,12 @@ local function BuildTrackerPanel(width)
 		end
 		return "In a fight: drawn by the addon, which carries what it read before the fight."
 	end)
-	b:AppliesWhen(function() return TrackerIsAura() and NotDispel() and not InMembers() and not OnTarget() and not TrackerIsWeapon() and not TrackerIsItem() end)
+	b:AppliesWhen(function() return TrackerInAnyOne() or (TrackerIsAura() and NotDispel() and not InMembers() and not OnTarget() and not TrackerIsWeapon() and not TrackerIsItem()) end)
 	b:Cycle("Show the cooldown when it is", { { "active", "Running" }, { "missing", "Ready" }, { "always", "Either" } },
 		function() local t = T() return t and t.show or "active" end,
 		function(v) local t = T() if t then t.show = v TrackerChanged() b:Sync() end end,
 		"Running: on screen while the spell is on cooldown, counting down. Ready: on screen only while it can be cast again. Either: on screen both ways, drained of color while it is on cooldown.")
-	b:AppliesWhen(TrackerIsCooldown)
+	b:AppliesWhen(function() return TrackerIsCooldown() and not TrackerInAnyOne() end)
 	-- A buff with a slot, in a group that watches your party and is hidden in a fight: the only
 	-- trackers the addon takes off members who have them.
 	local function MemberTakes()
@@ -2239,14 +2277,16 @@ local function BuildTrackerPanel(width)
 		format = function(v) return v == 0 and "off" or (v .. "s") end })
 	b:AppliesWhen(function() return TrackerIsAura() and NotDispel() end)
 	b:Note("With Missing: brings the tracker back on screen this long before the aura runs out, with a red border, instead of waiting for it to go. With Active or Either: it is on screen already, so the border turns red that early instead.")
-	b:AppliesWhen(function() return TrackerIsAura() and not TrackerGetsSlot() and NotDispel() end)
+	b:AppliesWhen(function() return TrackerIsAura() and not TrackerGetsSlot() and NotDispel() and not TrackerInAnyOne() end)
 	b:Note("This tracker is drawn by the game, which decides when it is on screen, so it cannot be brought back early. Instead its countdown turns red this long before the aura runs out, in combat too. It needs the group's timers on, and takes effect a moment after you stop changing it, out of combat.")
 	b:AppliesWhen(function()
 		local t = T()
 		local g = t and ns.FindGroupOf(t)
 		local reads = t and t.show == "missing" and MemberTakes()
-		return TrackerGetsSlot() and NotDispel() and not reads
+		return TrackerGetsSlot() and NotDispel() and not reads and not TrackerInAnyOne()
 	end)
+	b:Note("On this group's one icon: drawn by the game, the countdown of the aura that is up turns red this long before it runs out, with the group's timers on. Drawn by the addon, the icon's border turns red once everything up is this close to running out, and with None of them is up the icon comes back on screen that early.")
+	b:AppliesWhen(function() return TrackerInAnyOne() and ((TrackerIsAura() and NotDispel()) or TrackerIsCooldown()) end)
 	b:Note("Out of a fight this brings the tracker back on a member this long before their buff runs out, its countdown red if the group's timers are on. In a fight the group is hidden.")
 	b:AppliesWhen(function()
 		local t = T()
@@ -2266,7 +2306,7 @@ local function BuildTrackerPanel(width)
 		format = function(v) return v == 0 and "off" or (v .. "s") end })
 	b:AppliesWhen(TrackerIsCooldown)
 	b:Note("With Ready: brings the tracker back on screen this long before the cooldown is up, with a red border, so it is there by the time you can use it. With Running or Either: it is on screen already, so the border turns red that early instead.")
-	b:AppliesWhen(TrackerIsCooldown)
+	b:AppliesWhen(function() return TrackerIsCooldown() and not TrackerInAnyOne() end)
 	b:Note("A cooldown shorter than a second and a half is the global cooldown, not this spell's, so it counts as ready.")
 	b:AppliesWhen(function() return TrackerIsCooldown() and not TrackerIsItem() end)
 	b:Note("A cooldown shorter than a second and a half is the little one every use shares, not this item's own, so it counts as ready.")
