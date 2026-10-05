@@ -4256,9 +4256,11 @@ local function LayoutGroup(f, g, visible, unlocked)
 				-- keeps its place for the slot, which stays switched on for the next target.
 				if item.t.unit == "target" and not (ns.env and ns.env.targetFoe) then widget:SetAlpha(0) end
 				-- Several slots over one cell (a group shown as one icon) get a band of levels each, so two
-				-- auras up at once never interleave: the later tracker's slot, countdown and border and all,
-				-- lies wholly over the earlier one's. Only out of a fight, when the game's frames may be
-				-- changed; they keep the levels they were given through one.
+				-- auras up at once never interleave: the slot of the tracker higher in the list, countdown
+				-- and border and all, lies wholly over the one below it, as the addon shows the higher one
+				-- where it draws the icon itself (unless that one is about to run out and another is not).
+				-- Only out of a fight, when the game's frames may be changed; they keep the levels they
+				-- were given through one.
 				local band
 				if g.anyOne and #item.slots > 1 and not ManagerUnsafe() then
 					local okB, gl = pcall(function() return (f.gate or f):GetFrameLevel() end)
@@ -4276,7 +4278,7 @@ local function LayoutGroup(f, g, visible, unlocked)
 						end)
 						if ok then sl.frame.alAnchor = k end
 					end
-					if band then pcall(function() sl.frame:SetFrameLevel(band + (i - 1) * 10) end) end
+					if band then pcall(function() sl.frame:SetFrameLevel(band + (#item.slots - i) * 10) end) end
 					-- The game's icon has to cover the cell underneath, edge and all. The button is the
 					-- game's own and may refuse to be read at all, so nothing is asked of it unguarded.
 					local okL, lvl = pcall(function() return sl.frame:GetFrameLevel() end)
@@ -5421,19 +5423,29 @@ local function GetGhost()
 	ghost.text = ghost:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	ghost.text:SetPoint("TOP", ghost, "BOTTOM", 0, -2)
 	ghost:Hide()
-	ghost:SetScript("OnUpdate", function(self)
+	ghost:SetScript("OnUpdate", function(self, elapsed)
 		local cx, cy = CursorUI()
-		self:ClearAllPoints()
-		self:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx, cy)
 		local overWindow = ns.UI and ns.UI.frame and ns.UI.frame:IsShown() and ns.UI.frame:IsMouseOver()
+		-- The list follows the cursor itself: the line where a drop would land, scrolling at its edges,
+		-- and a drag whose row was hidden on the way (the game then never says it ended) let go of once
+		-- the button is up.
+		local listLabel = ns.UI and ns.UI.TreeDragUpdate and ns.UI:TreeDragUpdate(cx, cy, elapsed, self.dragTracker, self.carryingMany)
+		if not self:IsShown() then return end
+		self:ClearAllPoints()
+		-- Over the window the icon rides beside the cursor, so the rows it is aimed at stay in sight.
+		if overWindow then
+			self:SetPoint("LEFT", UIParent, "BOTTOMLEFT", cx + 14, cy)
+		else
+			self:SetPoint("CENTER", UIParent, "BOTTOMLEFT", cx, cy)
+		end
 		local g, f
-		if not overWindow then g, f = Display:GroupAt(cx, cy, self.except) end
+		if not overWindow and not self.listOnly then g, f = Display:GroupAt(cx, cy, self.except) end
 		Highlight(f)
 		local cellC, cellR, against, sx, sy, axis
 		if g and not overWindow then cellC, cellR, against, sx, sy, axis = Display:DropCell(f, g, cx, cy, self.dragTracker) end
 		ShowDropMark(cellC and f or nil, g, against, sx or 0, sy or 0, axis)
 		-- Over empty space while the grid is up: where it would land, lined up, and what with.
-		if not g and not overWindow then
+		if not g and not overWindow and not self.listOnly then
 			local l, t, w, h, gx, gy = Display:GhostLanding(cx, cy)
 			ShowLanding(l, t, w, h)
 			ShowGuides(gx, gy)
@@ -5442,9 +5454,10 @@ local function GetGhost()
 			ShowGuides(nil, nil)
 		end
 		if overWindow then
-			-- Over the window, the list knows best what a drop would do.
-			local label = ns.UI and ns.UI.TreeDropLabel and ns.UI:TreeDropLabel(cy, self.dragTracker)
-			self.text:SetText(label or self.windowText or "|cffff6060Cancel|r")
+			-- Over the window the list knows best what a drop would do; anywhere else on it, nothing.
+			self.text:SetText(listLabel or self.windowText or "|cffff6060Let go to cancel|r")
+		elseif self.listOnly then
+			self.text:SetText(self.freeText or "")
 		elseif cellC then
 			local name = against and against.tracker and (against.tracker.name or ("spell " .. tostring(against.tracker.id)))
 			if axis == "row" then
@@ -5501,13 +5514,15 @@ function Display:SetGhostSource(w, g, whole)
 	end
 end
 
-function Display:BeginGhost(icon, freeText, except, windowText, dragTracker)
+function Display:BeginGhost(icon, freeText, except, windowText, dragTracker, listOnly)
 	local gh = GetGhost()
 	gh.boxW, gh.boxH, gh.ignoreWidget, gh.ignoreGroup, gh.offX, gh.offY = nil, nil, nil, nil, nil, nil
 	-- Whatever was being hovered when the drag started goes away with it.
 	GameTooltip:Hide()
 	gh.icon:SetTexture(icon or QUESTION)
 	gh.freeText, gh.except, gh.windowText, gh.dragTracker = freeText, except, windowText, dragTracker
+	-- Something that can only be dropped on the list (a whole group) is not offered the screen.
+	gh.listOnly, gh.carryingMany = listOnly, nil
 	gh:Show()
 end
 
@@ -5516,6 +5531,8 @@ end
 function Display:EndGhost()
 	local gh = GetGhost()
 	gh:Hide()
+	gh.listOnly = nil
+	if ns.UI and ns.UI.HideTreeMarker then ns.UI:HideTreeMarker() end
 	ShowDropMark(nil)
 	ShowLanding(nil)
 	ShowGuides(nil, nil)
@@ -5847,6 +5864,8 @@ function Display:WidgetDragStart(w)
 	local text = (#g.trackers > 1) and "Drop it in the open for a place of its own" or "Drop it where you want it"
 	if w.carrying then text = ("Moving %d together"):format(#w.carrying) end
 	self:BeginGhost(t.icon, text, nil, nil, t)
+	-- Several marked icons are moved on the screen; the list takes one tracker at a time.
+	if w.carrying then self:GetGhostFrame().carryingMany = true end
 	-- Every tracker of the group marked and on the cursor: it is the group that is being moved.
 	local whole = w.carrying and #w.carrying == #g.trackers and #self:MarkedList(g) == #g.trackers
 	self:SetGhostSource(w, g, whole)
@@ -5856,9 +5875,17 @@ function Display:WidgetDragStop(w)
 	if not w.pulling then return end
 	w.pulling = false
 	local g, t = w.group, w.tracker
+	-- Let go over the Groups and trackers list, it goes where the list's line says. Several marked
+	-- icons are not the list's: over it they are let go of like anywhere else on the window.
+	local _, cyNow = CursorUI()
+	local plan = t and not w.carrying and ns.UI and ns.UI.TreeDropPlan and ns.UI:TreeDropPlan(cyNow, { t = t })
 	local cancelled, cx, cy, target, index, cellC, cellR, axis, landL, landT = self:EndGhost()
 	local carrying = w.carrying
 	w.carrying = nil
+	if plan then
+		ns.UI:ApplyTreeDrop(plan, { t = t })
+		return
+	end
 	if cancelled or not g or not t then return end
 	if carrying then
 		self:DropMarked(carrying, t, g, target, index, cellC, cellR, axis, cx, cy, landL, landT)

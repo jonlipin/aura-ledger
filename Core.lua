@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.83.0"
+ns.VERSION = "1.84.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1404,10 +1404,13 @@ function ns.Redirect(t, g)
 end
 
 -- Move a tracker into group "to" at index (nil = end). Empty source groups disappear.
-function ns.MoveTracker(t, to, index)
+function ns.MoveTracker(t, to, index, keepShape)
 	local from, ti = ns.FindGroupOf(t)
 	if from then
-		if from.cells and from.cells[ti] then table.remove(from.cells, ti) end
+		-- Its own cell goes with it, as removing it does, so the icons after it keep their places.
+		-- Moved up or down within its group in the Groups and trackers list (keepShape), the shape
+		-- stays as it is instead and the trackers take its places in their new order.
+		if (from ~= to or not keepShape) and from.cells and from.cells[ti] then table.remove(from.cells, ti) end
 		table.remove(from.trackers, ti)
 		if from == to and index and index > ti then index = index - 1 end
 	end
@@ -1421,6 +1424,22 @@ function ns.MoveTracker(t, to, index)
 	if ns.selected and ns.selected.tracker == t then ns.selected.group = to end
 	ns.Redirect(t, to)
 	ns.Changed()
+end
+
+-- Moves a whole group to another place in the list: index is a place in the list as it is now (nil
+-- for the end). Its place on screen is not touched. Returns whether anything moved.
+function ns.MoveGroup(g, index)
+	local groups = ns.profile.groups
+	local from
+	for i, other in ipairs(groups) do if other == g then from = i break end end
+	if not from then return false end
+	index = index and max(1, min(index, #groups + 1)) or (#groups + 1)
+	if index == from or index == from + 1 then return false end
+	table.remove(groups, from)
+	if index > from then index = index - 1 end
+	table.insert(groups, index, g)
+	ns.Changed()
+	return true
 end
 
 -- Track a ledger row: into an existing group, or as a new group of one at x, y (UIParent units).

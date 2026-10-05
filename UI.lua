@@ -960,6 +960,7 @@ local function CreateBookButton(parent, onParchment, art)
 	b:SetScript("OnDragStart", function(self)
 		if not self.item then return end
 		self.dragItem = self.item
+		UI.bookDrag = { h = self.item }
 		GameTooltip:Hide()
 		ns.Display:BeginGhost(self.item.icon, "Track here", nil, "|cffff6060Drop on the screen, or on the Groups and trackers list|r")
 	end)
@@ -970,8 +971,12 @@ local function CreateBookButton(parent, onParchment, art)
 		-- The list is checked before the ghost goes away, while the cursor is still over the row.
 		local _, cursorY = ns.Display.CursorUI()
 		local listGroup, listIndex, kind = UI:TreeDropAt(cursorY)
+		UI.bookDrag = nil
 		local cancelled, cx, cy, target, index, cellC, cellR, cellAxis, landL, landT = ns.Display:EndGhost()
-		if kind then
+		if kind == "refuse" then
+			-- The group under it said no, in red, before it was let go.
+			return
+		elseif kind then
 			ns.TrackHistory(h, listGroup, listIndex)
 		elseif cancelled then
 			return
@@ -1622,6 +1627,7 @@ local function CreateTreeRow(parent)
 		end
 	end)
 	x:SetScript("OnEnter", function(self)
+		if UI.treeDrag or (ns.Display.Dragging and ns.Display:Dragging()) then return end
 		if row.plated then row.hl:SetAlpha(1) else row.hl:Show() end
 		if row.item and row.item.t then
 			TextTooltip(self, "Remove this tracker", "Click twice to remove it. The group is removed too if it was the last tracker in it.")
@@ -1647,115 +1653,429 @@ local function CreateTreeRow(parent)
 	row.hl = hl
 	row:SetScript("OnClick", function(self)
 		local item = self.item
-		if not item then return end
+		if not item or item.zone then return end
 		ns.selected = { group = item.g, tracker = item.t }
 		UI:ShowSelection()
 	end)
 	row:SetScript("OnEnter", function(self)
-		if self.plated then self.hl:SetAlpha(1) else self.hl:Show() end
+		-- While something is being dragged the rows only show where it would land.
+		if UI.treeDrag or (ns.Display.Dragging and ns.Display:Dragging()) then return end
 		local item = self.item
-		if not item then return end
+		if not item or item.zone then return end
+		if self.plated then self.hl:SetAlpha(1) else self.hl:Show() end
 		local cond = ns.CondSummary(item.t and item.t.cond or item.g.cond)
 		TextTooltip(self, item.t and (item.t.name or ("Spell " .. tostring(item.t.id))) or ns.GroupName(item.g),
-			item.t and ((item.g and item.g.anyOne and not ns.GroupUnits(item.g)) and "Part of its group's one icon"
+			item.t and ((item.g and item.g.anyOne and not ns.GroupUnits(item.g)) and "Part of its group's one icon: when two are up, the one higher in this list is shown (where the addon draws it, one about to run out gives way to one that is not)."
 				or ("Shows when " .. (SHOW_TAG[item.t.show] or "active"))) or (#item.g.trackers .. " tracker" .. (#item.g.trackers == 1 and "" or "s")),
 			cond ~= "" and ("Only: " .. cond) or nil,
-			item.t and "|cffaaaaaaDrag: onto a group or tracker to move it, onto empty space for a group of its own, or out onto the screen.|r" or nil)
+			item.t and "Drag it up or down the list to move it: between two trackers, onto a group's name for the end of that group, onto New group at the bottom, or out onto the screen."
+				or "Drag it up or down the list to move the whole group.")
 	end)
 	row:SetScript("OnLeave", function(self) if self.plated then self.hl:SetAlpha(0.3) else self.hl:Hide() end GameTooltip:Hide() end)
-	-- Trackers can be dragged: onto a group heading (join it), onto a tracker (before or after it),
-	-- onto empty list space (a group of its own), or out of the window (onto the screen).
+	-- Trackers and whole groups are dragged up and down the list, and a tracker out onto the screen
+	-- (see UI:BeginTreeDrag). What is held is kept on UI rather than on the row, because the list hands
+	-- its rows over to other items as it scrolls.
 	row:RegisterForDrag("LeftButton")
-	row:SetScript("OnDragStart", function(self)
-		local item = self.item
-		if not item or not item.t then return end
-		self.dragging = item
-		GameTooltip:Hide()
-		ns.Display:BeginGhost(item.t.icon, "New group here", nil, "|cff40ff60Drop on a group or tracker, or on empty space for a new group|r", item.t)
-		-- The landing is the size of what is actually being moved, when it is on screen.
-		local w, g = ns.Display:WidgetFor(item.t)
-		if w then ns.Display:SetGhostSource(w, g) end
-	end)
-	row:SetScript("OnDragStop", function(self)
-		local item = self.dragging
-		self.dragging = nil
-		if not item then return end
-		local t = item.t
-		local from = ns.FindGroupOf(t)
-		if not from then ns.Display:EndGhost() return end
-		local _, cursorY = ns.Display.CursorUI()
-		local listGroup, listIndex, kind, overT = UI:TreeDropAt(cursorY)
-		local cancelled, cx, cy, screenGroup, index, cellC, cellR, cellAxis, landL, landT = ns.Display:EndGhost()
-		if kind == "before" or kind == "after" then
-			if overT ~= t then ns.MoveTracker(t, listGroup, listIndex) end
-		elseif kind == "group" then
-			if listGroup ~= from or #from.trackers > 1 then ns.MoveTracker(t, listGroup) end
-		elseif kind == "new" or cancelled then
-			if #from.trackers > 1 then ns.MoveTracker(t, ns.NewGroupLike(from)) end
-		elseif screenGroup then
-			ns.DropTracker(t, screenGroup, index, cellC, cellR, cellAxis)
-		else
-			if #from.trackers > 1 then
-				local ng = ns.NewGroupLike(from, cx - 18, cy + 18)
-				ns.MoveTracker(t, ng)
-				if landL then ns.Display:PlaceGroupTopLeft(ng, landL, landT) end
-			elseif landL then
-				ns.Display:PlaceGroupTopLeft(from, landL, landT)
-				ns.Display:Rebuild()
-			else
-				from.x, from.y = cx - 18, cy + 18
-				ns.Display:Rebuild()
-			end
-		end
-		ns.selected = { group = ns.FindGroupOf(t), tracker = t }
-		UI:ShowSelection()
-	end)
+	row:SetScript("OnDragStart", function(self) UI:BeginTreeDrag(self) end)
+	row:SetScript("OnDragStop", function() UI:FinishTreeDrag(true) end)
 	return row
 end
 
--- Where a drop into the Groups and trackers list would land. Returns the group, the position in
--- it, what kind of drop it is ("group", "before", "after", "new") and the tracker under the
--- cursor. Nil when the cursor is not over the list at all.
-function UI:TreeDropAt(cy)
-	if not (frame and frame:IsShown() and treeList and treeList.scroll) then return nil end
-	if not treeList.scroll:IsShown() then return nil end
-	for _, r in ipairs(treeList.rows) do
-		if r:IsShown() and r.item and r:IsMouseOver() then
-			if r.item.t then
-				local g = r.item.g
-				local at = 1
-				for i, other in ipairs(g.trackers) do if other == r.item.t then at = i break end end
-				local _, rowCy = r:GetCenter()
-				local s = r:GetEffectiveScale() / UIParent:GetEffectiveScale()
-				local after = rowCy and cy and cy < rowCy * s
-				return g, after and (at + 1) or at, after and "after" or "before", r.item.t
-			end
-			return r.item.g, nil, "group"
-		end
-	end
-	if treeList.scroll:IsMouseOver() then return nil, nil, "new" end
-	return nil
+-- ---- Dragging in the Groups and trackers list ---------------------
+-- What a drop on the list would do is worked out in one place, the plan, for every kind of drag:
+-- a tracker or a whole group held in the list (UI.treeDrag), an icon dragged off the screen, and a
+-- spell from the book. The same plan draws the line in the list, labels the icon on the cursor, and
+-- is what the drop then does, so what the line shows is what happens.
+local DROP_OK, DROP_GREY, DROP_RED, DROP_NOTE = "|cff40ff60", "|cffaaaaaa", "|cffff6060", "|cffffa040"
+
+-- Does the game draw icons in this group's frame? Those cannot be moved in a fight.
+local function SlotsHeld(g)
+	local f = g and ns.Display.FrameFor and ns.Display.FrameFor(g)
+	return (f and f.slotC and next(f.slotC)) and true or false
 end
 
--- What the drag label should say while the cursor is over the window.
-function UI:TreeDropLabel(cy, dragT)
-	local g, _, kind, overT = UI:TreeDropAt(cy)
-	if kind == "group" then
-		return "|cff40ff60Add to " .. ns.GroupName(g) .. "|r"
-	elseif kind == "before" or kind == "after" then
-		if overT == dragT then return "|cffaaaaaaLeave it where it is|r" end
-		local name = overT and (overT.label or overT.name) or "that tracker"
-		return "|cff40ff60" .. (kind == "after" and "After " or "Before ") .. name .. "|r"
-	elseif kind == "new" then
-		return "|cff40ff60Drop here for a new group|r"
+-- Why tracker t cannot go from group "from" into group "to", or nil when it can. In a fight (or while
+-- the game hides auras) a group the game draws icons in cannot have them moved, and a group that
+-- watches your party is only built out of one, so neither changes until then. A group that watches
+-- your party holds only what can be seen on everyone.
+local function TreeRefusal(t, from, to)
+	if not (t and to) then return nil end
+	if ns.Display.ManagerUnsafe and ns.Display.ManagerUnsafe()
+		and (ns.GroupUnits(to) or SlotsHeld(to) or (from and (ns.GroupUnits(from) or SlotsHeld(from)))) then
+		return "This can change " .. ns.WhenFreeWords()
 	end
-	return nil
+	if from ~= to and ns.GroupUnits(to) and ns.Display.MemberCanHold and not ns.Display.MemberCanHold(t) then
+		return ns.GroupName(to) .. " watches your party: " .. ((t.unit == "target") and "this one is on your target" or "this one follows only you")
+	end
+end
+
+-- A tracker over row "at" (item, in its lower half or not). drag.t is a tracker already in a group;
+-- drag.h a book row, for a new tracker, judged by the tracker it would make.
+local function TrackerPlan(drag, data, at, lower, item)
+	local t = drag.t
+	local from, ti
+	if t then from, ti = ns.FindGroupOf(t) end
+	local probe = t
+	if not t and drag.h and not drag.h.preset then
+		if not drag.probe then
+			-- Made only to be asked about, so it takes no number from the ones trackers are given.
+			local keep = ns.db and ns.db.nextUid
+			drag.probe = ns.NewTracker(drag.h)
+			if ns.db then ns.db.nextUid = keep end
+		end
+		probe = drag.probe
+	end
+	local plan
+	if not item or item.zone then
+		-- Under the last group, on New group or the space below it: a group of its own.
+		local last = data[#data]
+		plan = { kind = "new", box = (last and last.zone) and #data or nil }
+		if from and #from.trackers == 1 then
+			plan.noop, plan.label = true, DROP_GREY .. "Already a group of its own|r"
+			return plan
+		end
+		-- Out of a group that cannot change yet, nothing goes.
+		local why = t and from and TreeRefusal(t, from, from)
+		if why then
+			plan.refuse, plan.label = true, DROP_RED .. why .. "|r"
+		else
+			plan.label = DROP_OK .. "A new group of its own|r"
+		end
+		return plan
+	end
+	local g = item.g
+	if item.t then
+		local idx = 1
+		for i, other in ipairs(g.trackers) do if other == item.t then idx = i break end end
+		plan = { kind = lower and "after" or "before", g = g, index = lower and (idx + 1) or idx, overT = item.t,
+			line = at, edge = lower and "bottom" or "top" }
+		-- Just before or just after itself is where it already is.
+		if from == g and (plan.index == ti or plan.index == ti + 1) then
+			plan.noop, plan.label = true, DROP_GREY .. "Leave it where it is|r"
+			return plan
+		end
+		plan.label = DROP_OK .. (lower and "After " or "Before ") .. (item.t.label or item.t.name or "that tracker") .. "|r"
+	else
+		-- On a group's name: the end of that group.
+		plan = { kind = "group", g = g, index = #g.trackers + 1, box = at }
+		if from == g and ti == #g.trackers then
+			plan.noop, plan.label = true, DROP_GREY .. "Already last in " .. ns.GroupName(g) .. "|r"
+			return plan
+		end
+		plan.label = DROP_OK .. ((from == g) and "To the end of " or "Add to ") .. ns.GroupName(g) .. "|r"
+	end
+	if probe then
+		local why = TreeRefusal(probe, from, g)
+		if why then
+			plan.refuse, plan.label = true, DROP_RED .. why .. "|r"
+			return plan
+		end
+		if from and from ~= g and #from.trackers == 1 then plan.note = DROP_NOTE .. "Its group goes too: nothing else is in it|r" end
+	end
+	return plan
+end
+
+-- A whole group over row "at": before the group under the cursor when in the upper half of that
+-- group's rows (its name and its trackers), after it in the lower half, and last under every group.
+local function GroupPlan(g, data, at, pos, item)
+	local groups = ns.profile.groups
+	local from, target, gi, line, edge
+	for i, other in ipairs(groups) do if other == g then from = i break end end
+	if not item or item.zone then
+		gi, line, edge = #groups + 1, #data, "bottom"
+	else
+		target = item.g
+		local head = at
+		for i, it in ipairs(data) do if it.g == target and not it.t then head = i break end end
+		local last = head + #target.trackers
+		for i, other in ipairs(groups) do if other == target then gi = i break end end
+		if not gi then return nil end
+		if pos < ((head - 1) + last) * TREE_ROW / 2 then
+			line, edge = head, "top"
+		else
+			gi, line, edge = gi + 1, last, "bottom"
+		end
+	end
+	local plan = { kind = "move", gindex = gi, line = line, edge = edge }
+	if not from or gi == from or gi == from + 1 then
+		plan.noop, plan.label = true, DROP_GREY .. "Leave it where it is|r"
+		return plan
+	end
+	if not target then plan.label = DROP_OK .. "To the end of the list|r"
+	elseif edge == "top" then plan.label = DROP_OK .. "Before " .. ns.GroupName(target) .. "|r"
+	else plan.label = DROP_OK .. "After " .. ns.GroupName(target) .. "|r" end
+	return plan
+end
+
+-- What a drop at height cy (UIParent units) would do, for drag: { t = a tracker in a group },
+-- { g = a whole group }, or {} for a new tracker. Nil when the cursor is not over the list. The row
+-- under the cursor is worked out from the list's own top edge and scroll rather than by asking each
+-- row, because rows scrolled out of sight are only clipped and would still say the cursor is on them.
+function UI:TreeDropPlan(cy, drag)
+	if not (frame and frame:IsShown() and treeList and treeList.scroll and treeList.scroll:IsShown()) then return nil end
+	local sc = treeList.scroll
+	if not cy or not sc:IsMouseOver() then return nil end
+	local top = sc:GetTop()
+	if not top then return nil end
+	local s = (sc:GetEffectiveScale() or 1) / ((UIParent and UIParent:GetEffectiveScale()) or 1)
+	if not s or s <= 0 then s = 1 end
+	local pos = max(0, (top - cy / s) + (sc:GetVerticalScroll() or 0))
+	local data = treeList.data or {}
+	local at = floor(pos / TREE_ROW) + 1
+	local lower = (pos - (at - 1) * TREE_ROW) >= TREE_ROW / 2
+	drag = drag or {}
+	if drag.g then return GroupPlan(drag.g, data, at, pos, data[at]) end
+	return TrackerPlan(drag, data, at, lower, data[at])
+end
+
+-- The plan's words for the icon on the cursor.
+local function PlanLabel(plan)
+	if not plan then return nil end
+	return (plan.label or "") .. (plan.note and ("|n" .. plan.note) or "")
+end
+
+-- For a new tracker (a spell from the book): the group, the place in it, the kind of drop and the
+-- tracker under the cursor; nil when the cursor is not over the list, and kind "refuse" when the
+-- group under it cannot take it.
+function UI:TreeDropAt(cy)
+	local plan = UI:TreeDropPlan(cy, UI.bookDrag or {})
+	if not plan then return nil end
+	if plan.refuse then return nil, nil, "refuse" end
+	if plan.kind == "new" then return nil, nil, "new" end
+	return plan.g, (plan.kind ~= "group") and plan.index or nil, plan.kind, plan.overT
+end
+
+-- What the icon on the cursor should say while it is over the list.
+function UI:TreeDropLabel(cy, dragT)
+	return PlanLabel(UI:TreeDropPlan(cy, UI.treeDrag or { t = dragT }))
+end
+
+-- Does what the plan says with what was held. Returns whether anything moved.
+function UI:ApplyTreeDrop(plan, drag)
+	if not plan or plan.noop or plan.refuse or not drag then return false end
+	if drag.g then return plan.gindex and ns.MoveGroup(drag.g, plan.gindex) or false end
+	local t = drag.t
+	local from = t and ns.FindGroupOf(t)
+	if not from then return false end
+	if plan.kind == "new" then
+		ns.MoveTracker(t, ns.NewGroupLike(from))
+		return true
+	end
+	if not plan.g then return false end
+	-- Up or down within its own group the shape stays and the trackers take its places in order.
+	ns.MoveTracker(t, plan.g, plan.index, true)
+	return true
+end
+
+-- A row picked up: a tracker, or a whole group by its name.
+function UI:BeginTreeDrag(row)
+	local item = row and row.item
+	if not item or item.zone then return end
+	-- One left over from a drag the game never finished is put away first.
+	if UI.treeDrag then UI:FinishTreeDrag(false) end
+	GameTooltip:Hide()
+	if item.t then
+		UI.treeDrag = { t = item.t }
+		ns.Display:BeginGhost(item.t.icon, "New group here", nil, nil, item.t)
+		-- The landing on screen is the size of what is actually being moved, when it is on screen.
+		local w, g = ns.Display:WidgetFor(item.t)
+		if w then ns.Display:SetGhostSource(w, g) end
+	else
+		local first = item.g.trackers[1]
+		UI.treeDrag = { g = item.g }
+		ns.Display:BeginGhost(first and first.icon, DROP_GREY .. "Drop it on the list to move the group|r", nil, nil, nil, true)
+	end
+	-- The list gains its New group row and fades what is held.
+	UI:RefreshTree()
+end
+
+-- The drag ends: let go (drop true), or put back (the window closing under it).
+function UI:FinishTreeDrag(drop)
+	local d = UI.treeDrag
+	if not d then return end
+	UI.treeDrag = nil
+	local _, cyNow = ns.Display.CursorUI()
+	local plan = drop and UI:TreeDropPlan(cyNow, d) or nil
+	local cancelled, cx, cy, screenGroup, index, cellC, cellR, cellAxis, landL, landT = ns.Display:EndGhost()
+	-- Out onto the screen in a fight, out of (or into) a group that cannot change yet: nothing moves.
+	local held = d.t and not plan and not cancelled and ns.FindGroupOf(d.t)
+	local why = held and TreeRefusal(d.t, held, screenGroup or held)
+	if why then
+		ns.Print(why .. ".")
+		drop = false
+	end
+	UI:HideTreeMarker()
+	UI:RefreshTree()
+	if not drop then return end
+	if d.g then
+		if plan then UI:ApplyTreeDrop(plan, d) end
+		ns.selected = { group = d.g }
+		UI:ShowSelection()
+		return
+	end
+	local t = d.t
+	local from = ns.FindGroupOf(t)
+	if not from then return end
+	if plan then
+		UI:ApplyTreeDrop(plan, d)
+	elseif cancelled then
+		-- Let go over the window but not on the list: nothing moves.
+	elseif screenGroup then
+		ns.DropTracker(t, screenGroup, index, cellC, cellR, cellAxis)
+	elseif #from.trackers > 1 then
+		local ng = ns.NewGroupLike(from, cx - 18, cy + 18)
+		ns.MoveTracker(t, ng)
+		if landL then ns.Display:PlaceGroupTopLeft(ng, landL, landT) end
+	elseif landL then
+		ns.Display:PlaceGroupTopLeft(from, landL, landT)
+		ns.Display:Rebuild()
+	else
+		from.x, from.y = cx - 18, cy + 18
+		ns.Display:Rebuild()
+	end
+	ns.selected = { group = ns.FindGroupOf(t), tracker = t }
+	UI:ShowSelection()
+end
+
+-- Held near the list's top or bottom edge, or just past it, the list scrolls: slowly at the edge,
+-- faster further out, as the game's own lists do.
+function UI:AutoScrollTree(cx, cy, elapsed)
+	local sc = treeList and treeList.scroll
+	if not (sc and sc:IsShown() and cx and cy and elapsed and elapsed > 0) then return end
+	local l, r, top, bottom = sc:GetLeft(), sc:GetRight(), sc:GetTop(), sc:GetBottom()
+	if not (l and r and top and bottom) then return end
+	local s = (sc:GetEffectiveScale() or 1) / ((UIParent and UIParent:GetEffectiveScale()) or 1)
+	if not s or s <= 0 then s = 1 end
+	local x, y = cx / s, cy / s
+	if x < l or x > r then return end
+	local edge, reach = TREE_ROW / 2, 60
+	local depth, dir
+	if y > top - edge and y < top + reach then depth, dir = y - (top - edge), -1
+	elseif y < bottom + edge and y > bottom - reach then depth, dir = (bottom + edge) - y, 1 end
+	if not depth then return end
+	local range = max(0, #(treeList.data or {}) * TREE_ROW - (sc:GetHeight() or 0))
+	local now = sc:GetVerticalScroll() or 0
+	local speed = TREE_ROW * (2 + 10 * min(1, depth / (edge + reach)) ^ 2)
+	local want = max(0, min(range, now + dir * speed * elapsed))
+	if want ~= now then
+		sc:SetVerticalScroll(want)
+		treeList:Update()
+	end
+end
+
+-- The line where a drop would land (or the group name or New group row it would go into), on the
+-- list's own scroll child so it scrolls and is clipped with the rows; red where it is refused.
+function UI:ShowTreeMarker(plan)
+	if not treeList then return end
+	local m = treeList.marker
+	if not plan or plan.noop or not (plan.line or plan.box) then
+		if m then m:Hide() end
+		return
+	end
+	if not m then
+		m = CreateFrame("Frame", nil, treeList.child)
+		m:SetAllPoints(treeList.child)
+		m:SetFrameLevel((treeList.child:GetFrameLevel() or 1) + 20)
+		m.line = m:CreateTexture(nil, "OVERLAY")
+		m.box = m:CreateTexture(nil, "ARTWORK")
+		-- The Cooldown Manager's own drop line, where this client has it.
+		if HasAtlas("cdm-horizontal") then
+			m.line:SetAtlas("cdm-horizontal")
+			m.atlas, m.lineH = true, 8
+		else
+			m.lineH = 2
+		end
+		treeList.marker = m
+	end
+	local red = plan.refuse and true or false
+	m.line:Hide()
+	m.box:Hide()
+	m.lineY, m.boxY, m.red = nil, nil, red
+	if plan.line then
+		local y = -(plan.line - ((plan.edge == "bottom") and 0 or 1)) * TREE_ROW
+		-- The very top and bottom of the list are its edges, which would cut the line in half.
+		local half, last = m.lineH / 2, -#(treeList.data or {}) * TREE_ROW
+		if y > -half then y = -half end
+		if y < last + half then y = last + half end
+		m.line:ClearAllPoints()
+		m.line:SetPoint("LEFT", treeList.child, "TOPLEFT", 2, y)
+		m.line:SetPoint("RIGHT", treeList.child, "TOPRIGHT", -2, y)
+		m.line:SetHeight(m.lineH)
+		if m.atlas then
+			if red then m.line:SetVertexColor(1, 0.3, 0.25) else m.line:SetVertexColor(1, 1, 1) end
+		elseif red then
+			m.line:SetColorTexture(1, 0.25, 0.2, 0.95)
+		else
+			m.line:SetColorTexture(1, 0.82, 0, 0.95)
+		end
+		m.line:Show()
+		m.lineY = y
+	end
+	if plan.box then
+		local y = -(plan.box - 1) * TREE_ROW
+		m.box:ClearAllPoints()
+		m.box:SetPoint("TOPLEFT", treeList.child, "TOPLEFT", 0, y)
+		m.box:SetPoint("BOTTOMRIGHT", treeList.child, "TOPRIGHT", 0, y - TREE_ROW)
+		if red then m.box:SetColorTexture(1, 0.25, 0.2, 0.18) else m.box:SetColorTexture(0.3, 1, 0.4, 0.16) end
+		m.box:Show()
+		m.boxY = y
+	end
+	m:Show()
+end
+
+function UI:HideTreeMarker()
+	if treeList and treeList.marker then treeList.marker:Hide() end
+end
+UI.treeMarkerForTest = function() return treeList and treeList.marker end
+
+-- Each frame of any drag (from the cursor's icon): the list scrolls at its edges, shows where a drop
+-- would land, and says so. A row hidden mid-drag (scrolled away, or the window closed) is never told
+-- the drag ended, so the button found up a few frames running ends it here instead.
+function UI:TreeDragUpdate(cx, cy, elapsed, dragT, many)
+	local d = UI.treeDrag
+	if d and IsMouseButtonDown then
+		if IsMouseButtonDown("LeftButton") then
+			d.up = 0
+		else
+			d.up = (d.up or 0) + 1
+			if d.up >= 3 then UI:FinishTreeDrag(true) return nil end
+		end
+	end
+	if not (frame and frame:IsShown() and treeList) then
+		UI:HideTreeMarker()
+		return nil
+	end
+	UI:AutoScrollTree(cx, cy, elapsed)
+	if many then
+		-- Several marked icons are moved on the screen, where they keep their places to each other.
+		UI:ShowTreeMarker(nil)
+		if treeList.scroll and treeList.scroll:IsMouseOver() then return DROP_GREY .. "Marked icons are moved on the screen, not in this list|r" end
+		return nil
+	end
+	local plan = UI:TreeDropPlan(cy, d or (dragT and { t = dragT }) or UI.bookDrag or {})
+	UI:ShowTreeMarker(plan)
+	return PlanLabel(plan)
 end
 
 local function UpdateTreeRow(row, item)
 	row.item = item
 	row.icon:ClearAllPoints()
 	row.text:ClearAllPoints()
+	-- What is held stays where it was, faded, until it is let go: a tracker, or a group and its trackers.
+	local d = UI.treeDrag
+	row:SetAlpha((d and ((d.t and item.t == d.t) or (d.g and item.g == d.g))) and 0.45 or 1)
+	if item.zone then
+		-- Only while a tracker is held: the place to drop it for a group of its own.
+		row.icon:Hide()
+		if row.frame then row.frame:Hide() end
+		row.remove:Hide()
+		row.sel:Hide()
+		row.text:SetPoint("LEFT", 6, 0)
+		row.text:SetPoint("RIGHT", -24, 0)
+		local _, dimC = InkCodes()
+		row.text:SetText(dimC .. "+ New group: drop it here|r")
+		return
+	end
 	if item.t then
 		local t = item.t
 		row.icon:SetPoint("LEFT", 20, 0)
@@ -1796,6 +2116,8 @@ function UI:RefreshTree()
 		data[#data + 1] = { g = g }
 		for _, t in ipairs(g.trackers) do data[#data + 1] = { g = g, t = t } end
 	end
+	-- While a tracker is held the list ends in a row to drop it on for a group of its own.
+	if UI.treeDrag and UI.treeDrag.t then data[#data + 1] = { zone = true } end
 	treeList:SetData(data)
 	if UI.treeEmpty then UI.treeEmpty:SetShown(#data == 0) end
 end
@@ -1927,7 +2249,7 @@ local function BuildGroupPanel(width)
 	-- Any of these: one icon for the whole group.
 	b:Check("Show as one icon: any of these", function() local g = G() return g and g.anyOne end,
 		function(v) local g = G() if g then g.anyOne = v or nil GroupChanged() b:Sync() UI:RefreshTree() end end,
-		"One icon for the whole group, for whichever of its auras is on you: your seals, your blessings, an armor or an aspect. Show the icon when, below, says when it is on screen.")
+		"One icon for the whole group, for whichever of its auras is on you: your seals, your blessings, an armor or an aspect. Show the icon when, below, says when it is on screen. When two are up at once, the one higher in the Groups and trackers list is shown (where the addon draws the icon, one about to run out gives way to one that is not).")
 	b:AppliesWhen(NotMembers)
 	b:Cycle("Show the icon when", { { "always", "Either (red when none is up)" }, { "active", "One of them is up" }, { "missing", "None of them is up" } },
 		function() local g = G() return g and g.anyShow or "always" end,
@@ -3427,6 +3749,8 @@ local function Build()
 		UI:RefreshLayout()
 	end)
 	frame:SetScript("OnHide", function()
+		-- A row held when the window goes (Escape) is never told the drag ended: it is put back.
+		if UI.treeDrag then UI:FinishTreeDrag(false) end
 		GameTooltip:Hide()
 		-- Opened from the game's options the window is lifted over them; closing it puts it back.
 		frame:SetFrameStrata("HIGH")

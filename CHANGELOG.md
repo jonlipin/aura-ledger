@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.84.0
+
+- New: reorganize your trackers by dragging them in the **Groups and trackers** list. Drag a tracker's row up or down: a gold line shows exactly where it will land between two trackers, a group's name lights up when it would go to the end of that group, and while you hold a tracker the list ends in a **New group** row for a group of its own. Let go anywhere else on the window and nothing moves.
+- New: drag a group's name to move the whole group up or down the list.
+- The list scrolls when you hold a tracker near its top or bottom edge, so a long list can be reorganized end to end.
+- Fixed: moving a tracker up or down within its group left an empty space in the group on screen and could make it wider, or turn it into a cluster after a reload, even when the order did not change. The group now keeps its shape and its icons stand in the new order.
+- A group that cannot take what you are dragging says why in red before you let go, and nothing moves: a group that watches your party holds only what can be seen on everyone (before, the tracker was quietly put in a group of its own beside it), and in a fight a group with icons the game draws, or one that watches your party, changes only once the fight is over. A spell dragged from the book is judged the same way.
+- An icon dragged off the screen while arranging can be dropped on the list the same way. Several marked icons are still moved on the screen, not in the list, and the list says so.
+- What you drag fades in the list while you hold it, rows give no tooltips while something is held, and the icon on the cursor sits beside it over the window so the rows you aim at stay in sight. A drop that would change nothing says so in grey instead of pretending to move it.
+- In a group shown as one icon, the tracker higher in the list is the one shown when two are up, whether the game draws the icon or the addon does (where the addon draws it, one about to run out gives way to one that is not). Before, the game showed the lower one.
+
 ## 1.83.0
 
 - New: a group can be one icon for any of its auras. Tick **Show as one icon: any of these** in a group's settings, and the whole group becomes a single icon for whichever of its auras is on you: put all your seals in it, or your blessings, your armors or your aspects. **Show the icon when** decides when it is on screen: **Either** shows the aura that is up, or turns red when none is, the alert that none of them is on you; **One of them is up** shows it only while one is; **None of them is up** shows it only while none is.
