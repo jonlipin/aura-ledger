@@ -455,13 +455,84 @@ end
 
 ns.bagStats = { bags = 0, gear = 0, withUse = 0, unnamed = 0 }
 
+-- What is in your off hand: "weapon", "shield", or nil (nothing, or something only held there). A
+-- weapon takes a weapon's coatings; a shield takes only a shield coating.
+local function OffHandKind()
+	if not GetInventoryItemID then return nil end
+	local ok, id = pcall(GetInventoryItemID, "player", 17)
+	if not (ok and type(id) == "number") then return nil end
+	if C_Item and C_Item.GetItemInfoInstant then
+		local okI, _, _, _, _, _, classID, subClassID = pcall(C_Item.GetItemInfoInstant, id)
+		if okI and classID ~= nil then
+			if classID == 2 then return "weapon" end
+			if classID == 4 and subClassID == 6 then return "shield" end
+			return nil
+		end
+	end
+	return "weapon"
+end
+ns.OffHandKind = OffHandKind
+
+-- Is it something worn (a hat that puts a lure on your pole, say) rather than used up?
+local function IsGear(id)
+	if not (C_Item and C_Item.GetItemInfoInstant) then return false end
+	local ok, _, _, _, equipLoc = pcall(C_Item.GetItemInfoInstant, id)
+	return ok and type(equipLoc) == "string" and equipLoc ~= "" and equipLoc ~= "INVTYPE_NON_EQUIP_IGNORE" or false
+end
+
+local function KnowsSpell(id)
+	if C_SpellBook and C_SpellBook.IsSpellKnown then
+		local ok, v = pcall(C_SpellBook.IsSpellKnown, id)
+		if ok and v ~= nil then return v == true end
+	end
+	if IsPlayerSpell then
+		local ok, v = pcall(IsPlayerSpell, id)
+		if ok then return v == true end
+	end
+	return false
+end
+
+-- The weapon coatings you could put on now: from what you use up out of your bags, what you wear (a
+-- hat with a lure), and the spells you know (a shaman's imbues), by name.
+function ns.CoatingsAtHand()
+	local idx = ns.Coatings and ns.Coatings()
+	if not idx then return {} end
+	local have, out = {}, {}
+	for _, bag in ipairs(BAGS) do
+		for slot = 1, BagSlots(bag) do
+			local id = BagItem(bag, slot)
+			local c = id and idx.byItem[id]
+			if c and not IsGear(id) then have[c] = true end
+		end
+	end
+	if GetInventoryItemID then
+		for _, slot in ipairs(GEAR) do
+			local ok, id = pcall(GetInventoryItemID, "player", slot)
+			local c = ok and type(id) == "number" and idx.byItem[id]
+			if c then have[c] = true end
+		end
+	end
+	for _, c in ipairs(idx.list) do
+		if not have[c] then
+			for _, sp in ipairs(c.spells) do if KnowsSpell(sp) then have[c] = true break end end
+		end
+		if have[c] then out[#out + 1] = c end
+	end
+	table.sort(out, function(a, b) return a.name < b.name end)
+	return out
+end
+
 -- The page itself: one row per item you are carrying that has a use on it.
 function ns.BuildBagPage()
 	local list, seen = {}, {}
 	local stats = { bags = 0, gear = 0, withUse = 0, unnamed = 0 }
+	local coats = ns.Coatings and ns.Coatings()
 	local function offer(id, where)
 		if not id or seen[id] then return end
 		seen[id] = true
+		-- An oil, stone, poison or lure has no cooldown: what it is for is the coating, offered below.
+		-- Something worn that puts one on keeps its own row.
+		if coats and coats.byItem[id] and not IsGear(id) then return end
 		local useName, useSpell = ItemSpell(id)
 		if not (useName or useSpell) then return end
 		stats.withUse = stats.withUse + 1
@@ -496,6 +567,21 @@ function ns.BuildBagPage()
 		{ "Off-hand swing", "swing", 1, "Time to your next off-hand swing" },
 		{ "Ranged swing", "swing", 2, "Time to your next ranged shot or wand" },
 	}
+	-- Each coating you could put on, on the weapon it would go on: a row for your main hand, and one for
+	-- your off hand while you hold a weapon there. A shield coating goes on the shield, while you hold one.
+	local coatRows = {}
+	local offKind = OffHandKind()
+	for _, c in ipairs(ns.CoatingsAtHand()) do
+		local hands
+		if c.shield then hands = (offKind == "shield") and { "off" } or {}
+		else hands = (offKind == "weapon") and { "main", "off" } or { "main" } end
+		for _, hand in ipairs(hands) do
+			coatRows[#coatRows + 1] = { name = ns.CoatTrackerName(c.name, hand), kind = "buff", prebuilt = true, class = "BAGS", resolved = true,
+				note = "On your " .. ns.HAND_WORDS[hand] .. ": its time left and charges", enchant = (hand == "off") and 1 or 0, coat = c.name,
+				icon = c.icon or (ns.WeaponIcon and ns.WeaponIcon((hand == "off") and 1 or 0)) or nil }
+		end
+	end
+	for i = #coatRows, 1, -1 do table.insert(list, 1, coatRows[i]) end
 	for i = #weapons, 1, -1 do
 		local w = weapons[i]
 		local row = { name = w[1], kind = "buff", note = w[4], prebuilt = true, class = "BAGS", resolved = true,

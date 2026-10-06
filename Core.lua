@@ -8,7 +8,7 @@
 -- mark it. "/auraledger debug" reports what actually worked.
 
 local ADDON, ns = ...
-ns.VERSION = "1.84.0"
+ns.VERSION = "1.85.0"
 ns.report = {}
 ns.stats = { scans = 0, partial = 0, blocked = 0, cleu = 0, cleuUsed = 0, estimated = 0, removedById = 0, casts = 0, castsUsed = 0 }
 -- Kept so anything still reading them finds a table rather than nothing.
@@ -1158,6 +1158,9 @@ function ns.NewTracker(h)
 		-- A weapon slot (0 main hand, 1 off hand, 2 ranged) for a weapon-enchant or a swing tracker.
 		enchant = h.enchant,
 		swing = h.swing,
+		-- On a weapon: the coating it watches (nil for any) and "either" or "both" hands.
+		coat = h.coat,
+		hand = h.hand,
 		matchId = (not dispel and (idOnly or h.byId)) and true or false,
 		show = dispel and "active" or ((h.show == "missing" or h.show == "always") and h.show or "active"),
 		mine = false,
@@ -1959,48 +1962,152 @@ local function WeaponIcon(slot)
 end
 ns.WeaponIcon = WeaponIcon
 
-function ns.EnchantFor(t)
-	local slot = tonumber(t.enchant)
-	if not slot then return nil end
-	local now = GetTime()
-	local seen = enchantSeen[slot]
-	local function Carried()
-		if seen and seen.expires > now then
-			return { name = t.name, icon = WeaponIcon(slot) or t.icon, kind = "buff", count = seen.count or 0,
-				duration = seen.duration, expires = seen.expires, mine = true, stale = true }
+-- The weapon coatings the game knows (SpellIndex.lua), by name, by the enchant the game reports on a
+-- weapon, and by the item that puts it on.
+function ns.Coatings()
+	if ns.coatIndex then return ns.coatIndex end
+	local idx = { byName = {}, byEnchant = {}, byItem = {}, list = {} }
+	for _, row in ipairs(ns.COATINGS or {}) do
+		local c = { name = row[1], icon = (row[2] ~= 0) and row[2] or nil, enchants = {}, items = row[4] or {}, spells = row[5] or {}, shield = row[6] == true }
+		for _, e in ipairs(row[3] or {}) do
+			c.enchants[e] = true
+			if not idx.byEnchant[e] then idx.byEnchant[e] = c end
 		end
+		for _, i in ipairs(c.items) do idx.byItem[i] = c end
+		idx.byName[c.name] = c
+		idx.list[#idx.list + 1] = c
 	end
+	ns.coatIndex = idx
+	return idx
+end
+
+-- Which hand a weapon tracker watches: "main", "off", "ranged", or "either" or "both" of the two.
+ns.HAND_WORDS = { main = "main hand", off = "off hand", ranged = "ranged weapon", either = "either hand", both = "both hands" }
+function ns.TrackerHand(t)
+	if not t or t.enchant == nil then return nil end
+	if t.hand == "either" or t.hand == "both" then return t.hand end
+	local s = tonumber(t.enchant)
+	return (s == 1 and "off") or (s == 2 and "ranged") or "main"
+end
+
+-- The name a weapon tracker goes by: its coating and hand, or the hand alone for any coating.
+local ANY_COAT_NAME = { main = "Main-hand enchant", off = "Off-hand enchant", ranged = "Ranged enchant",
+	either = "Enchant on either hand", both = "Enchant on both hands" }
+function ns.CoatTrackerName(coat, hand)
+	if coat then return coat .. ": " .. (ns.HAND_WORDS[hand] or "main hand") end
+	return ANY_COAT_NAME[hand] or "Main-hand enchant"
+end
+
+function ns.SetTrackerHand(t, hand)
+	if not t or t.enchant == nil then return end
+	if hand == "either" or hand == "both" then
+		t.enchant, t.hand = 0, hand
+	else
+		t.enchant, t.hand = (hand == "off" and 1) or (hand == "ranged" and 2) or 0, nil
+	end
+	t.name = ns.CoatTrackerName(t.coat, ns.TrackerHand(t))
+	if not t.coat then t.icon = WeaponIcon(tonumber(t.enchant) or 0) or t.icon end
+end
+
+function ns.SetTrackerCoat(t, coat)
+	if not t or t.enchant == nil then return end
+	local c = coat and ns.Coatings().byName[coat]
+	t.coat = c and coat or nil
+	t.name = ns.CoatTrackerName(t.coat, ns.TrackerHand(t))
+	t.icon = (c and c.icon) or WeaponIcon(tonumber(t.enchant) or 0) or t.icon
+end
+
+-- What one weapon has on it now, read from the game, kept by enchant: its time left, charges and
+-- icon, and its length. The length is the longest time left ever seen for that coating (remembered
+-- across sessions, so a reload part way through still scales the bar right); a coating put on again
+-- starts its reading over. Every reading updates what is kept for that weapon, whichever tracker
+-- asked, so two trackers on one weapon never undo each other. Nil when the game did not say.
+local function WeaponNow(slot, now)
 	if not (C_Item and C_Item.GetWeaponEnchantInfo) then return nil end
 	local ok, list = pcall(C_Item.GetWeaponEnchantInfo, slot)
 	list = ok and Clean(list) or nil
-	if type(list) ~= "table" then return Carried() end
-	local readable = true
+	if type(list) ~= "table" then return nil end
+	local found, readable = {}, true
 	for _, raw in pairs(list) do
 		local e = Clean(raw)
 		if type(e) == "table" then
 			local has = Clean(e.hasEnchant)
 			if has == nil then readable = false end
 			if has == true then
-				local left, charges, id = Clean(e.timeLeft), Clean(e.charges), Clean(e.enchantID)
-				if type(left) ~= "number" then return Carried() end
-				if t.enchantID == nil or t.enchantID == id then
-					local secs = left / 1000
-					-- The length is the time left when this enchant was first seen, and a new one
-					-- (another enchant, or the same one put on again) starts it over.
-					if not seen or seen.id ~= id or secs > (seen.left or 0) + 1 then
-						seen = { id = id, duration = secs }
-						enchantSeen[slot] = seen
-					end
-					seen.left, seen.expires, seen.count = secs, now + secs, type(charges) == "number" and charges or 0
-					return { name = t.name, icon = WeaponIcon(slot) or t.icon, kind = "buff", count = seen.count,
-						duration = seen.duration, expires = seen.expires, mine = true }
-				end
+				local left, charges, id, icon = Clean(e.timeLeft), Clean(e.charges), Clean(e.enchantID), Clean(e.enchantIconID)
+				if type(left) ~= "number" then return nil end
+				found[#found + 1] = { id = id, left = left / 1000, charges = (type(charges) == "number") and charges or 0,
+					icon = (type(icon) == "number" and icon > 0) and icon or nil }
 			end
 		end
 	end
-	if not readable then return Carried() end
-	enchantSeen[slot] = nil
-	return nil
+	if not readable and #found == 0 then return nil end
+	local lens = ns.db and ns.db.coatLen
+	if ns.db and not lens then lens = {} ns.db.coatLen = lens end
+	local kept, fresh = enchantSeen[slot] or {}, {}
+	for _, e in ipairs(found) do
+		local key = e.id or 0
+		-- Every rank of a coating lasts as long, so its length is kept under the coating's name.
+		local coat = ns.Coatings().byEnchant[key]
+		local lenKey = coat and coat.name or key
+		local known = lens and tonumber(lens[lenKey]) or 0
+		if lens and e.left > known then known = floor(e.left + 0.5) lens[lenKey] = known end
+		local k = kept[key]
+		if not k or e.left > (k.left or 0) + 1 then k = { duration = max(e.left, known) } end
+		-- Learned longer since (on the other hand, say): every reading of it uses that.
+		k.duration = max(k.duration or 0, known, e.left)
+		k.id, k.slot, k.left, k.expires, k.count, k.icon = e.id, slot, e.left, now + e.left, e.charges, e.icon
+		fresh[key] = k
+	end
+	enchantSeen[slot] = fresh
+	return fresh
+end
+
+-- Does what is on a weapon count for this tracker: any coating, or the one it names.
+local function CoatMatches(t, k)
+	if t.coat then
+		local c = ns.Coatings().byName[t.coat]
+		return (c and k.id and c.enchants[k.id]) and true or false
+	end
+	return true
+end
+
+-- A weapon tracker's reading: from one weapon, or from both hands. "Either" is lit while one hand has
+-- it and shows whichever runs out first; "both" only while both have it, with the shorter time.
+function ns.EnchantFor(t)
+	local slot = tonumber(t.enchant)
+	if not slot then return nil end
+	local now = GetTime()
+	local slots = (t.hand == "either" or t.hand == "both") and { 0, 1 } or { slot }
+	local best, stale
+	for _, s in ipairs(slots) do
+		local kept, old = WeaponNow(s, now), false
+		-- The game did not say: carry on from what was read before, while it lasts.
+		if kept == nil then kept, old = enchantSeen[s], true end
+		local hit
+		for _, k in pairs(kept or {}) do
+			if (not old or k.expires > now) and CoatMatches(t, k) then hit = k break end
+		end
+		if hit then
+			if not best or hit.expires < best.expires then best, stale = hit, old end
+		elseif t.hand == "both" then
+			return nil
+		end
+	end
+	if not best then return nil end
+	local c = t.coat and ns.Coatings().byName[t.coat]
+	local icon = (c and (best.icon or c.icon)) or WeaponIcon(best.slot or slot) or t.icon
+	return { name = t.name, icon = icon, kind = "buff", count = best.count or 0, duration = best.duration,
+		expires = best.expires, mine = true, stale = stale or nil, slot = best.slot or slot }
+end
+
+-- What a coating tracker says while its coating is not where it looks.
+function ns.CoatAbsentWords(t)
+	local hand = ns.TrackerHand(t)
+	if not (t and t.coat) then return "No temporary enchant" end
+	if hand == "both" then return t.coat .. " is not on both hands" end
+	if hand == "either" then return t.coat .. " is on neither hand" end
+	return t.coat .. " is not on your " .. (ns.HAND_WORDS[hand] or "weapon")
 end
 
 -- A swing: the game says when one starts and how long it takes; nothing else is known until the next.
@@ -3033,6 +3140,8 @@ events:SetScript("OnEvent", function(_, event, a1, a2, a3)
 	elseif event == "SPELLS_CHANGED" then
 		-- A racial can arrive with a level, or late at login.
 		if ns.LearnRacials then pcall(ns.LearnRacials) end
+		-- So can a shaman's imbue, which the book offers as a coating.
+		if ns.RefreshBagPage then ns.RefreshBagPage() end
 		if ns.QueueSpellCooldownRows then ns.QueueSpellCooldownRows() end
 		ns.LearnBookRanks()
 		ns.ReadTalents()
@@ -3273,7 +3382,7 @@ local function Parse(s, pos)
 	end
 end
 
-local TRACKER_KEYS = { "name", "id", "icon", "kind", "matchId", "show", "mine", "label", "unit", "warn", "cond", "snd", "cd", "item", "glow", "enchant", "swing", "dispel" }
+local TRACKER_KEYS = { "name", "id", "icon", "kind", "matchId", "show", "mine", "label", "unit", "warn", "cond", "snd", "cd", "item", "glow", "enchant", "swing", "dispel", "coat", "hand" }
 
 local function CopyTracker(t)
 	local c = {}
@@ -3373,7 +3482,7 @@ function ns.Import(text)
 		src = { name = Str(src.name), id = Num(src.id), icon = Num(src.icon) or Str(src.icon), kind = src.kind, item = src.item, cd = src.cd,
 			matchId = src.matchId, show = src.show, mine = src.mine, label = src.label, unit = src.unit, warn = Num(src.warn),
 			cond = CleanCond(src.cond), snd = CleanSounds(src.snd), glow = src.glow, enchant = src.enchant, swing = src.swing,
-			dispel = ns.DISPEL_VALUES[Str(src.dispel) or ""] and src.dispel or nil }
+			dispel = ns.DISPEL_VALUES[Str(src.dispel) or ""] and src.dispel or nil, coat = Str(src.coat), hand = Str(src.hand) }
 		if (src.enchant ~= nil or src.swing ~= nil) and not src.name then return nil end
 		local t = ns.NewTracker({ name = src.name, id = src.id, icon = src.icon, kind = src.kind or "any",
 			item = tonumber(src.item), cd = (src.cd or tonumber(src.item)) and true or nil, matchDispel = src.dispel })
@@ -3391,6 +3500,12 @@ function ns.Import(text)
 		if t.dispel then t.show, t.matchId, t.snd, t.id = "active", false, nil, nil end
 		local function WeaponSlot(v) v = tonumber(v) return (v == 0 or v == 1 or v == 2) and v or nil end
 		t.enchant, t.swing = WeaponSlot(src.enchant), WeaponSlot(src.swing)
+		-- A coating by a name this client knows, and either or both hands.
+		if t.enchant ~= nil then
+			t.coat = (src.coat and ns.Coatings().byName[src.coat]) and src.coat or nil
+			t.hand = (src.hand == "either" or src.hand == "both") and src.hand or nil
+			if t.hand then t.enchant = 0 end
+		end
 		return t
 	end
 	if data.kind == "group" and type(data.group) == "table" then

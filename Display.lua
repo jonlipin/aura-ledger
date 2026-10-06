@@ -1519,7 +1519,13 @@ local function WidgetTooltip(w)
 	GameTooltip:SetOwner(w, "ANCHOR_RIGHT")
 	local shown = false
 	if t.enchant ~= nil or t.swing ~= nil then
-		local slot = ns.WEAPON_INV_SLOT and ns.WEAPON_INV_SLOT[t.enchant or t.swing]
+		-- Either or both hands: the weapon the reading comes from.
+		local which = t.enchant or t.swing
+		if t.hand then
+			local e0 = ns.Find(t)
+			which = (e0 and e0.slot) or which
+		end
+		local slot = ns.WEAPON_INV_SLOT and ns.WEAPON_INV_SLOT[which]
 		if slot and GameTooltip.SetInventoryItem then
 			shown = pcall(GameTooltip.SetInventoryItem, GameTooltip, "player", slot) and GameTooltip:NumLines() > 0
 		end
@@ -1561,7 +1567,7 @@ local function WidgetTooltip(w)
 		elseif entry then
 			GameTooltip:AddLine("On", 0.4, 1, 0.4)
 		else
-			GameTooltip:AddLine(t.enchant ~= nil and "No temporary enchant" or "No swing under way", 1, 0.4, 0.4)
+			GameTooltip:AddLine(t.enchant ~= nil and ns.CoatAbsentWords(t) or "No swing under way", 1, 0.4, 0.4)
 		end
 	elseif entry then
 		if left and left > 0 then

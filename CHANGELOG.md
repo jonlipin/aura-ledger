@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.85.0
+
+- New: track a weapon coating by name, on the hand you choose. Every oil, stone, poison and fishing lure in your bags, and every imbue a shaman knows, now has its own rows in the book's **What you are carrying** chapter: one for your main hand and, while you hold a weapon there, one for your off hand. Instant Poison on the main hand and Deadly Poison on the off hand, or Windfury on one weapon and Flametongue on the other, are each a tracker of their own, with the time left and the charges, counting through a fight. Every rank of a coating counts.
+- Set to **Missing**, a coating tracker shows when that coating wears off, or when another coating has taken its place on that hand.
+- A coating tracker's **Weapon** is the main hand, the off hand, the ranged weapon, **Either hand** (lit while one hand has it, showing whichever runs out first) or **Both hands** (lit only while both do, with the shorter time). Its **Coating** is any coating at all, as the plain Main-hand enchant rows have always been, or one by name.
+- An oil, stone, poison or lure in your bags is no longer offered as a cooldown tracker, which never showed anything since they have no cooldown: its coating rows take its place, and searching the book for its name finds them. A shield coating is offered for your off hand while you hold a shield, and a worn fishing hat keeps its own row and offers its lure. A shaman's newly trained imbue appears at once.
+- A coating tracker's coating and hand come along when you export it, import it or copy a profile to another character, and its tooltip says which coating is missing, and from which hand.
+- How long a coating lasts is learned the first time it is seen freshly put on and kept, so after a reload part way through, the time bar still reads right.
+
 ## 1.84.0
 
 - New: reorganize your trackers by dragging them in the **Groups and trackers** list. Drag a tracker's row up or down: a gold line shows exactly where it will land between two trackers, a group's name lights up when it would go to the end of that group, and while you hold a tracker the list ends in a **New group** row for a group of its own. Let go anywhere else on the window and nothing moves.

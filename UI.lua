@@ -1542,7 +1542,7 @@ local function CreateBookTab(holder, pane, token, index)
 			GameTooltip:AddLine("Food, drink and the usual lockout debuffs.", nil, nil, nil, true)
 		elseif token == "BAGS" then
 			GameTooltip:SetText("What you are carrying", 1, 1, 1)
-			GameTooltip:AddLine("Everything in your bags or worn that has a use on it. A tracker made from one of these follows the item's cooldown, which this client lets an addon read straight through a fight.", 0.8, 0.8, 0.8, true)
+			GameTooltip:AddLine("Your weapons, the coatings you could put on them (oils, stones, poisons, lures and imbues, with their time left and charges), and everything else in your bags or worn that has a use on it, for its cooldown, which this client lets an addon read straight through a fight.", 0.8, 0.8, 0.8, true)
 		elseif token == "RACIAL" then
 			GameTooltip:SetText("Racials", 1, 1, 1)
 			GameTooltip:AddLine("The buffs your race gives you, labelled by race, and your own racials that have a cooldown.", nil, nil, nil, true)
@@ -2510,7 +2510,32 @@ local function BuildTrackerPanel(width)
 	b:AppliesWhen(function() return OnTarget() and not TrackerGetsSlot() and not TrackerInAnyOne() end)
 	b:Note("This tracker follows an item's cooldown. An item has no aura of its own to watch, so there is nothing to choose: to watch the buff it gives, add that buff by name from the book.")
 	b:AppliesWhen(TrackerIsItem)
-	b:Note("This tracker follows your weapon's temporary enchant: an oil, stone, poison or imbue. It is not an aura, so the addon reads it from the weapon itself, in a fight too.")
+	b:Note("This tracker follows a coating on your weapon: an oil, stone, poison, lure or imbue. It is not an aura, so the addon reads it from the weapon itself, with its time left and charges, in a fight too.")
+	b:AppliesWhen(function() local t = T() return t and t.enchant ~= nil end)
+	b:Cycle("Weapon", { { "main", "Main hand" }, { "off", "Off hand" }, { "either", "Either hand" }, { "both", "Both hands" }, { "ranged", "Ranged" } },
+		function() local t = T() return t and ns.TrackerHand(t) or "main" end,
+		function(v) local t = T() if t then ns.SetTrackerHand(t, v) TrackerChanged() b:Sync() UI:RefreshTree() end end,
+		"Main hand, off hand or ranged: that weapon. Either hand: lit while at least one hand has it, with the time and charges of whichever runs out first; set to Missing, it shows when neither hand has it. Both hands: lit only while both have it, with the shorter time; set to Missing, it shows when either hand lacks it.")
+	b:AppliesWhen(function() local t = T() return t and t.enchant ~= nil end)
+	-- The coatings offered: any, the one this tracker has, and those you carry or know, refreshed each
+	-- time the button asks.
+	local coatChoices = {}
+	b:Cycle("Coating", coatChoices,
+		function()
+			local t = T()
+			for i = #coatChoices, 1, -1 do coatChoices[i] = nil end
+			coatChoices[1] = { "", "Any coating" }
+			local listed = {}
+			for _, c in ipairs(ns.CoatingsAtHand and ns.CoatingsAtHand() or {}) do
+				coatChoices[#coatChoices + 1] = { c.name, c.name }
+				listed[c.name] = true
+			end
+			-- One it watches that you no longer carry stays on the list, last, so the order never shifts.
+			if t and t.coat and not listed[t.coat] then coatChoices[#coatChoices + 1] = { t.coat, t.coat } end
+			return t and t.coat or ""
+		end,
+		function(v) local t = T() if t then ns.SetTrackerCoat(t, v ~= "" and v or nil) TrackerChanged() b:Sync() UI:RefreshTree() end end,
+		"Any coating: whatever is on that weapon. A coating by name (every rank of it): lit only while that one is on, so set to Missing it also shows when another coating has taken its place. Offered here are the ones in your bags and the imbues you know.")
 	b:AppliesWhen(function() local t = T() return t and t.enchant ~= nil end)
 	b:Note("This tracker shows the time to your next swing, from the game's own swing event, and is empty between fights. The game also has a swing timer of its own, under Edit Mode.")
 	b:AppliesWhen(function() local t = T() return t and t.swing ~= nil end)
