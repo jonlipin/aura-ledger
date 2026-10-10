@@ -200,6 +200,7 @@ local function Bar()
 		end
 	end)
 	bar:Hide()
+	if ns.SkinProgressBar then ns.SkinProgressBar(bar) end
 	return bar
 end
 

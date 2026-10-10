@@ -487,6 +487,9 @@ function ns.InitDB(atLoad)
 	db.nextUid = db.nextUid or 1
 	if db.minimapShown == nil then db.minimapShown = true end
 	db.minimapAngle = db.minimapAngle or 200
+	-- The window style (Styles.lua): Automatic, Blizzard or Dark, and how opaque Dark is.
+	if db.style ~= "auto" and db.style ~= "blizzard" and db.style ~= "dark" then db.style = "auto" end
+	if type(db.darkAlpha) ~= "number" then db.darkAlpha = 0.92 end
 	ns.db = db
 	ns.Migrate(db)
 	-- Empty profiles made under "Unknown" while the client had no name yet.
@@ -3761,6 +3764,11 @@ function ns.CheckCooldownManager()
 	local kept = on == false and ns.Display and ns.Display.HaveShape and ns.Display.HaveShape()
 	ns.report["cooldown manager switch"] = (on == true and "on") or (kept and "off: the look read earlier is kept until a reload")
 		or (on == false and "off: the look falls back to plain stand-ins") or "the client will not say"
+	-- A drawn window style gives the trackers its own flat look, which needs nothing from the manager.
+	if on == false and ns.TrackerLook and ns.TrackerLook() then
+		ns.report["cooldown manager switch"] = "off, not needed: the window style draws the trackers"
+		return
+	end
 	if on ~= false or cdmToldOff then return end
 	if InCombatLockdown and InCombatLockdown() then
 		ns.cdmCheckPending = true
@@ -3810,6 +3818,7 @@ local function Help()
 	Print("  /auraledger edit - turn arranging on or off: drag trackers about and click one to change it")
 	Print("  /auraledger minimap - show or hide the minimap button")
 	Print("  /auraledger plainbook - switch the book between parchment and a plain dark page")
+	Print("  /auraledger style [auto|blizzard|dark] - the window style: Automatic (EllesmereUI when it is running), Blizzard or Dark")
 	Print("  /auraledger sound test | clear - play each sound the game can make, or remove the ones registered with it")
 	Print("  /auraledger log - a log to copy and send with a bug report; log start records step by step, log stop ends it")
 	Print("  /auraledger debug - what this client let the addon read (send this with a bug report)")
@@ -4146,6 +4155,8 @@ SlashCmdList.AURALEDGER = function(msg)
 			ns.db.unlocked = on
 			if ns.Display then ns.Display:Rebuild() end
 		end
+	elseif cmd == "style" then
+		if ns.StyleCommand then ns.StyleCommand(rest) else Print("The window styles are not loaded.") end
 	elseif cmd == "minimap" then
 		ns.db.minimapShown = not ns.db.minimapShown
 		if ns.UI and ns.UI.UpdateMinimapButton then ns.UI:UpdateMinimapButton() end

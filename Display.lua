@@ -98,8 +98,8 @@ local function SlotTimeFormatter()
 	return slotTimeFormatter
 end
 
--- A colour for the countdown that the game picks from the time left: the text's own colour, and red
--- once less than the warn time is left. One per warn time and colour, shared, and never changed
+-- A color for the countdown that the game picks from the time left: the text's own color, and red
+-- once less than the warn time is left. One per warn time and color, shared, and never changed
 -- once handed over.
 local warnCurves = {}
 local function SlotWarnCurve(warn, r, g, b)
@@ -116,11 +116,11 @@ local function SlotWarnCurve(warn, r, g, b)
 		end)
 	end
 	warnCurves[key] = ok and curve or false
-	if not ok then ns.report["slot warn colour"] = "not available: " .. tostring(curve) end
+	if not ok then ns.report["slot warn color"] = "not available: " .. tostring(curve) end
 	return ok and curve or nil
 end
 
--- Hands a slot its countdown text: our format, and the warning colour when there is a warn time.
+-- Hands a slot its countdown text: our format, and the warning color when there is a warn time.
 -- A client that refuses an option still gets the rest, and at worst the game's own text.
 local function BindSlotTime(button, fs, warn, r, g, b)
 	local fmt = SlotTimeFormatter()
@@ -130,15 +130,15 @@ local function BindSlotTime(button, fs, warn, r, g, b)
 	if fmt then opts.textFormatter = fmt end
 	if curve then opts.textColor = { curve = curve, property = prop } end
 	if next(opts) and pcall(button.SetDurationText, button, fs, opts) then
-		ns.report["slot time text"] = "the addon's format" .. (curve and ", with the warning colour" or "")
+		ns.report["slot time text"] = "the addon's format" .. (curve and ", with the warning color" or "")
 		return
 	end
 	if curve and fmt and pcall(button.SetDurationText, button, fs, { textFormatter = fmt }) then
-		ns.report["slot time text"] = "the addon's format; the game refused the warning colour"
+		ns.report["slot time text"] = "the addon's format; the game refused the warning color"
 		return
 	end
 	if curve and fmt and pcall(button.SetDurationText, button, fs, { textColor = opts.textColor }) then
-		ns.report["slot time text"] = "the game's own format, with the warning colour; the game refused the addon's format"
+		ns.report["slot time text"] = "the game's own format, with the warning color; the game refused the addon's format"
 		return
 	end
 	pcall(button.SetDurationText, button, fs)
@@ -181,7 +181,7 @@ local function Plain(...)
 end
 
 -- The Cooldown Manager's frames follow your auras, so while the game is hiding auras (and in a
--- fight) their sizes, places and colours can come back hidden. They are only measured outside that.
+-- fight) their sizes, places and colors can come back hidden. They are only measured outside that.
 local function ManagerUnsafe()
 	if InCombatLockdown and InCombatLockdown() then return true end
 	return (ns.AurasSecret and ns.AurasSecret()) and true or false
@@ -638,6 +638,8 @@ local skin
 -- everywhere else in the game; the client's own frame atlas and the Cooldown Manager's overlay are
 -- both, on this client, the shape of a tab, rounded along the top and flat along the bottom.
 local function BorderMode()
+	-- In a drawn window style every icon wears the thin edge, whatever was picked for the manager's look.
+	if skin and skin.flat then return "clean" end
 	local m = ns.db and ns.db.iconBorder
 	if m == "client" or m == "cdm" or m == "none" then return m end
 	return "clean"
@@ -939,7 +941,8 @@ local function ShapeShadow(w, icon, size, want)
 	-- is drawn over the picture rather than under it.
 	local have = s and s.shape and (#(s.shape.under or {}) > 0 or #(s.shape.over or {}) > 0)
 	local atlas = ShadowArt()
-	local on = want and not have and atlas ~= nil
+	-- The flat look has no shadow: it is the manager's art.
+	local on = want and not have and atlas ~= nil and not (s and s.flat)
 	local tex = w.shapeShadow
 	if not on then
 		if tex then tex:Hide() end
@@ -1096,6 +1099,12 @@ end
 
 local function BuildSkin()
 	if skin then return skin end
+	-- A drawn window style (Dark, EllesmereUI) gives the trackers its flat look instead of the manager's.
+	local flat = Display.FlatSkin and Display.FlatSkin()
+	if flat then
+		skin, shapeInHand = flat, false
+		return flat
+	end
 	local withoutManager = ManagerUnsafe()
 	local s
 	local donor = ViewerDonor(BuffBarCooldownViewer)
@@ -1195,6 +1204,41 @@ local function BuildSkin()
 	return s
 end
 Display.BuildSkin = BuildSkin
+
+-- The trackers in a drawn window style: a square picture with a thin black edge, and a flat bar in
+-- the style's accent on a black backing, in the style's font. The addon's cells and the game's slots
+-- are both dressed from this, as they are from the manager's art, so the two look the same. Nothing
+-- is read off the Cooldown Manager, and nothing off an aura.
+function Display.FlatSkin()
+	local look = ns.TrackerLook and ns.TrackerLook()
+	if not look then return nil end
+	local trim = { 0.08, 0.92, 0.08, 0.92 }
+	local s = { source = "flat, for the " .. tostring(look.name) .. " window style", flat = true,
+		fill = { file = look.bar or BAR_TEXTURE, coords = { 0, 1, 0, 1 } }, decor = {}, iconDecor = {}, soloIconDecor = {},
+		tint = false, fillColor = look.accent, iconCoords = trim, soloIconCoords = trim,
+		-- Made in a fight, the slots keep their old dress until it ends: AfterCombat builds them again.
+		withoutManager = ManagerUnsafe() or nil }
+	if look.font then
+		s.nameFont = { file = look.font, size = 0.5, flags = "OUTLINE" }
+		s.durFont = { file = look.font, size = 0.5, flags = "OUTLINE" }
+	end
+	ns.report["bar skin"] = s.source
+	ns.report["icon skin"] = "flat: square, with a thin black edge"
+	ns.report["icon shape"] = "none: the window style draws the icons square"
+	return s
+end
+
+-- A window style has just been drawn: the trackers take its look. Their cells are dressed again,
+-- and the game's slots are made again (out of a fight; in one, once it is over), since a slot the
+-- game has been handed cannot be changed.
+function Display:RestyleTrackers()
+	if not skin or skin.flat then return false end
+	skin = nil
+	ns.MASK_EPOCH = (ns.MASK_EPOCH or 0) + 1
+	self:Rebuild()
+	return true
+end
+
 Display.HaveShape = function() return HaveShape() end
 Display.IconCrop = IconCrop
 Display.BorderMode = BorderMode
@@ -1617,7 +1661,8 @@ local function PlaceBarFrame(w, ref, height, want)
 		end
 		-- A light line, not a dark one: a bar's own plate is black, and a dark frame on it is
 		-- nothing at all. Drawn just outside the bar, so it reads against the plate and the world.
-		tex:SetColorTexture(0.62, 0.56, 0.44, 0.95)
+		-- In a drawn window style it is the style's black edge, as round its windows and icons.
+		if skin and skin.flat then tex:SetColorTexture(0, 0, 0, 1) else tex:SetColorTexture(0.62, 0.56, 0.44, 0.95) end
 		tex:ClearAllPoints()
 		if i == 1 then
 			tex:SetPoint("BOTTOMLEFT", ref, "TOPLEFT", -px, 0)
@@ -1700,6 +1745,8 @@ function Display.SkinRetryNow()
 end
 function Display:TrySkinAgain(wantBar)
 	if ManagerUnsafe() then return false end
+	-- The flat look reads nothing off the manager, so there is nothing to read again.
+	if skin and skin.flat then return false end
 	local hadBar, hadShape = HaveBarFrame(), shapeInHand
 	if (hadBar or not wantBar) and hadShape then return false end
 	local now = GetTime and GetTime() or 0
@@ -1952,7 +1999,19 @@ local function ConfigureWidget(w, g)
 	if w.configured == key then return end
 	w.configured = key
 	w.iconPx = nil
-	local s = skin
+	local s = skin or BuildSkin()
+	-- The fill and its backing are made with the widget; a new look (a window style drawn since)
+	-- puts its own on them.
+	if w.alFillFrom ~= s then
+		if w.alFillFrom then
+			if s.fill.stretch then w.fill:SetAtlas(s.fill.atlas) else w.fill:SetTexture(s.fill.file) end
+			w.fill:SetBlendMode(s.fill.blend or "BLEND")
+			if w.bar.bg then w.bar.bg:SetColorTexture(0, 0, 0, (#s.decor > 0) and 0.25 or 0.55) end
+			-- A square swipe on a square picture: what the manager's rounded look had turned off.
+			if s.flat and w.cd and w.cd.SetDrawSwipe then pcall(w.cd.SetDrawSwipe, w.cd, true) end
+		end
+		w.alFillFrom = s
+	end
 	w.icon:ClearAllPoints()
 	w.time:ClearAllPoints()
 	w.count:ClearAllPoints()
@@ -1966,7 +2025,7 @@ local function ConfigureWidget(w, g)
 		-- Masked to the client's icon shape, the picture can fill its square: the mask takes the
 		-- corners off. Only where there is no mask is it pulled in under the art instead. The mask
 		-- is told the size it clips, because the icon has not been given one yet.
-		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false, IS)
+		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false and not s.flat, IS)
 		local inset = (masked or BorderMode() ~= "cdm") and 0 or IconInset(s, true, IS, g.iconFrame ~= false)
 		w.ringPx = (HaveShape() and g.iconFrame ~= false) and max(1, floor(IS / 20 + 0.5)) or 0
 		w.cellSize, w.cellBars = IS, true
@@ -2027,7 +2086,7 @@ local function ConfigureWidget(w, g)
 			w.edge:SetPoint("BOTTOMRIGHT", w.bar, "BOTTOMRIGHT", 2, -2)
 			w.edge:SetBackdrop({ edgeFile = "Interface\\Tooltips\\UI-Tooltip-Border", edgeSize = edgeSize })
 			w.edge:SetBackdropBorderColor(0.9, 0.8, 0.5)
-			w.edge:SetShown(g.border ~= false)
+			w.edge:SetShown(g.border ~= false and not s.flat)
 		end
 		w.bar.spark:SetHeight(H * 1.8)
 		local px = max(8, min(14, floor(H * 0.52)))
@@ -2047,7 +2106,7 @@ local function ConfigureWidget(w, g)
 		w.count:SetPoint("BOTTOMRIGHT", w.icon, "BOTTOMRIGHT", -1, 1)
 	else
 		local S = g.size
-		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false, S)
+		local masked = ns.SetIconMask(w, w.icon, g.iconFrame ~= false and not s.flat, S)
 		local inset = (masked or BorderMode() ~= "cdm") and 0 or IconInset(s, false, S, g.iconFrame ~= false)
 		-- Room for the ring, kept until there is a ring to show: see SizeIconForRing.
 		w.ringPx = (HaveShape() and g.iconFrame ~= false) and max(1, floor(S / 20 + 0.5)) or 0
@@ -2535,7 +2594,7 @@ local function InitSlotFrame(g, mode, filter, store, opts)
 		local icon = button:CreateTexture(nil, "ARTWORK")
 		local c = IconCrop((bars and s.iconCoords) or s.soloIconCoords or s.iconCoords)
 		icon:SetTexCoord(c[1], c[2], c[3], c[4])
-		local masked = g.iconFrame ~= false and ns.SetIconMask(button, icon, true, IS)
+		local masked = g.iconFrame ~= false and not s.flat and ns.SetIconMask(button, icon, true, IS)
 		local inset = (masked or BorderMode() ~= "cdm") and 0 or IconInset(s, bars, IS, g.iconFrame ~= false)
 		-- The same mask as the cell underneath, but the cell's full size: the ring that carries the
 		-- missing color is a band round the outside of a cell, and an icon pulled in off that band
@@ -2590,7 +2649,7 @@ local function InitSlotFrame(g, mode, filter, store, opts)
 		pcall(button.SetApplicationCount, button, count)
 		-- The border by dispel type, when the group asks for it, and always on a dispel tracker. The
 		-- game hides it on buffs unless told to show it there, which the old border never was, so it
-		-- never showed. The game draws its own border in the type's colour and nothing about it is
+		-- never showed. The game draws its own border in the type's color and nothing about it is
 		-- read back.
 		if g.dispelColors or opts.dispelRing then
 			local okB, why = pcall(function()
@@ -3075,7 +3134,7 @@ Display.memberJobs = {}
 local jobIndex = {}
 
 -- A question about a member, asked safely: nil when the call fails or the answer is hidden. A hidden
--- answer is only ever recognised, never tested.
+-- answer is only ever recognized, never tested.
 local function Ask(fn, ...)
 	if type(fn) ~= "function" then return nil end
 	local ok, v = pcall(fn, ...)
@@ -3973,8 +4032,8 @@ function Display:RefreshMembers(g)
 				end
 			end
 		end
-		local centred = g.grow == "CENTER_H" or g.grow == "CENTER_V"
-		local both = unlocked and plan.raid and not centred
+		local centered = g.grow == "CENTER_H" or g.grow == "CENTER_V"
+		local both = unlocked and plan.raid and not centered
 		SizeMembers(f, g, plan, (plan.raid and (both or m.set == "raid")) and "raid" or "party", both)
 	end
 	f.chrome:SetShown(unlocked)
@@ -4663,7 +4722,7 @@ function Display:RefreshGroup(g)
 			local spec = passes and SlotSpec(t, g)
 			slots = spec and TrackerSlots(f, g, t, spec)
 		end
-		-- A slot tracker's warning is the colour of its countdown; it is never brought on screen early,
+		-- A slot tracker's warning is the color of its countdown; it is never brought on screen early,
 		-- so its "shown" sound does not come early either.
 		local soundShow = show
 		if slots and expiring and t.show == "missing" then soundShow = (entry == nil) end
@@ -5069,7 +5128,7 @@ function Display:DrawGrid()
 		tex.kind, tex.vertical, tex.pos = kind, vertical, pos
 		tex:Show()
 	end
-	-- Measured out from the middle, so the centre cross always falls on a line.
+	-- Measured out from the middle, so the center cross always falls on a line.
 	local nx, ny = floor(cx / size), floor(cy / size)
 	for i = -nx, nx do
 		Line(true, cx + i * size, (i == 0) and "center" or ((i % GRID_MAJOR == 0) and "major" or "minor"))
@@ -5135,8 +5194,8 @@ end
 function Display:GridFrame() return gridFrame end
 
 -- How close a box's middle has to come to the middle of the screen to be put there: half a grid
--- step, so the lines either side of the centre keep their own share, and never more than this.
-local CENTRE_MAX = 12
+-- step, so the lines either side of the center keep their own share, and never more than this.
+local CENTER_MAX = 12
 -- How far apart the other way a tracker inside a group can be and still offer its middle to line up
 -- with. A group's outline counts from anywhere; the trackers inside groups far away would only be a
 -- dense row of magnets.
@@ -5185,22 +5244,22 @@ end
 local function Pairs(a, z, lo, hi, targets, ka, kz, klo, khi, c)
 	local m = (a + z) / 2
 	local out = {}
-	local function Add(p, line, gap, kind, centred)
-		out[#out + 1] = { d = line - p, line = line, gap = gap, kind = kind, centred = centred }
+	local function Add(p, line, gap, kind, centered)
+		out[#out + 1] = { d = line - p, line = line, gap = gap, kind = kind, centered = centered }
 	end
-	Add(a, c, -1, "centre")
-	Add(z, c, -1, "centre")
+	Add(a, c, -1, "center")
+	Add(z, c, -1, "center")
 	for _, tb in ipairs(targets) do
 		local gap = SpanGap(lo, hi, tb[klo], tb[khi])
 		local ta, tz = tb[ka], tb[kz]
 		local tm = (ta + tz) / 2
 		if tb.whole then
-			local centred = abs(tm - c) < 0.01
-			Add(a, ta, gap, "edge", centred)
-			Add(a, tz, gap, "edge", centred)
-			Add(m, tm, gap, "middle", centred)
-			Add(z, ta, gap, "edge", centred)
-			Add(z, tz, gap, "edge", centred)
+			local centered = abs(tm - c) < 0.01
+			Add(a, ta, gap, "edge", centered)
+			Add(a, tz, gap, "edge", centered)
+			Add(m, tm, gap, "middle", centered)
+			Add(z, ta, gap, "edge", centered)
+			Add(z, tz, gap, "edge", centered)
 		elseif gap <= NEAR_DIST then
 			Add(m, tm, gap, "middle", false)
 		end
@@ -5209,59 +5268,59 @@ local function Pairs(a, z, lo, hi, targets, ka, kz, klo, khi, c)
 end
 
 -- One way across the screen. Returns the nudge and where the guide goes, either of them nil for none.
--- reach is how close the middle has to come to the centre c, edgeReach how close an edge has to come
+-- reach is how close the middle has to come to the center c, edgeReach how close an edge has to come
 -- to it, and size the grid step, or nil with Snap to grid off.
 local function SnapAxis(a, z, lo, hi, targets, ka, kz, klo, khi, c, reach, edgeReach, size)
 	local pairs_, m = Pairs(a, z, lo, hi, targets, ka, kz, klo, khi, c)
-	-- A line that is not the centre but sits within CENTRE_MAX of it is left out, at every grid size:
+	-- A line that is not the center but sits within CENTER_MAX of it is left out, at every grid size:
 	-- all it could do is put a guide a few units beside the red one, which is what looked broken. The
-	-- edges of a neighbour that is itself centred are kept, since they are where that neighbour is.
+	-- edges of a neighbour that is itself centered are kept, since they are where that neighbour is.
 	local function Allowed(pr)
-		if pr.kind == "centre" or pr.centred then return true end
+		if pr.kind == "center" or pr.centered then return true end
 		local off = abs(pr.line - c)
-		return off < 0.01 or off > CENTRE_MAX
+		return off < 0.01 or off > CENTER_MAX
 	end
-	local toCentre = c - m
-	-- Where something that belongs to the centre goes: its middle on the centre, or an edge of a
-	-- centred neighbour, whichever is the nearer landing, as long as the middle stays within reach.
+	local toCenter = c - m
+	-- Where something that belongs to the center goes: its middle on the center, or an edge of a
+	-- centered neighbour, whichever is the nearer landing, as long as the middle stays within reach.
 	-- Choosing the nearest of the two, rather than letting one win within some distance, is what
 	-- keeps it from going backwards as the cursor goes forwards.
-	local function Centre()
-		local best, at = toCentre, c
+	local function Center()
+		local best, at = toCenter, c
 		for _, pr in ipairs(pairs_) do
-			if pr.centred and pr.kind == "edge" and abs(m + pr.d - c) <= reach and abs(pr.d) < abs(best) then
+			if pr.centered and pr.kind == "edge" and abs(m + pr.d - c) <= reach and abs(pr.d) < abs(best) then
 				best, at = pr.d, pr.line
 			end
 		end
 		return best, at
 	end
-	-- Whether a nudge would leave the middle within reach of the centre, without being on it.
-	local function NearCentre(nudge)
+	-- Whether a nudge would leave the middle within reach of the center, without being on it.
+	local function NearCenter(nudge)
 		local off = abs(m + nudge - c)
 		return off > 0.01 and off <= reach
 	end
 
 	-- 1. The middle near the middle of the screen goes there, ahead of everything else.
-	if abs(toCentre) <= reach then return Centre() end
+	if abs(toCenter) <= reach then return Center() end
 
 	-- 2. Lining up, the nearest first. On a tie the middle of the screen, then whatever sits nearer
 	--    the other way, then whichever was found first. Lining up that would leave the middle within
-	--    reach of the centre goes to the centre instead, unless it is lining up with a centred
+	--    reach of the center goes to the center instead, unless it is lining up with a centered
 	--    neighbour, which is how a bar is topped off level with one.
 	local near, nearAt, nearPr
 	for _, pr in ipairs(pairs_) do
-		local limit = (pr.kind == "centre") and edgeReach or ALIGN_DIST
+		local limit = (pr.kind == "center") and edgeReach or ALIGN_DIST
 		if Allowed(pr) and abs(pr.d) <= limit then
 			local better = (near == nil) or abs(pr.d) < abs(near)
-			if not better and abs(pr.d) == abs(near) and nearPr.kind ~= "centre"
-				and (pr.kind == "centre" or pr.gap < nearPr.gap) then
+			if not better and abs(pr.d) == abs(near) and nearPr.kind ~= "center"
+				and (pr.kind == "center" or pr.gap < nearPr.gap) then
 				better = true
 			end
 			if better then near, nearAt, nearPr = pr.d, pr.line, pr end
 		end
 	end
 	if near then
-		if not nearPr.centred and NearCentre(near) then return Centre() end
+		if not nearPr.centered and NearCenter(near) then return Center() end
 		return near, nearAt
 	end
 	if not size then return nil end
@@ -5282,11 +5341,11 @@ local function SnapAxis(a, z, lo, hi, targets, ka, kz, klo, khi, c, reach, edgeR
 			end
 		end
 	end
-	-- A landing, stopped or not, that leaves the middle within reach of the centre goes to the centre;
-	-- only a stop at a centred neighbour keeps its place.
-	if not (stopPr and stopPr.centred) and NearCentre(grid) then return Centre() end
+	-- A landing, stopped or not, that leaves the middle within reach of the center goes to the center;
+	-- only a stop at a centered neighbour keeps its place.
+	if not (stopPr and stopPr.centered) and NearCenter(grid) then return Center() end
 	local after = m + grid - c
-	-- A landing on the centre line says so, as lining up does.
+	-- A landing on the center line says so, as lining up does.
 	if not guide and (abs(a + grid - c) < 0.01 or abs(after) < 0.01 or abs(z + grid - c) < 0.01) then guide = c end
 	return grid, guide
 end
@@ -5298,7 +5357,7 @@ function Display:SnapBox(box, ignoreGroup, ignoreWidget)
 	if not self:SnapActive() or not box then return 0, 0 end
 	local W, H = UIParent:GetWidth() or 0, UIParent:GetHeight() or 0
 	local step = self:GridSize()
-	local reach = min(CENTRE_MAX, step / 2)
+	local reach = min(CENTER_MAX, step / 2)
 	local edgeReach = min(ALIGN_DIST, step / 2)
 	local size = (ns.db.gridSnap ~= false) and step or nil
 	local targets = self:AlignTargets(ignoreGroup, ignoreWidget)
@@ -5350,7 +5409,7 @@ local function ShowLanding(l, t, w, h)
 end
 
 -- Where a tracker dropped in the open would land, lined up, or nothing if there is no lining up
--- to be done. It is centred on the cursor before it is lined up.
+-- to be done. It is centered on the cursor before it is lined up.
 function Display:GhostLanding(cx, cy)
 	if not self:SnapActive() then return nil end
 	local gh = self.GetGhostFrame and self:GetGhostFrame()

@@ -43,6 +43,14 @@ local function TryCreateFrame(ftype, name, parent, candidates)
 	return CreateFrame(ftype, name, parent), nil
 end
 
+-- A close X from the game's templates hides its window through HideUIPanel, which the game refuses
+-- to addon code in a fight ("Interface action blocked"), so the X did nothing there. These windows
+-- are plain frames of the addon's own: the X hides the window itself, and its OnHide still runs.
+function UI.CloseByHiding(win, button)
+	if type(button) ~= "table" or not button.SetScript then return end
+	button:SetScript("OnClick", function() win:Hide() end)
+end
+
 -- The window's icons are clipped to the client's rounded icon-frame shape, as the trackers' are.
 local ICON_MASK = ns.ICON_MASK
 local MaskIcon = ns.MaskIcon
@@ -51,11 +59,25 @@ local MaskIcon = ns.MaskIcon
 local PARCHMENT = false
 local INK = { text = { 0.18, 0.11, 0.06 }, head = { 0.18, 0.11, 0.06 }, dim = { 0.36, 0.26, 0.16 } }
 local function Ink(fs, kind)
+	-- Nearly every line of text in the window passes through here, so the window styles
+	-- (AuraLedger_Skins.lua) give it their font here too.
+	if fs and ns.SkinFont then ns.SkinFont(fs) end
 	if not PARCHMENT or not fs then return fs end
+	UI.inked[#UI.inked + 1] = fs
 	local c = INK[kind or "text"]
 	fs:SetTextColor(c[1], c[2], c[3])
 	fs:SetShadowColor(0, 0, 0, 0)
 	return fs
+end
+-- What only the parchment wears: the ink, the rules under headings, and art. A book built on
+-- parchment gives all of it up for the dark page when a window style is drawn later (UI:DropParchment).
+UI.inked, UI.parchmentLines, UI.parchmentArt = {}, {}, {}
+function UI.ParchmentArt(...)
+	if not PARCHMENT then return end
+	for i = 1, select("#", ...) do
+		local tex = select(i, ...)
+		if tex then UI.parchmentArt[#UI.parchmentArt + 1] = tex end
+	end
 end
 -- Color codes for text built from strings.
 local function InkCodes()
@@ -101,6 +123,7 @@ local function MakeButton(parent, text, width)
 	local b = TryCreateFrame("Button", nil, parent, { { "UIPanelButtonTemplate" } })
 	b:SetSize(width or 100, 22)
 	b:SetText(text)
+	if ns.SkinButton then ns.SkinButton(b) end
 	return b
 end
 
@@ -221,6 +244,7 @@ local function CreateCheck(parent)
 	-- Own label: the templates disagree about where theirs lives.
 	cb.label = Ink(parent:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall"))
 	cb.label:SetPoint("LEFT", cb, "RIGHT", 1, 0)
+	if ns.SkinCheck then ns.SkinCheck(cb) end
 	return cb
 end
 
@@ -317,7 +341,12 @@ function Builder:Header(text)
 	fs:SetPoint("TOPLEFT", 6, self.y)
 	fs:SetText(text)
 	local line = self:P():CreateTexture(nil, "ARTWORK")
-	if PARCHMENT then line:SetColorTexture(0.35, 0.2, 0.05, 0.5) else line:SetColorTexture(1, 0.82, 0, 0.35) end
+	if PARCHMENT then
+		line:SetColorTexture(0.35, 0.2, 0.05, 0.5)
+		UI.parchmentLines[#UI.parchmentLines + 1] = line
+	else
+		line:SetColorTexture(1, 0.82, 0, 0.35)
+	end
 	line:SetHeight(1)
 	line:SetPoint("TOPLEFT", 6, self.y - 15)
 	line:SetPoint("TOPRIGHT", -6, self.y - 15)
@@ -378,6 +407,7 @@ function Builder:Slider(label, opts)
 	sl:SetPoint("TOPLEFT", 10, y - 14)
 	sl:SetPoint("TOPRIGHT", -10, y - 14)
 	sl:SetHeight(16)
+	sl.alLabel, sl.alValue = fs, value
 	sl:SetMinMaxValues(opts.min, opts.max)
 	sl:SetValueStep(opts.step)
 	if sl.SetObeyStepOnDrag then sl:SetObeyStepOnDrag(true) end
@@ -528,6 +558,7 @@ function Builder:Edit(label, get, set, numeric)
 	self.syncers[#self.syncers + 1] = function()
 		if not eb:HasFocus() then eb:SetText(get() or "") end
 	end
+	if ns.SkinEditBox then ns.SkinEditBox(eb) end
 	self.y = y - (narrow and 42 or 26)
 	self:End()
 	return eb
@@ -691,12 +722,14 @@ local function Pane(parent, title, left, right, top, height)
 			plate:SetSize(360, 92)
 			plate:SetAlpha(0.65)
 			plate:SetPoint("TOPLEFT", p.title, "TOPLEFT", -52, 32)
+			UI.ParchmentArt(plate)
 		end
 		local div = p:CreateTexture(nil, "ARTWORK")
 		div:SetPoint("TOPLEFT", 4, -22)
 		div:SetPoint("TOPRIGHT", -4, -22)
 		if HasAtlas("spellbook-divider") then div:SetAtlas("spellbook-divider") div:SetHeight(11)
 		else div:SetHeight(1) div:SetColorTexture(0.35, 0.2, 0.05, 0.5) end
+		UI.ParchmentArt(div)
 		p.titleHeight = 34
 		return p
 	end
@@ -810,7 +843,7 @@ local function BookTooltip(b)
 	if h.preset then
 		GameTooltip:AddLine("Makes a group that watches your party, with the buffs your class gives them and, if your class can dispel, a tracker for something you can remove. Each member gets a row.", 0.6, 0.8, 1, true)
 	elseif h.matchDispel == "any" then
-		GameTooltip:AddLine("Lights when someone has a debuff you can remove, in the debuff's own icon with a border in its type's colour. The game decides what you can remove, all through a fight.", 0.6, 0.8, 1, true)
+		GameTooltip:AddLine("Lights when someone has a debuff you can remove, in the debuff's own icon with a border in its type's color. The game decides what you can remove, all through a fight.", 0.6, 0.8, 1, true)
 	elseif h.matchDispel then
 		GameTooltip:AddLine("Lights while there is a " .. h.matchDispel .. " on you (or, in a group that watches your party, on each member), in the debuff's own icon. The game follows it all through a fight.", 0.6, 0.8, 1, true)
 	elseif h.units then
@@ -1008,6 +1041,7 @@ local function CreateBookButton(parent, onParchment, art)
 			UI:RefreshHistory()
 		end
 	end)
+	if ns.SkinBookButton then ns.SkinBookButton(b) end
 	return b
 end
 
@@ -1262,9 +1296,11 @@ function UI.ShowCopy(title, text)
 		end)
 		edit:SetScript("OnMouseUp", function(self) self:HighlightText() end)
 		scroll:SetScrollChild(edit)
-		f.edit = edit
+		f.edit, f.scroll = edit, scroll
 		if UISpecialFrames then table.insert(UISpecialFrames, "AuraLedgerCopyFrame") end
+		UI.CloseByHiding(f, f.CloseButton)
 		copyFrame = f
+		if ns.SkinCopyWindow then ns.SkinCopyWindow(f) end
 	end
 	copyFrame.text = text or ""
 	copyFrame.heading:SetText(title or "Aura Ledger")
@@ -1385,7 +1421,8 @@ local KNOWN_ART = {
 local function SpellBookArt()
 	if bookArt ~= nil then return bookArt or nil end
 	bookArt = false
-	if ns.db.plainBook then return end
+	-- In a drawn window style (Dark, EllesmereUI) the book is a dark page with light text.
+	if ns.db.plainBook or UI.noParchment or (ns.SkinPlainBook and ns.SkinPlainBook()) then return end
 	local art = {}
 	for key, atlas in pairs(KNOWN_ART) do
 		if HasAtlas(atlas) then art[key] = atlas end
@@ -1443,6 +1480,8 @@ local function CreateBookTab(holder, pane, token, index)
 	tab:SetSize(TAB_W, TAB_H)
 	-- Above everything: the inset's own background would otherwise cover their feet and take clicks.
 	tab:SetPoint("BOTTOMLEFT", pane, "TOPLEFT", 2 + INDENT + (index - 1) * (TAB_W + TAB_GAP), 10)
+	-- Where it stands along the page, for a window style that sets it on the page's edge instead.
+	tab.alX, tab.alPane = 2 + INDENT + (index - 1) * (TAB_W + TAB_GAP), pane
 	tab:SetFrameLevel(pane:GetFrameLevel() - 1)
 	local art = SpellBookArt()
 	local back = tab:CreateTexture(nil, "BACKGROUND")
@@ -1523,6 +1562,8 @@ local function CreateBookTab(holder, pane, token, index)
 		if self.sel then self.sel:SetShown(on) end
 		if self.bevel then self.bevel:SetShown(not on) end
 		self.icon:SetAlpha(on and 1 or 0.85)
+		self.alChosen = on
+		if ns.SkinTabChosen then ns.SkinTabChosen(self, on) end
 	end
 	tab:SetChosen(false)
 	tab:SetScript("OnClick", function(self)
@@ -1566,6 +1607,7 @@ local function CreateBookTab(holder, pane, token, index)
 		GameTooltip:Show()
 	end)
 	tab:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	if ns.SkinBookTab then ns.SkinBookTab(tab) end
 	return tab
 end
 
@@ -1678,6 +1720,7 @@ local function CreateTreeRow(parent)
 	row:RegisterForDrag("LeftButton")
 	row:SetScript("OnDragStart", function(self) UI:BeginTreeDrag(self) end)
 	row:SetScript("OnDragStop", function() UI:FinishTreeDrag(true) end)
+	if ns.SkinTreeRow then ns.SkinTreeRow(row) end
 	return row
 end
 
@@ -1686,7 +1729,7 @@ end
 -- a tracker or a whole group held in the list (UI.treeDrag), an icon dragged off the screen, and a
 -- spell from the book. The same plan draws the line in the list, labels the icon on the cursor, and
 -- is what the drop then does, so what the line shows is what happens.
-local DROP_OK, DROP_GREY, DROP_RED, DROP_NOTE = "|cff40ff60", "|cffaaaaaa", "|cffff6060", "|cffffa040"
+local DROP_OK, DROP_GRAY, DROP_RED, DROP_NOTE = "|cff40ff60", "|cffaaaaaa", "|cffff6060", "|cffffa040"
 
 -- Does the game draw icons in this group's frame? Those cannot be moved in a fight.
 local function SlotsHeld(g)
@@ -1731,7 +1774,7 @@ local function TrackerPlan(drag, data, at, lower, item)
 		local last = data[#data]
 		plan = { kind = "new", box = (last and last.zone) and #data or nil }
 		if from and #from.trackers == 1 then
-			plan.noop, plan.label = true, DROP_GREY .. "Already a group of its own|r"
+			plan.noop, plan.label = true, DROP_GRAY .. "Already a group of its own|r"
 			return plan
 		end
 		-- Out of a group that cannot change yet, nothing goes.
@@ -1751,7 +1794,7 @@ local function TrackerPlan(drag, data, at, lower, item)
 			line = at, edge = lower and "bottom" or "top" }
 		-- Just before or just after itself is where it already is.
 		if from == g and (plan.index == ti or plan.index == ti + 1) then
-			plan.noop, plan.label = true, DROP_GREY .. "Leave it where it is|r"
+			plan.noop, plan.label = true, DROP_GRAY .. "Leave it where it is|r"
 			return plan
 		end
 		plan.label = DROP_OK .. (lower and "After " or "Before ") .. (item.t.label or item.t.name or "that tracker") .. "|r"
@@ -1759,7 +1802,7 @@ local function TrackerPlan(drag, data, at, lower, item)
 		-- On a group's name: the end of that group.
 		plan = { kind = "group", g = g, index = #g.trackers + 1, box = at }
 		if from == g and ti == #g.trackers then
-			plan.noop, plan.label = true, DROP_GREY .. "Already last in " .. ns.GroupName(g) .. "|r"
+			plan.noop, plan.label = true, DROP_GRAY .. "Already last in " .. ns.GroupName(g) .. "|r"
 			return plan
 		end
 		plan.label = DROP_OK .. ((from == g) and "To the end of " or "Add to ") .. ns.GroupName(g) .. "|r"
@@ -1798,7 +1841,7 @@ local function GroupPlan(g, data, at, pos, item)
 	end
 	local plan = { kind = "move", gindex = gi, line = line, edge = edge }
 	if not from or gi == from or gi == from + 1 then
-		plan.noop, plan.label = true, DROP_GREY .. "Leave it where it is|r"
+		plan.noop, plan.label = true, DROP_GRAY .. "Leave it where it is|r"
 		return plan
 	end
 	if not target then plan.label = DROP_OK .. "To the end of the list|r"
@@ -1883,7 +1926,7 @@ function UI:BeginTreeDrag(row)
 	else
 		local first = item.g.trackers[1]
 		UI.treeDrag = { g = item.g }
-		ns.Display:BeginGhost(first and first.icon, DROP_GREY .. "Drop it on the list to move the group|r", nil, nil, nil, true)
+		ns.Display:BeginGhost(first and first.icon, DROP_GRAY .. "Drop it on the list to move the group|r", nil, nil, nil, true)
 	end
 	-- The list gains its New group row and fades what is held.
 	UI:RefreshTree()
@@ -2049,7 +2092,7 @@ function UI:TreeDragUpdate(cx, cy, elapsed, dragT, many)
 	if many then
 		-- Several marked icons are moved on the screen, where they keep their places to each other.
 		UI:ShowTreeMarker(nil)
-		if treeList.scroll and treeList.scroll:IsMouseOver() then return DROP_GREY .. "Marked icons are moved on the screen, not in this list|r" end
+		if treeList.scroll and treeList.scroll:IsMouseOver() then return DROP_GRAY .. "Marked icons are moved on the screen, not in this list|r" end
 		return nil
 	end
 	local plan = UI:TreeDropPlan(cy, d or (dragT and { t = dragT }) or UI.bookDrag or {})
@@ -2150,6 +2193,92 @@ local function SyncOptions()
 		optionsChild:SetHeight(groupPanel.height)
 	else
 		optionsChild:SetHeight(200)
+	end
+	-- The window look is for every window, so it is always there: under the note while nothing is
+	-- picked, and under the group's or the tracker's settings otherwise.
+	local look = UI.lookPanel
+	if look then
+		UI.lookTop = (t and trackerPanel.height) or (g and groupPanel.height) or 110
+		look:ClearAllPoints()
+		look:SetPoint("TOPLEFT", 0, -UI.lookTop)
+		look:SetPoint("TOPRIGHT", 0, -UI.lookTop)
+		look:Show()
+		UI:SyncLook()
+		optionsChild:SetHeight(max(200, UI.lookTop + (look:GetHeight() or 0) + 10))
+	end
+end
+
+-- ---- The window's look, under the note shown while nothing is picked ----
+-- Window style (Automatic, Blizzard or Dark, from Styles.lua), a line saying what is in use, and
+-- the Dark style's opacity, grayed for the other styles. Built only when the styles are loaded.
+function UI:BuildLook(width)
+	local Styles = ns.Styles
+	if UI.lookPanel or not Styles or not optionsChild then return end
+	UI.lookTop = 110
+	local p = CreateFrame("Frame", nil, optionsChild)
+	p:SetPoint("TOPLEFT", 0, -UI.lookTop)
+	p:SetPoint("TOPRIGHT", 0, -UI.lookTop)
+	p:SetHeight(1)
+	UI.lookPanel = p
+	local b = NewBuilder(p, width)
+	b:Header("Window look")
+	b:Begin()
+	local styleButton = MakeButton(b:P(), "", min(240, width - 18))
+	styleButton:SetPoint("TOPLEFT", 8, b.y - 2)
+	styleButton:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	styleButton:SetScript("OnClick", function(_, button)
+		Styles.Cycle(button == "RightButton" and -1 or 1)
+		UI:SyncLook()
+	end)
+	styleButton:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText("Window style", 1, 1, 1)
+		for _, line in ipairs(Styles.HELP) do GameTooltip:AddLine(line, nil, nil, nil, true) end
+		GameTooltip:AddLine("Left-click for the next style, right-click for the previous one.", 0.6, 0.6, 0.6, true)
+		GameTooltip:Show()
+	end)
+	styleButton:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	b.y = b.y - 28
+	b:End()
+	b:DynamicNote(function() return Styles.Note() end)
+	local opacity = b:Slider("Dark background opacity", {
+		min = 0, max = 100, step = 5,
+		get = function() return floor((tonumber(ns.db.darkAlpha) or 0.92) * 100 + 0.5) end,
+		set = function(v)
+			ns.db.darkAlpha = v / 100
+			Styles.SetDarkAlpha(ns.db.darkAlpha)
+		end,
+		format = function(v) return v .. "%" end,
+	})
+	opacity:SetScript("OnEnter", function(self)
+		GameTooltip:SetOwner(self, "ANCHOR_RIGHT")
+		GameTooltip:SetText("Dark background opacity", 1, 1, 1)
+		GameTooltip:AddLine("How much of the world shows through the Dark style's windows.", nil, nil, nil, true)
+		if ns.db.style ~= "dark" then GameTooltip:AddLine("Applies to the Dark style only.", 1, 0.82, 0, true) end
+		GameTooltip:Show()
+	end)
+	opacity:SetScript("OnLeave", function() GameTooltip:Hide() end)
+	UI.lookBuilder, UI.lookStyleButton, UI.lookOpacity = b, styleButton, opacity
+	b.onRelayout = function(bottom) p:SetHeight(max(1, -bottom)) end
+	UI:SyncLook()
+end
+
+function UI:SyncLook()
+	local Styles, b = ns.Styles, UI.lookBuilder
+	if not (Styles and b) then return end
+	UI.lookStyleButton:SetText("Window style: " .. Styles.Name(ns.db.style))
+	b:Sync()
+	-- The opacity slider only means something for Dark.
+	local dark = ns.db.style == "dark"
+	local opacity = UI.lookOpacity
+	opacity:SetEnabled(dark)
+	opacity:SetAlpha(dark and 1 or 0.5)
+	if opacity.alLabel then opacity.alLabel:SetFontObject(dark and "GameFontHighlightSmall" or "GameFontDisableSmall") end
+	if opacity.alValue then opacity.alValue:SetFontObject(dark and "GameFontNormalSmall" or "GameFontDisableSmall") end
+	-- A font object brings its own face and color: the style's font goes back on, and on parchment
+	-- the ink, except while it is grayed.
+	for _, fs in ipairs({ opacity.alLabel, opacity.alValue }) do
+		if dark then Ink(fs, fs == opacity.alValue and "head" or nil) elseif fs and ns.SkinFont then ns.SkinFont(fs) end
 	end
 end
 
@@ -2289,7 +2418,7 @@ local function BuildGroupPanel(width)
 	b:Slider("Spacing", { min = 0, max = 30, step = 1, get = Num("spacing", 4), set = SetNum("spacing") })
 	b:Check("Show member names", function() local g = G() return g and g.memberNames ~= false end,
 		function(v) local g = G() if g then g.memberNames = (not v) and false or nil GroupChanged() end end,
-		"Each member's name at the start of their row, in their class colour. Hover it for what the game can see of them.")
+		"Each member's name at the start of their row, in their class color. Hover it for what the game can see of them.")
 	b:AppliesWhen(IsMembers)
 	b:Slider("Members before wrapping", { min = 1, max = 40, step = 1, get = Num("perColumn", 10), set = SetNum("perColumn") })
 	b:AppliesWhen(IsRaidScope)
@@ -2339,9 +2468,9 @@ local function BuildGroupPanel(width)
 	b:Check("Icon frame", function() local g = G() return g and g.iconFrame ~= false end,
 		function(v) local g = G() if g then g.iconFrame = v GroupChanged() end end,
 		"The decorative frame around each icon, when the client has one.")
-	b:Check("Colour the border by dispel type", function() local g = G() return g and g.dispelColors end,
+	b:Check("Color the border by dispel type", function() local g = G() return g and g.dispelColors end,
 		function(v) local g = G() if g then g.dispelColors = v or nil GroupChanged() end end,
-		"Rings each aura in the colour of its dispel type: blue for Magic, purple for Curse, green for Poison, brown for Disease. Most buffs are Magic. In a group drawn by the game, the game draws the ring, in combat too.")
+		"Rings each aura in the color of its dispel type: blue for Magic, purple for Curse, green for Poison, brown for Disease. Most buffs are Magic. In a group drawn by the game, the game draws the ring, in combat too.")
 
 	b:Header("Only show this group when")
 	b:Conditions(function() local g = G() return g and g.cond end, TrackerChanged)
@@ -2375,6 +2504,7 @@ local function BuildTrackerPanel(width)
 			plate:SetPoint("TOPLEFT", trackerPanel, "TOPLEFT", 2, -2)
 			plate:SetPoint("BOTTOMRIGHT", trackerPanel, "TOPRIGHT", -8, -50)
 			plate:SetAlpha(0.35)
+			UI.ParchmentArt(plate)
 		end
 	end
 	trackerTitle.icon = trackerPanel:CreateTexture(nil, "ARTWORK")
@@ -2389,6 +2519,7 @@ local function BuildTrackerPanel(width)
 			fr:SetAtlas(art.iconFrame)
 			fr:SetSize(46, 43)
 			fr:SetPoint("CENTER", trackerTitle.icon, "CENTER", -2.7, -1.8)
+			UI.ParchmentArt(fr)
 			MaskIcon(trackerPanel, trackerTitle.icon)
 		end
 	end
@@ -2466,7 +2597,7 @@ local function BuildTrackerPanel(width)
 	b:DynamicNote(function()
 		local t = T()
 		if not (t and t.dispel) then return "" end
-		local text = "Empty until one is there. Then the game draws the debuff itself, in its own icon with its countdown and a border in its type's colour: blue for Magic, purple for Curse, green for Poison, brown for Disease."
+		local text = "Empty until one is there. Then the game draws the debuff itself, in its own icon with its countdown and a border in its type's color: blue for Magic, purple for Curse, green for Poison, brown for Disease."
 		if t.dispel == "any" and not (ns.DISPEL_BY_CLASS and ns.DISPEL_BY_CLASS[ns.PlayerClass() or ""]) then
 			text = text .. " Your class cannot remove debuffs, so this stays empty."
 		end
@@ -2719,7 +2850,7 @@ local function BuildTrackerPanel(width)
 	b:AppliesWhen(function() return NotDispel() and not InMembers() and not OnTarget() end)
 	SoundCycle("When applied", "applied", "Plays when the aura lands.")
 	SoundCycle("When it runs out", "removed", "Plays when the aura wears off or is removed.")
-	SoundCycle("When the tracker appears", "shown", "Plays when this tracker comes on screen, for whatever reason: the aura landing, going missing, or entering its warn window. For a tracker the game draws, the warn time only colours the countdown, so its sound plays when the aura goes, not at the warn time.")
+	SoundCycle("When the tracker appears", "shown", "Plays when this tracker comes on screen, for whatever reason: the aura landing, going missing, or entering its warn window. For a tracker the game draws, the warn time only colors the countdown, so its sound plays when the aura goes, not at the warn time.")
 
 	b:Header("Only show this tracker when")
 	b:Note("These add to the group's own conditions.")
@@ -2878,7 +3009,10 @@ local function Build()
 		end
 		local close = CreateFrame("Button", nil, frame, "UIPanelCloseButton")
 		close:SetPoint("TOPRIGHT", -4, -4)
+		frame.alClose = close
+		UI.CloseByHiding(frame, close)
 	end
+	UI.CloseByHiding(frame, frame.CloseButton)
 
 	local hasBand = frameTemplate == "ButtonFrameTemplate"
 	body = CreateFrame("Frame", nil, frame)
@@ -2946,7 +3080,7 @@ local function Build()
 	book.pageB = pageHolder:CreateTexture(nil, "BACKGROUND", nil, 2)
 	book.pageA:Hide()
 	book.pageB:Hide()
-	local hasParchment = not ns.db.plainBook and FileExists("Interface\\Spellbook\\Spellbook-Page-1", false)
+	local hasParchment = not ns.db.plainBook and not (ns.SkinPlainBook and ns.SkinPlainBook()) and FileExists("Interface\\Spellbook\\Spellbook-Page-1", false)
 	if hasParchment then
 		-- The classic page is nearly square, as this pane is, so it keeps its proportions.
 		book.parchment = left:CreateTexture(nil, "BACKGROUND", nil, 2)
@@ -2967,6 +3101,7 @@ local function Build()
 		if hasParchment then dark:Hide() end
 	end
 	book.onParchment = onParchment
+	UI.book, UI.parchment = book, onParchment or PARCHMENT
 	local ink = onParchment and { 0.22, 0.1, 0 } or { 1, 0.82, 0 }
 
 	-- Tabs along the top: the ledger, your own class, your party, then the rest.
@@ -3002,6 +3137,7 @@ local function Build()
 	addBox:SetSize(220, 20)
 	addBox:SetPoint("LEFT", addLabel, "RIGHT", 14, 0)
 	addBox:SetAutoFocus(false)
+	UI.searchBox, UI.addBox, UI.addLabel = searchBox, addBox, addLabel
 	addButton = MakeButton(left, "Add", 60)
 	addButton:SetPoint("LEFT", addBox, "RIGHT", 6, 0)
 	addButton:SetScript("OnClick", AddFromBox)
@@ -3198,7 +3334,7 @@ local function Build()
 			ns.report["book slot art"] = "spellbook atlas " .. a.iconFrame
 		end
 		for _, b in ipairs(book.buttons) do b.onParchment = true end
-		book.onParchment = true
+		book.onParchment, UI.parchment = true, true
 		for _, fs in ipairs({ book.header, book.pageText, book.empty }) do
 			if fs then fs:SetTextColor(0.22, 0.1, 0) fs:SetShadowColor(0, 0, 0, 0) end
 		end
@@ -3245,6 +3381,7 @@ local function Build()
 			fr:SetAtlas(art.iconFrame)
 			fr:SetSize(26, 24)
 			fr:SetPoint("CENTER", importBtn.icon, "CENTER", -1.5, -1)
+			UI.ParchmentArt(fr)
 		end
 	end
 	importBtn:SetHighlightTexture("Interface\\Buttons\\ButtonHilight-Square", "ADD")
@@ -3254,6 +3391,7 @@ local function Build()
 	treeList = CreateList("AuraLedgerTreeScroll", mid, TREE_ROW, CreateTreeRow, UpdateTreeRow)
 	treeList.scroll:SetPoint("TOPLEFT", 4, -(mid.titleHeight or 24))
 	treeList.scroll:SetPoint("BOTTOMRIGHT", -24, 4)
+	UI.treeScroll, UI.importButton = treeList.scroll, importBtn
 	UI.treeEmpty = Ink(mid:CreateFontString(nil, "OVERLAY", "GameFontDisable"), "dim")
 	UI.treeEmpty:SetPoint("TOP", 0, -60)
 	UI.treeEmpty:SetWidth(TREE_W - 40)
@@ -3271,6 +3409,7 @@ local function Build()
 		end)
 	end
 	optionsScroll = scroll
+	UI.optionsScroll = scroll
 	scroll:SetPoint("TOPLEFT", 4, -(right.titleHeight or 24))
 	scroll:SetPoint("BOTTOMRIGHT", -24, 4)
 	optionsChild = CreateFrame("Frame", nil, scroll)
@@ -3281,6 +3420,7 @@ local function Build()
 	emptyText:SetPoint("TOP", 0, -60)
 	emptyText:SetWidth(optionsWidth - 40)
 	emptyText:SetText("Pick a group or a tracker in the middle list, or click one on the screen.")
+	UI:BuildLook(optionsWidth)
 	BuildGroupPanel(optionsWidth)
 	BuildTrackerPanel(optionsWidth)
 
@@ -3378,6 +3518,7 @@ local function Build()
 		UI.miniButton = mini
 		UI.MakeHelpButton(mini)
 		ns.report["minimize button art"] = (ns.report["minimize button art"] or "?") .. " -> fallback button"
+		if ns.SkinTitleBar then ns.SkinTitleBar() end
 	end
 	MiniButton = function(parent, expand)
 		local b = CreateFrame("Button", nil, parent)
@@ -3449,7 +3590,7 @@ local function Build()
 	stripTitle:SetPoint("RIGHT", strip, "RIGHT", -66, 0)
 	stripTitle:SetJustifyH("CENTER")
 	stripTitle:SetText("Aura Ledger")
-	UI.strip = strip
+	UI.strip, UI.stripTitle = strip, stripTitle
 
 	local function PlaceStripAtFrame()
 		local s = frame:GetEffectiveScale() / UIParent:GetEffectiveScale()
@@ -3479,6 +3620,7 @@ local function Build()
 			frame:Hide()
 			UI.switching = false
 			strip:Show()
+			if ns.SkinTitleBar then ns.SkinTitleBar() end
 			return
 		end
 		-- Compact keeps Groups and Options at full height and drops only the book.
@@ -3535,6 +3677,8 @@ local function Build()
 				compact and "maximize" or "minimize", tostring(shownBtn:IsVisible()), shownBtn:GetWidth() or 0, shownBtn:GetHeight() or 0, tostring(okA and atlas))
 		end
 		if not frame:IsShown() then frame:Show() end
+		-- The minimize buttons just had their red art put back on; a drawn window style takes it off again.
+		if ns.SkinTitleBar then ns.SkinTitleBar() end
 		UI:RefreshHistory()
 		UI:RefreshLayout()
 	end
@@ -3759,6 +3903,7 @@ local function Build()
 	stripClose:SetSize(23, 24)
 	stripClose:SetPoint("RIGHT", strip, "RIGHT", -8, 0)
 	stripClose:SetScript("OnClick", function() strip:Hide() end)
+	UI.stripClose = stripClose
 
 	frame:SetScript("OnShow", function()
 		if ns.db.window and ns.db.window.x then
@@ -3790,6 +3935,7 @@ local function Build()
 	-- Whichever minimize button this client ended up with, the ? sits beside it; a client that got
 	-- neither still has one, at the place the minimize button would have been.
 	UI.MakeHelpButton(UI.mmFrame or UI.miniButton)
+	if ns.SkinMainWindow then ns.SkinMainWindow(frame) end
 end
 
 -- ------------------------------------------------------------------
@@ -3845,7 +3991,7 @@ local function GetEditBar()
 		UI:SyncEditBar()
 	end)
 	grid:SetScript("OnEnter", function(self)
-		TextTooltip(self, "Alignment grid", "Lines over the whole screen, measured out from its middle, so a group can be put dead centre. The cross through the middle and every fourth line are drawn in their own colors, so distance can be counted.", "While it is up, a group or tracker brought near the middle of the screen is centred on it, and trackers line up with each other edge to edge and middle to middle as you drag them.")
+		TextTooltip(self, "Alignment grid", "Lines over the whole screen, measured out from its middle, so a group can be put dead center. The cross through the middle and every fourth line are drawn in their own colors, so distance can be counted.", "While it is up, a group or tracker brought near the middle of the screen is centered on it, and trackers line up with each other edge to edge and middle to middle as you drag them.")
 	end)
 	grid:SetScript("OnLeave", function() GameTooltip:Hide() end)
 
@@ -3889,7 +4035,9 @@ local function GetEditBar()
 	hint:SetText("Hold Alt to place freely")
 
 	f.gridCheck, f.gridSmaller, f.gridBigger, f.gridSize, f.snapCheck, f.gridHint = grid, smaller, bigger, sizeText, snap, hint
+	f.text = text
 	f:Hide()
+	if ns.SkinEditBar then ns.SkinEditBar(f) end
 	return f
 end
 
@@ -4008,6 +4156,8 @@ local function GetShare()
 	close:SetPoint("RIGHT", f.action, "LEFT", -6, 0)
 	close:SetScript("OnClick", function() f:Hide() end)
 	tinsert(UISpecialFrames, "AuraLedgerShareFrame")
+	f.scroll, f.boxBg = scroll, boxBg
+	if ns.SkinShareWindow then ns.SkinShareWindow(f) end
 	return f
 end
 
@@ -4093,6 +4243,7 @@ local function BuildTuner()
 	close:SetSize(26, 26)
 	if not close.GetNormalTexture or not close:GetNormalTexture() then close:SetText("X") end
 	close:SetScript("OnClick", function() f:Hide() end)
+	UI.CloseByHiding(f, f.CloseButton)
 
 	f.rows = {}
 	local y = -34
@@ -4143,6 +4294,8 @@ local function BuildTuner()
 	end
 	f:SetScript("OnShow", f.Sync)
 	tuner = f
+	f.alClose, f.alTitle = close, title
+	if ns.SkinTuner then ns.SkinTuner(f) end
 	return f
 end
 
@@ -4199,6 +4352,7 @@ function UI:ShowConfirmBubble(anchor, title, line)
 		f.line = f:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 		f.line:SetPoint("TOP", f.title, "BOTTOM", 0, -2)
 		f:Hide()
+		if ns.SkinBubble then ns.SkinBubble(f) end
 	end
 	bubble.title:SetText(title)
 	bubble.line:SetText(line)
@@ -4227,6 +4381,9 @@ local function PlaceMinimapButton()
 	if not mmButton then return end
 	local angle = math.rad(ns.db.minimapAngle or 200)
 	local radius = (Minimap:GetWidth() or 140) / 2 + 6
+	-- Only while it sits on the minimap. A button collector (EllesmereUI's, for one) that
+	-- has taken the button keeps it where it put it.
+	if mmButton:GetParent() ~= Minimap then return end
 	mmButton:ClearAllPoints()
 	mmButton:SetPoint("CENTER", Minimap, "CENTER", math.cos(angle) * radius, math.sin(angle) * radius)
 end
@@ -4483,6 +4640,7 @@ local function TourBubble()
 	bubble:Hide()
 	tinsert(UISpecialFrames, "AuraLedgerTourFrame")
 	tour.bubble = bubble
+	if ns.SkinTourWindow then ns.SkinTourWindow(bubble) end
 	return bubble
 end
 
@@ -4609,6 +4767,8 @@ local function BuildOptionsPage()
 	local page = CreateFrame("Frame")
 	page.name = "Aura Ledger"
 	page:Hide()
+	-- It lives in the game's own Settings panel, which the window styles leave alone.
+	UI.inSettings = true
 
 	local title = Ink(page:CreateFontString(nil, "ARTWORK", "GameFontNormalLarge"), "head")
 	title:SetPoint("TOPLEFT", 16, -16)
@@ -4649,6 +4809,7 @@ local function BuildOptionsPage()
 	note:SetJustifyH("LEFT")
 	note:SetWordWrap(true)
 	note:SetText("Everything is set from the ledger's own window rather than from here. Nothing of this addon is registered with the game's settings, because doing that put this addon's mark on the game's own code on this client.")
+	UI.inSettings = nil
 
 	if not (Settings and Settings.RegisterCanvasLayoutCategory and Settings.RegisterAddOnCategory) then
 		-- An older client keeps its addon pages in a list of its own.
@@ -4669,7 +4830,93 @@ end
 function UI:SetupOptionsEntry()
 	if nativeCategory then return end
 	local ok, result = pcall(BuildOptionsPage)
+	UI.inSettings = nil
 	ns.report["options entry"] = ok and tostring(result) or ("FAILED: " .. tostring(result))
+end
+
+-- The rows the Groups and trackers list has made so far, for the window styles.
+function UI.TreeRows()
+	return (treeList and treeList.rows) or {}
+end
+
+-- A window style drawn after the window was built on parchment (Dark picked over Blizzard, or
+-- EllesmereUI calling back late): the book gives the parchment up for the dark page it would have
+-- been built with, its ink for the plain colors, and the spellbook's frames for plain ones. The
+-- style then dresses what is left (AuraLedger_Skins.lua). Says whether there was anything to do.
+function UI:DropParchment()
+	if not frame or not UI.parchment then return false end
+	PARCHMENT, bookArt = false, false
+	UI.noParchment, UI.parchment = true, false
+	book.onParchment, book.twoPages = false, nil
+	book.pageA:Hide()
+	book.pageB:Hide()
+	if book.parchment then book.parchment:Hide() end
+	book.dark:Show()
+	if book.headerPlate then book.headerPlate:Hide() end
+	book.divider:SetTexCoord(0, 1, 0, 1)
+	book.divider:SetColorTexture(1, 0.82, 0, 0.5)
+	book.divider:SetHeight(1)
+	for _, fs in ipairs({ book.header, book.pageText, book.empty, UI.addLabel }) do
+		fs:SetTextColor(1, 0.82, 0)
+		fs:SetShadowColor(0, 0, 0, 1)
+	end
+	for _, b in ipairs(book.buttons) do
+		b.onParchment = false
+		for _, key in ipairs({ "frameTex", "frameShadow", "plate" }) do if b[key] then b[key]:Hide() end end
+		b.plate = nil
+		b.slot:Show()
+		b.typeBorder:SetTexture("Interface\\Buttons\\UI-Debuff-Overlays")
+		b.typeBorder:SetTexCoord(0.296875, 0.5703125, 0, 0.515625)
+		b.typeBorder:SetBlendMode("BLEND")
+		b.typeBorder:ClearAllPoints()
+		b.typeBorder:SetPoint("TOPLEFT", b.icon, "TOPLEFT", -1, 1)
+		b.typeBorder:SetPoint("BOTTOMRIGHT", b.icon, "BOTTOMRIGHT", 1, -1)
+		local hl = b.GetHighlightTexture and b:GetHighlightTexture()
+		for _, r in ipairs({ b:GetRegions() }) do
+			if r.GetDrawLayer and r:GetDrawLayer() == "HIGHLIGHT" then hl = r end
+		end
+		if hl then
+			hl:SetTexture("Interface\\Buttons\\ButtonHilight-Square")
+			hl:SetBlendMode("ADD")
+			hl:SetVertexColor(1, 1, 1, 1)
+			hl:ClearAllPoints()
+			hl:SetAllPoints(b.icon)
+		end
+		b.name:SetShadowColor(0, 0, 0, 1)
+		b.name:SetTextColor(1, 0.82, 0)
+		b.sub:SetShadowColor(0, 0, 0, 1)
+		b.sub:SetTextColor(1, 1, 1)
+	end
+	for _, tab in pairs(book.tabs) do
+		if tab.frameTex then tab.frameTex:Hide() tab.frameTex = nil end
+		if tab.glow then tab.glow:Hide() tab.glow = nil end
+	end
+	for _, row in ipairs(UI.TreeRows()) do
+		row.sel:SetColorTexture(1, 0.82, 0, 0.18)
+		if row.frame then row.frame:Hide() row.frame = nil end
+		if row.plated then
+			row.plated = nil
+			SetRowHighlight(row.hl)
+			row.hl:SetAlpha(1)
+			row.hl:Hide()
+		end
+	end
+	if trackerTitle.icon then ns.SetIconMask(trackerTitle.icon:GetParent() or frame, trackerTitle.icon, false) end
+	-- The ink goes back to each line's own color.
+	for _, fs in ipairs(UI.inked) do
+		local fo = fs.GetFontObject and fs:GetFontObject()
+		local okC, cr, cg, cb = false
+		if fo and fo.GetTextColor then okC, cr, cg, cb = pcall(fo.GetTextColor, fo) end
+		if okC and cr then fs:SetTextColor(cr, cg, cb) else fs:SetTextColor(1, 1, 1) end
+		fs:SetShadowColor(0, 0, 0, 1)
+	end
+	for _, line in ipairs(UI.parchmentLines) do line:SetColorTexture(1, 0.82, 0, 0.35) end
+	for _, tex in ipairs(UI.parchmentArt) do tex:SetAlpha(0) tex:Hide() end
+	for _, part in ipairs({ UI.parts and UI.parts.tree, UI.parts and UI.parts.options }) do
+		if part and part.title then part.title:SetTextColor(1, 0.82, 0) part.title:SetShadowColor(0, 0, 0, 1) end
+	end
+	ns.report["book page art"] = "dark page (a window style was drawn)"
+	return true
 end
 
 function UI:Init()

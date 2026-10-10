@@ -1,5 +1,19 @@
 # Changelog
 
+## 1.86.0
+
+- New: window styles. **Window look**, at the foot of the options (under the note while nothing is picked, and under a group's or a tracker's settings otherwise), has **Window style**: **Automatic** (EllesmereUI's look when it is running, otherwise Blizzard), **Blizzard** (the game's own window art, as before) or **Dark** (a flat dark style built in, which needs no other addon). Left-click steps to the next style, right-click to the previous one, and the line under it says which style is in use and why.
+- **Dark background opacity** sets how much of the world shows through the Dark style's windows, from 0 to 100%. It is grayed out for the other styles.
+- Dark and EllesmereUI restyle every window Aura Ledger builds: the ledger window with its book and tabs, the Groups and trackers list, the options, the header bar, the log to copy, import and export, tuning, the walk-through, the edit bar, the confirm bubble and the thin bar shown while the game's spell list is read. The book becomes a dark page with light text. The minimap button, the page under Options, AddOns (the game's own Settings panel) and the sliders keep their own look.
+- In Dark or EllesmereUI the trackers take a flat look to match: a square picture with a thin black edge, and a flat bar in the style's accent color, in the style's font. The icons the game draws in a fight are dressed the same way, so a group never shows two looks. This look needs nothing from the Cooldown Manager, so Aura Ledger does not ask you to turn the manager on while one of these styles is in use.
+- New: EllesmereUI support. With EllesmereUI's Blizzard Skins+ running, Automatic gives Aura Ledger's windows EllesmereUI's look, accent color and font. EllesmereUI is never required, and switching Aura Ledger off in EllesmereUI's own options leaves it on the Blizzard look.
+- Going from Blizzard to another style is drawn at once. Leaving a drawn style takes a reload of the interface, and Aura Ledger offers one.
+- New: `/auraledger style` steps to the next window style, and `/auraledger style auto`, `blizzard` or `dark` picks one. Either way it says which style is in use. `/auraledger debug` reports the style and anything it could not restyle.
+- Fixed: the close X on the ledger window, the log window and the tuning window did nothing in a fight ("Interface action blocked"). It closes them in a fight too now.
+- Fixed: a window style drawn after the window was built (Dark picked over Blizzard, or EllesmereUI starting late) left the book on parchment. The book now changes to the dark page at once.
+- Fixed: the minimap button stays where a button collector, such as EllesmereUI's, puts it, instead of being moved back onto the minimap.
+- American spelling throughout: color, gray, center and recognized, in the addon and in its notes.
+
 ## 1.85.0
 
 - New: track a weapon coating by name, on the hand you choose. Every oil, stone, poison and fishing lure in your bags, and every imbue a shaman knows, now has its own rows in the book's **What you are carrying** chapter: one for your main hand and, while you hold a weapon there, one for your off hand. Instant Poison on the main hand and Deadly Poison on the off hand, or Windfury on one weapon and Flametongue on the other, are each a tracker of their own, with the time left and the charges, counting through a fight. Every rank of a coating counts.
@@ -17,7 +31,7 @@
 - Fixed: moving a tracker up or down within its group left an empty space in the group on screen and could make it wider, or turn it into a cluster after a reload, even when the order did not change. The group now keeps its shape and its icons stand in the new order.
 - A group that cannot take what you are dragging says why in red before you let go, and nothing moves: a group that watches your party holds only what can be seen on everyone (before, the tracker was quietly put in a group of its own beside it), and in a fight a group with icons the game draws, or one that watches your party, changes only once the fight is over. A spell dragged from the book is judged the same way.
 - An icon dragged off the screen while arranging can be dropped on the list the same way. Several marked icons are still moved on the screen, not in the list, and the list says so.
-- What you drag fades in the list while you hold it, rows give no tooltips while something is held, and the icon on the cursor sits beside it over the window so the rows you aim at stay in sight. A drop that would change nothing says so in grey instead of pretending to move it.
+- What you drag fades in the list while you hold it, rows give no tooltips while something is held, and the icon on the cursor sits beside it over the window so the rows you aim at stay in sight. A drop that would change nothing says so in gray instead of pretending to move it.
 - In a group shown as one icon, the tracker higher in the list is the one shown when two are up, whether the game draws the icon or the addon does (where the addon draws it, one about to run out gives way to one that is not). Before, the game showed the lower one.
 
 ## 1.83.0
@@ -102,14 +116,14 @@
 
 ## 1.74.0
 
-- New: groups that watch your party or your whole raid. **Track on**, at the top of a group's settings, is now Me, My party, or Everyone in my group. Each member gets a row: their name in their class colour, then a cell for each tracker, and the game draws each member's buffs in them, so the rows stay right all through a fight. My party is you and up to four others; in a raid that is your own raid group, which is who Blood Pact and Battle Shout reach. Everyone is your party, or in a raid every member, ten to a column (**Members per column** changes that).
+- New: groups that watch your party or your whole raid. **Track on**, at the top of a group's settings, is now Me, My party, or Everyone in my group. Each member gets a row: their name in their class color, then a cell for each tracker, and the game draws each member's buffs in them, so the rows stay right all through a fight. My party is you and up to four others; in a raid that is your own raid group, which is who Blood Pact and Battle Shout reach. Everyone is your party, or in a raid every member, ten to a column (**Members per column** changes that).
 - New: a row says when the game cannot show that member: **Far** when they are out of view, **Off** when offline, "(dead)" on the name. A **?** means the row changed hands during a fight (someone left and the rest moved up), or its member came back into view or online during one; it is read afresh when the fight ends. Hover a name for what the game can see of them.
 - New: in a group that watches your party, a buff's group version counts too: Prayer of Fortitude for Power Word: Fortitude, Arcane Brilliance for Arcane Intellect, Gift of the Wild, Prayer of Spirit, Prayer of Shadow Protection, and every Greater Blessing for its Blessing. A new buff added to such a group shows where it is missing.
-- New: dispel trackers. **Something I can remove** lights when there is a debuff you can dispel, and **Curse**, **Magic**, **Poison** and **Disease** light for that type whether you can remove it or not. The game draws the debuff itself, in its own icon with its countdown and a border in its type's colour, all through a fight. In a group that watches you they say "I have a Curse"; in one that watches your party, a column lights for each member who has one. They glow while lit.
+- New: dispel trackers. **Something I can remove** lights when there is a debuff you can dispel, and **Curse**, **Magic**, **Poison** and **Disease** light for that type whether you can remove it or not. The game draws the debuff itself, in its own icon with its countdown and a border in its type's color, all through a fight. In a group that watches you they say "I have a Curse"; in one that watches your party, a column lights for each member who has one. They glow while lit.
 - New: a **Party and raid** chapter in the book, right after your own class, with the dispel trackers, the buffs worth watching on everyone, Soulstone Resurrection (who has one), and **Party buffs for my class**: one double-click sets up a group that watches your party with the buffs your class gives and, if your class can dispel, something to remove.
 - New: debuff trackers on you, from the ledger. The addon draws them (exact out of a fight, carried in one), their combat sounds are handed to the game, and the few debuffs the game never hides are drawn by the game in a group it draws.
 - New: school lockouts. A cooldown tracker whose spell's school is locked out by an interrupt shows it, drained and reddened, with the time left in its tooltip.
-- New: **Colour the border by dispel type**, a group option that rings each aura in its type's colour. Most buffs are Magic. In a group drawn by the game, the game draws the ring, in combat too.
+- New: **Color the border by dispel type**, a group option that rings each aura in its type's color. Most buffs are Magic. In a group drawn by the game, the game draws the ring, in combat too.
 - New: the ranks of the class buffs in the book are bundled with the addon (from talentsforever.com), so a group drawn by the game follows every rank of a buff, even one never seen on you. Each is checked against this client and dropped if it names something else.
 - New: `/auraledger debug members` reports every group that watches your party, row by row. `/auraledger debug members probe`, run in a fight, checks whether a member's row could be read afresh during a fight rather than after it.
 - Fixed: trackers drawn by the game no longer go blank while the game's Edit Mode is open.
@@ -150,10 +164,10 @@
 
 ## 1.72.1
 
-- Fixed: dragging something toward the red centre line of the grid settled it on a magenta guide just left or right of the line instead of on it. The centre line is no longer an ordinary grid line. Bring a group's or a tracker's middle within half a grid step of the middle of the screen, at most 12, and it goes there, with a guide drawn over the red line to say so. That holds at every grid size, including for wide groups that used to land a few units off centre with no guide at all.
-- Lining up with other trackers is more deliberate. It is like with like: an edge with an edge, a middle with a middle, never a middle with an edge, which is what put a group's middle on another group's side. A group's outline can be lined up with from anywhere on the screen, but the trackers inside a group only offer their middles, and only when they are near what you are dragging, so a row of icons is no longer a solid band of magnets. A line that sits within 12 of the centre is left out at every grid size, so no guide ever appears a few units beside the red one. Lining something up in a way that would leave its middle just off the centre puts it on the centre instead.
+- Fixed: dragging something toward the red center line of the grid settled it on a magenta guide just left or right of the line instead of on it. The center line is no longer an ordinary grid line. Bring a group's or a tracker's middle within half a grid step of the middle of the screen, at most 12, and it goes there, with a guide drawn over the red line to say so. That holds at every grid size, including for wide groups that used to land a few units off center with no guide at all.
+- Lining up with other trackers is more deliberate. It is like with like: an edge with an edge, a middle with a middle, never a middle with an edge, which is what put a group's middle on another group's side. A group's outline can be lined up with from anywhere on the screen, but the trackers inside a group only offer their middles, and only when they are near what you are dragging, so a row of icons is no longer a solid band of magnets. A line that sits within 12 of the center is left out at every grid size, so no guide ever appears a few units beside the red one. Lining something up in a way that would leave its middle just off the center puts it on the center instead.
 - The grid never carries something back across a line it could have lined up with, so nothing jumps backwards as you drag forwards.
-- A bar can still be lined up top to top or bottom to bottom with a neighbour that is itself centred. Between that and the centre, whichever is nearer wins, so a narrow bar no longer flickers between the two as you drag steadily.
+- A bar can still be lined up top to top or bottom to bottom with a neighbor that is itself centered. Between that and the center, whichever is nearer wins, so a narrow bar no longer flickers between the two as you drag steadily.
 - Fixed: tooltips came up over other trackers while a group was being dragged by its plate.
 - Fixed: locking or unlocking from the minimap button left the grid drawn, or turned snapping on with no grid and no edit bar. It now does exactly what Edit layout does.
 - Fixed: dragging every tracker of a group at once, marked with shift-click, by one of its icons put the group where that one icon was aimed rather than where the group was, and lined it up with its own old outline.
@@ -164,7 +178,7 @@
 
 ## 1.72.0
 
-- New: an alignment grid while arranging. The bar that appears in edit mode has a **Grid** checkbox that lays lines over the whole screen, measured out from its middle so a group can be put dead centre. The cross through the middle, every fourth line, and the rest are each drawn in their own color, so distance can be counted off it.
+- New: an alignment grid while arranging. The bar that appears in edit mode has a **Grid** checkbox that lays lines over the whole screen, measured out from its middle so a group can be put dead center. The cross through the middle, every fourth line, and the rest are each drawn in their own color, so distance can be counted off it.
 - **-** and **+** beside it change how far apart the lines are, from 8 to 128.
 - **Snap to grid** settles a group or a tracker on the nearest line as you drag it, by whichever of its edges or its middle is closest to one. A group follows the grid as it moves, and a tracker dropped in the open shows where it will land before you let go.
 - While the grid is up, trackers also line up with each other: bring an edge or the middle close to another tracker's edge or middle and it lines up exactly, with a guide line drawn across the screen while it does. Lining up with another tracker takes priority over the grid, since it is usually what you are aiming for, and it still works with Snap to grid turned off.
@@ -912,7 +926,7 @@
 
 ## 1.17.1
 
-- Game-drawn groups gain an experimental "Only this group's trackers" switch that asks the game to limit the group to the spells its trackers name. Whether the game honours it is not yet known.
+- Game-drawn groups gain an experimental "Only this group's trackers" switch that asks the game to limit the group to the spells its trackers name. Whether the game honors it is not yet known.
 - /auraledger mixin lists the AuraContainer's and its buttons' Lua functions and the keys of every aura container the game itself has on screen, to find the real spell filter if there is one.
 
 ## 1.17.0
